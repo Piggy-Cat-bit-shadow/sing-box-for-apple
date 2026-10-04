@@ -192,13 +192,19 @@ private struct CardStyleModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
+        // The corner radius is a design token, not a local choice: the glass card
+        // and the painted card use the values the HAKO/Clash language assigns them,
+        // so a card in the dashboard and a card in a tool page agree.
         if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
             content
-                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+                .glassEffect(
+                    .regular.interactive(),
+                    in: .rect(cornerRadius: HakoTheme.Radius.liquidGlassCard)
+                )
         } else {
             content
                 .background(backgroundColor)
-                .cornerRadius(16)
+                .cornerRadius(HakoTheme.Radius.groupedSection)
         }
     }
 

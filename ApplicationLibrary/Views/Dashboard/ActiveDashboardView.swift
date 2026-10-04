@@ -141,14 +141,31 @@ import SwiftUI
         #endif
     }
 
+    /// The dashboard's content.
+    ///
+    /// The touch client presents it with the HAKO/Clash page language; the desktop
+    /// and the focus platform keep the card grid, which is the right shape for a
+    /// window and a television. Both draw the same cards, so the design tokens are
+    /// shared even where the composition differs.
+    @ViewBuilder
     private var overviewPage: some View {
-        OverviewView(
-            $coordinator.profileList,
-            $coordinator.selectedProfileID,
-            $coordinator.systemProxyAvailable,
-            $coordinator.systemProxyEnabled,
-            cardConfiguration: cardConfiguration
-        )
+        #if os(iOS)
+            HakoHomeView(
+                profileList: $coordinator.profileList,
+                selectedProfileID: $coordinator.selectedProfileID,
+                systemProxyAvailable: $coordinator.systemProxyAvailable,
+                systemProxyEnabled: $coordinator.systemProxyEnabled,
+                cardConfiguration: cardConfiguration
+            )
+        #else
+            OverviewView(
+                $coordinator.profileList,
+                $coordinator.selectedProfileID,
+                $coordinator.systemProxyAvailable,
+                $coordinator.systemProxyEnabled,
+                cardConfiguration: cardConfiguration
+            )
+        #endif
     }
 
     #if os(tvOS)

@@ -12,11 +12,9 @@ public struct DashboardCardView<Content: View>: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: title.isEmpty ? 0 : 12) {
+        VStack(alignment: .leading, spacing: title.isEmpty ? 0 : HakoTheme.Spacing.cardGap) {
             if !title.isEmpty {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                HakoCardTitle(verbatim: title)
             }
             content()
         }
@@ -24,7 +22,7 @@ public struct DashboardCardView<Content: View>: View {
         #if os(tvOS)
             .padding(EdgeInsets(top: 20, leading: 26, bottom: 20, trailing: 26))
         #else
-            .padding(16)
+            .padding(HakoTheme.Spacing.standard)
         #endif
             .cardStyle()
     }

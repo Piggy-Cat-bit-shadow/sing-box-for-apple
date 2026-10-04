@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// A key/value line inside a card.
 public struct DashboardCardLine: View {
     private let label: String
     private let value: String
@@ -10,13 +11,6 @@ public struct DashboardCardLine: View {
     }
 
     public var body: some View {
-        HStack {
-            Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Spacer()
-            Text(value)
-                .font(.subheadline)
-        }
+        HakoCardLine(label, value: value)
     }
 }
