@@ -2,6 +2,21 @@ import ApplicationLibrary
 import Library
 import SwiftUI
 
+/// The sidebar rows.
+///
+/// The desktop keeps its own navigation - a `List` with a selection, which is what a
+/// Mac window is expected to be - and takes the shared icon size from the design
+/// tokens so the glyphs match the touch client's rather than being sized by
+/// accident.
+private extension View {
+    func hakoSidebarRow() -> some View {
+        self
+            .labelStyle(.titleAndIcon)
+            .imageScale(.large)
+            .font(.system(size: HakoTheme.Regular.Sidebar.iconSize - 6, weight: .medium))
+    }
+}
+
 private struct SidebarContentView: View {
     @Binding var selection: NavigationPage
     @Binding var localSelection: NavigationPage
@@ -18,6 +33,7 @@ private struct SidebarContentView: View {
             if profile.status.isConnectedStrict {
                 Section(NavigationPage.dashboard.title) {
                     Label("Overview", systemImage: "text.and.command.macwindow")
+                        .hakoSidebarRow()
                         .tint(.textColor)
                         .tag(NavigationPage.dashboard)
                     if hasGroups {
@@ -27,11 +43,13 @@ private struct SidebarContentView: View {
                 }
                 ForEach(NavigationPage.macosDefaultPages, id: \.self) { it in
                     it.label
+                        .hakoSidebarRow()
                         .badge(it == .tools ? environments.toolsBadgeCount + sendManager.failedSessionCount : 0)
                 }
             } else {
                 ForEach(NavigationPage.allCases.filter { $0.visible(profile) }, id: \.self) { it in
                     it.label
+                        .hakoSidebarRow()
                         .badge(it == .tools ? environments.toolsBadgeCount + sendManager.failedSessionCount : 0)
                 }
             }
