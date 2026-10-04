@@ -44,11 +44,16 @@ public struct ToolsView: View {
                         } label: {
                             HStack {
                                 Group {
-                                    if tailscaleViewModel.endpoints.count == 1 {
-                                        Label("Tailscale", systemImage: "point.3.filled.connected.trianglepath.dotted")
-                                    } else {
-                                        Label("Tailscale: \(endpoint.endpointTag)", systemImage: "point.3.filled.connected.trianglepath.dotted")
-                                    }
+                                    HakoToolRow(
+                                        title: tailscaleViewModel.endpoints.count == 1
+                                            ? String(localized: "Tailscale")
+                                            : String(localized: "Tailscale: \(endpoint.endpointTag)"),
+                                        systemImage: "point.3.filled.connected.trianglepath.dotted",
+                                        tint: .indigo,
+                                        detail: endpoint.unreadFileCount > 0
+                                            ? String(localized: "\(endpoint.unreadFileCount) unread")
+                                            : nil
+                                    )
                                 }
                                 #if !os(tvOS)
                                     if sendManager.hasFailedSessions(endpointTag: endpoint.endpointTag) {
@@ -87,22 +92,26 @@ public struct ToolsView: View {
                         FormNavigationLink {
                             OpenConnectEndpointView(viewModel: openConnectViewModel, endpointTag: endpoint.endpointTag)
                         } label: {
-                            if openConnectViewModel.endpoints.count == 1 {
-                                Label("OpenConnect", systemImage: "network.badge.shield.half.filled")
-                            } else {
-                                Label("OpenConnect: \(endpoint.endpointTag)", systemImage: "network.badge.shield.half.filled")
-                            }
+                            HakoToolRow(
+                                title: openConnectViewModel.endpoints.count == 1
+                                    ? String(localized: "OpenConnect")
+                                    : String(localized: "OpenConnect: \(endpoint.endpointTag)"),
+                                systemImage: "network.badge.shield.half.filled",
+                                tint: .teal
+                            )
                         }
                     }
                     ForEach(openVPNViewModel.endpoints) { endpoint in
                         FormNavigationLink {
                             OpenVPNEndpointView(viewModel: openVPNViewModel, endpointTag: endpoint.endpointTag)
                         } label: {
-                            if openVPNViewModel.endpoints.count == 1 {
-                                Label("OpenVPN", systemImage: "network.badge.shield.half.filled")
-                            } else {
-                                Label("OpenVPN: \(endpoint.endpointTag)", systemImage: "network.badge.shield.half.filled")
-                            }
+                            HakoToolRow(
+                                title: openVPNViewModel.endpoints.count == 1
+                                    ? String(localized: "OpenVPN")
+                                    : String(localized: "OpenVPN: \(endpoint.endpointTag)"),
+                                systemImage: "network.badge.shield.half.filled",
+                                tint: .cyan
+                            )
                         }
                     }
                 }
@@ -119,11 +128,13 @@ public struct ToolsView: View {
                                 USBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
                             #endif
                         } label: {
-                            if usbipViewModel.servers.count == 1 {
-                                Label("USB/IP", systemImage: "externaldrive.connected.to.line.below")
-                            } else {
-                                Label("USB/IP: \(server.serverTag)", systemImage: "externaldrive.connected.to.line.below")
-                            }
+                            HakoToolRow(
+                                title: usbipViewModel.servers.count == 1
+                                    ? String(localized: "USB/IP")
+                                    : String(localized: "USB/IP: \(server.serverTag)"),
+                                systemImage: "externaldrive.connected.to.line.below",
+                                tint: .orange
+                            )
                         }
                     }
                 }
@@ -133,12 +144,20 @@ public struct ToolsView: View {
                 FormNavigationLink {
                     NetworkQualityView()
                 } label: {
-                    Label("Network Quality", systemImage: "network")
+                    HakoToolRow(
+                        title: String(localized: "Network Quality"),
+                        systemImage: "network",
+                        tint: .blue
+                    )
                 }
                 FormNavigationLink {
                     STUNTestView()
                 } label: {
-                    Label("STUN Test", systemImage: "arrow.triangle.swap")
+                    HakoToolRow(
+                        title: String(localized: "STUN Test"),
+                        systemImage: "arrow.triangle.swap",
+                        tint: .purple
+                    )
                 }
             }
 
@@ -150,8 +169,13 @@ public struct ToolsView: View {
                         NavigationLink(isActive: $showCrashReportList) {
                             CrashReportListView()
                         } label: {
-                            Label("Crash Report", systemImage: "ladybug.fill")
-                                .badge(environments.crashReportManager.unreadCount)
+                            HakoToolRow(
+                                title: String(localized: "Crash Report"),
+                                systemImage: "ladybug.fill",
+                                tint: .pink,
+                                detail: unreadDetail(environments.crashReportManager.unreadCount)
+                            )
+                            .badge(environments.crashReportManager.unreadCount)
                         }
                         .onReceive(NotificationCenter.default.publisher(for: .reportReceived)) { notification in
                             Task {
@@ -171,31 +195,43 @@ public struct ToolsView: View {
                         NavigationLink(isActive: $showOOMReportList) {
                             OOMReportListView()
                         } label: {
-                            Label("OOM Report", systemImage: "memorychip")
-                                .badge(environments.oomReportManager.unreadCount)
+                            HakoToolRow(
+                                title: String(localized: "OOM Report"),
+                                systemImage: "memorychip",
+                                tint: .indigo,
+                                detail: unreadDetail(environments.oomReportManager.unreadCount)
+                            )
+                            .badge(environments.oomReportManager.unreadCount)
                         }
                         NavigationLink(isActive: $showPowerReportList) {
                             PowerReportListView()
                         } label: {
-                            Label("Power Report", systemImage: "battery.50percent")
-                                .badge(environments.powerReportManager.unreadCount)
+                            HakoToolRow(
+                                title: String(localized: "Power Report"),
+                                systemImage: "battery.50percent",
+                                tint: .green,
+                                detail: unreadDetail(environments.powerReportManager.unreadCount)
+                            )
+                            .badge(environments.powerReportManager.unreadCount)
                         }
                     #else
                         FormNavigationLink {
                             CrashReportListView()
                         } label: {
                             #if os(tvOS)
-                                HStack {
-                                    Label("Crash Report", systemImage: "ladybug.fill")
-                                    Spacer()
-                                    if environments.crashReportManager.unreadCount > 0 {
-                                        Text(verbatim: "\(environments.crashReportManager.unreadCount)")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
+                                HakoToolRow(
+                                    title: String(localized: "Crash Report"),
+                                    systemImage: "ladybug.fill",
+                                    tint: .pink,
+                                    detail: unreadDetail(environments.crashReportManager.unreadCount)
+                                )
                             #else
-                                Label("Crash Report", systemImage: "ladybug.fill")
-                                    .badge(environments.crashReportManager.unreadCount)
+                                HakoToolRow(
+                                    title: String(localized: "Crash Report"),
+                                    systemImage: "ladybug.fill",
+                                    tint: .pink
+                                )
+                                .badge(environments.crashReportManager.unreadCount)
                             #endif
                         }
                     #endif
@@ -204,34 +240,38 @@ public struct ToolsView: View {
                             OOMReportListView()
                         } label: {
                             #if os(tvOS)
-                                HStack {
-                                    Label("OOM Report", systemImage: "memorychip")
-                                    Spacer()
-                                    if environments.oomReportManager.unreadCount > 0 {
-                                        Text(verbatim: "\(environments.oomReportManager.unreadCount)")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
+                                HakoToolRow(
+                                    title: String(localized: "OOM Report"),
+                                    systemImage: "memorychip",
+                                    tint: .indigo,
+                                    detail: unreadDetail(environments.oomReportManager.unreadCount)
+                                )
                             #else
-                                Label("OOM Report", systemImage: "memorychip")
-                                    .badge(environments.oomReportManager.unreadCount)
+                                HakoToolRow(
+                                    title: String(localized: "OOM Report"),
+                                    systemImage: "memorychip",
+                                    tint: .indigo
+                                )
+                                .badge(environments.oomReportManager.unreadCount)
                             #endif
                         }
                         FormNavigationLink {
                             PowerReportListView()
                         } label: {
                             #if os(tvOS)
-                                HStack {
-                                    Label("Power Report", systemImage: "battery.50percent")
-                                    Spacer()
-                                    if environments.powerReportManager.unreadCount > 0 {
-                                        Text(verbatim: "\(environments.powerReportManager.unreadCount)")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
+                                HakoToolRow(
+                                    title: String(localized: "Power Report"),
+                                    systemImage: "battery.50percent",
+                                    tint: .green,
+                                    detail: unreadDetail(environments.powerReportManager.unreadCount)
+                                )
                             #else
-                                Label("Power Report", systemImage: "battery.50percent")
-                                    .badge(environments.powerReportManager.unreadCount)
+                                HakoToolRow(
+                                    title: String(localized: "Power Report"),
+                                    systemImage: "battery.50percent",
+                                    tint: .green
+                                )
+                                .badge(environments.powerReportManager.unreadCount)
                             #endif
                         }
                     #endif
@@ -318,6 +358,11 @@ public struct ToolsView: View {
         }
             #endif
         #endif
+    }
+
+    /// The second line a report row shows on the touch platforms, where a row has one.
+    private func unreadDetail(_ count: Int) -> String? {
+        count > 0 ? String(localized: "\(count) unread") : nil
     }
 
     #if os(iOS)

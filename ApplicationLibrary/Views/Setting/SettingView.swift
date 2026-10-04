@@ -52,8 +52,36 @@ public struct SettingView: View {
             }
         #endif
 
+        /// The row this page presents.
+        ///
+        /// The two idioms are the ones the whole design system uses: the touch
+        /// platforms draw a tinted icon well with a chevron, and the desktop keeps
+        /// the platform's own settings row, where an icon well would read as a
+        /// foreign element in a `Form`.
+        @ViewBuilder
         var label: some View {
-            Label(title, systemImage: iconImage)
+            #if os(macOS)
+                Label(title, systemImage: iconImage)
+            #else
+                HakoDestinationRow(
+                    title: title,
+                    systemImage: iconImage,
+                    tint: accent.color
+                )
+            #endif
+        }
+
+        /// The tint of this destination's icon well.
+        private var accent: HakoAccentRole {
+            switch self {
+            case .app: return .blue
+            case .core: return .indigo
+            case .packetTunnel: return .teal
+            case .onDemandRules: return .orange
+            case .profileOverride: return .purple
+            case .remoteControl: return .cyan
+            case .sponsors: return .pink
+            }
         }
 
         var title: String {
@@ -202,13 +230,13 @@ public struct SettingView: View {
                             Text("Configuration")
                         }
                     }
-                    Link(destination: URL(string: String("https://github.com/SagerNet/sing-box"))!) {
+                    Link(destination: URL(string: String("https://github.com/Piggy-Cat-bit-shadow/sing-box"))!) {
                         Label("Source Code", systemImage: "pills.fill")
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.accentColor)
                     .contextMenu {
-                        Link(destination: URL(string: String("https://github.com/SagerNet/sing-box/releases"))!) {
+                        Link(destination: URL(string: String("https://github.com/Piggy-Cat-bit-shadow/sing-box/releases"))!) {
                             Text("Releases")
                         }
                     }
