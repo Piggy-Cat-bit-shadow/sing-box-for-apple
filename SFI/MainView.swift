@@ -25,7 +25,6 @@ struct MainView: View {
     @State private var showGroups = false
     @State private var showConnections = false
     @State private var buttonState = ButtonVisibilityState()
-    @State private var initializedTabs: Set<NavigationPage> = []
 
     private let profileEditor: (Binding<String>, Bool) -> AnyView = { text, isEditable in
         AnyView(ProfileEditorWrapperView(text: text, isEditable: isEditable))
@@ -35,16 +34,25 @@ struct MainView: View {
         AnyView(GhosttyConfigEditorWrapperView(text: text))
     }
 
+    /// The primary shell.
+    ///
+    /// This used to be a `TabView` over every `NavigationPage`, which put Logs on
+    /// the tab bar next to Dashboard, Tools and Settings. The shell presents the
+    /// three first-level destinations the design calls for - Home, Tools, More - and
+    /// keeps `NavigationPage` as the state of record, so every existing entry point
+    /// (the crash-report notification, the settings notification, the deep links, the
+    /// screenshot harness) still selects the same page it always did.
+    ///
+    /// The accessory inset, the badge and the first-appearance animation rule moved
+    /// into the shell; the page content builder below is unchanged in what it puts on
+    /// screen.
     private var tabViewContent: some View {
-        TabView(selection: $selection) {
-            ForEach(NavigationPage.allCases, id: \.self) { page in
-                NavigationStackCompat {
-                    tabContent(for: page)
-                }
-                .tag(page)
-                .tabItem { page.label }
-                .badge(page == .tools ? environments.toolsBadgeCount + sendManager.failedSessionCount : 0)
-            }
+        HakoPrimaryShell(
+            selection: $selection,
+            toolsBadge: environments.toolsBadgeCount + sendManager.failedSessionCount,
+            accessory: { accessoryInset }
+        ) { page in
+            tabContent(for: page)
         }
     }
 
@@ -58,23 +66,10 @@ struct MainView: View {
 
     @ViewBuilder
     private func tabContent(for page: NavigationPage) -> some View {
+        // The accessory inset and the first-appearance animation rule now live in
+        // HakoPrimaryShell, which applies them per primary instead of per page.
         let content = page.contentView
             .navigationTitle(page.title)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                accessoryInset
-                    .transaction { transaction in
-                        if !initializedTabs.contains(page) {
-                            transaction.disablesAnimations = true
-                        }
-                    }
-            }
-            .onAppear {
-                if !initializedTabs.contains(page) {
-                    DispatchQueue.main.async {
-                        initializedTabs.insert(page)
-                    }
-                }
-            }
         if page == .logs {
             content.navigationBarTitleDisplayMode(.inline)
         } else {
@@ -294,6 +289,13 @@ struct MainView: View {
                 selection = .settings
             }
             .environment(\.selection, $selection)
+            .environment(
+                \.hakoHomeActions,
+                HakoHomeActions(
+                    showGroups: { showGroups = true },
+                    showConnections: { showConnections = true }
+                )
+            )
             .environment(\.importProfile, $importProfile)
             .environment(\.importRemoteProfile, $importRemoteProfile)
             .environment(\.profileEditor, profileEditor)
