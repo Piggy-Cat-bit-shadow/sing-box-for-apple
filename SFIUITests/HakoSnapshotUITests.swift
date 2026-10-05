@@ -380,6 +380,22 @@ final class HakoSnapshotUITests: XCTestCase {
         XCTAssertTrue(app.textFields["hako.activity.search"].waitForExistence(timeout: 15))
         sleep(1)
         snapshot("42_Activity")
+
+        // The page has to *resolve*, which is what this case never asked before.
+        //
+        // It asserted only that the search field existed, so a workspace stuck on its loading
+        // state passed it: the data model's loading flag was cleared while the view, which did
+        // not observe the object owning it, kept rendering the spinner. With the tunnel stopped
+        // the empty state below was unreachable, and a live connection list would not have
+        // appeared either.
+        XCTAssertTrue(
+            app.staticTexts["No connections"].waitForExistence(timeout: 20),
+            "the workspace must resolve out of its loading state when there is nothing to show"
+        )
+        XCTAssertFalse(
+            app.staticTexts["Loading..."].exists,
+            "the workspace must not still be loading once it has resolved"
+        )
     }
 
     // MARK: - Modal

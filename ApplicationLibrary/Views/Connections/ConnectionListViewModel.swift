@@ -49,6 +49,23 @@ public class ConnectionDataModel: ObservableObject {
                 self?.setConnections(connections)
             }
             .store(in: &cancellables)
+
+        // And a page must not spin for something that is not coming.
+        //
+        // `isLoading` was an unconditional initial `true` that only a delivered connection
+        // list could clear, so with the tunnel stopped - no command client, nothing to
+        // deliver - the Activity page showed a spinner for as long as it was open. The page
+        // has an empty state that says exactly that; it was unreachable.
+        //
+        // Subscribing to a published flag delivers its current value immediately, so this also
+        // settles the state on the first run of a launch that never connects.
+        commandClient.$isConnected
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isConnected in
+                guard let self, !isConnected else { return }
+                self.finishLoading()
+            }
+            .store(in: &cancellables)
     }
 
     func finishLoading() {

@@ -44,7 +44,15 @@ public struct ConnectionListView: View {
                     accessibilityIdentifier: "hako.activity.search"
                 ),
                 actions: { actions },
-                content: { content }
+                // The content observes the data model itself. `ConnectionDataModel` owns the
+                // loading flag and the connection list, and the workspace read both *through*
+                // the view model - which the view does observe - so the model's changes
+                // invalidated nothing: the page rendered its initial state and kept it. The
+                // tunnel-stopped case showed a spinner that had already been cleared, and a
+                // live connection list would not have appeared either.
+                content: {
+                    ConnectionDataObserver(dataModel: viewModel.dataModel) { content }
+                }
             )
             .alert($viewModel.alert)
             .onAppear {
@@ -372,3 +380,14 @@ public struct ConnectionListView: View {
     }
 #endif
 #endif
+
+
+/// Re-renders its content when the connections data model changes.
+private struct ConnectionDataObserver<Content: View>: View {
+    @ObservedObject var dataModel: ConnectionDataModel
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+    }
+}
