@@ -505,6 +505,7 @@ struct ProfilePickerSheet: View {
 
 private struct ProfilePickerRow: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
+    @Environment(\.locale) private var locale
     #if !os(macOS)
         @Environment(\.editMode) private var editMode
     #endif
@@ -809,39 +810,43 @@ private struct ProfilePickerRow: View {
         #endif
 
         private var rowContent: some View {
-            HStack(spacing: 12) {
+            HStack(spacing: HakoTheme.Spacing.row) {
                 #if os(macOS)
-                    Group {
-                        if isEditing {
-                            Image(systemName: "line.3.horizontal")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.tint)
-                                .opacity(isSelected ? 1 : 0)
-                        }
-                    }
-                    .frame(width: 16)
-                #else
-                    if !isEditing {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.tint)
-                            .opacity(isSelected ? 1 : 0)
+                    if isEditing {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 16)
                     }
                 #endif
 
-                VStack(alignment: .leading, spacing: 4) {
+                // The type is what a profile row has to say about itself, so it gets the icon
+                // tile the rest of the client uses for "where does this live". The previous
+                // leading checkmark said whether the row was selected, which the trailing mark
+                // now says without occupying the position that carries information.
+                HakoIconWell(
+                    tint: profile.type.hakoAccent.color,
+                    size: HakoTheme.Layout.proxyGroupIconSize,
+                    cornerRadius: HakoTheme.Layout.proxyGroupIconCornerRadius
+                ) {
+                    Image(systemName: profile.type.presentationSymbol)
+                        .font(.footnote.weight(.semibold))
+                }
+
+                VStack(alignment: .leading, spacing: HakoTheme.Typography.rowSubtitleGap(locale)) {
                     Text(profile.name)
                         .font(.body)
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
 
                     profileInfo
                 }
 
-                Spacer()
+                Spacer(minLength: HakoTheme.Spacing.compact)
+
+                if !isEditing {
+                    selectionMark
+                }
 
                 #if os(macOS)
                     if isEditing {
@@ -862,9 +867,20 @@ private struct ProfilePickerRow: View {
                     }
                 #endif
             }
-            .padding(16)
+            .padding(HakoTheme.Spacing.standard)
             .cardStyle()
             .contentShape(Rectangle())
+        }
+
+        /// Whether this is the profile the client is using.
+        ///
+        /// A filled mark rather than a tinted word: the state has to survive a long profile
+        /// name, a subtitle and a trailing menu without moving any of them.
+        private var selectionMark: some View {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.body)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.35))
+                .accessibilityLabel(isSelected ? Text("Selected") : Text(""))
         }
     #endif
 

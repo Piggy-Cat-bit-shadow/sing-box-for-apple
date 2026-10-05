@@ -14,6 +14,22 @@ extension ProfileType {
         }
     }
 
+    /// The icon tile tint for this type.
+    ///
+    /// The roles come from the shared design system, so a profile row, a tool row and a
+    /// settings row express "where does this live" with the same vocabulary rather than each
+    /// picking a colour.
+    var hakoAccent: HakoAccentRole {
+        switch self {
+        case .local:
+            return .indigo
+        case .icloud:
+            return .cyan
+        case .remote:
+            return .teal
+        }
+    }
+
     var presentationSymbol: String {
         switch self {
         case .local:
