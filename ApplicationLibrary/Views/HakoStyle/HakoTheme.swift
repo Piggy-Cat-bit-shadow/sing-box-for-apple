@@ -49,6 +49,93 @@ public enum HakoTheme {
         public static let minimumHitTarget: CGFloat = 44
         public static let compactChoiceRowMinHeight: CGFloat = 48
         public static let fullWidthRowMinHeight: CGFloat = 49
+
+        /// The navigation header's controls.
+        ///
+        /// The circle a back or close control draws is deliberately smaller than the
+        /// target it answers to: the reference implementation keeps a compact glyph
+        /// and expands only the hit area, which is why these are two numbers and
+        /// not one. A 44pt circle in a 52pt header would be a button with a header
+        /// around it.
+        public static let navigationControlDiameter: CGFloat = 32
+        public static let navigationControlGlyphSize: CGFloat = 14
+
+        /// The action capsule in a workspace header: one row of icon-only actions.
+        public static let actionCapsuleHeight: CGFloat = 34
+        public static let actionItemMinimumWidth: CGFloat = 40
+        public static let actionCapsuleHorizontalPadding: CGFloat = 4
+
+        /// A row whose trailing side is a switch. The floor is the touch target,
+        /// not the glyph, so a toggle row never shrinks below what a finger needs.
+        public static let toggleRowMinHeight: CGFloat = 44
+
+        /// The segmented control above a workspace's content.
+        public static let segmentedTabHeight: CGFloat = 32
+    }
+
+    /// Fonts, by role rather than by page.
+    ///
+    /// A page picks a role - "this is a section header", "this is the value" - and
+    /// the design system decides the face. The alternative, which this migration
+    /// replaces, was nine pages each choosing `.headline` or `.caption` for the same
+    /// job and drifting apart one edit at a time.
+    ///
+    /// Only the roles that a page genuinely needs are here. A metric is monospaced
+    /// because a column of figures has to line up, not because it is a number.
+    public enum FontRole {
+        /// The centered title of a navigation header.
+        public static var navigationTitle: Font {
+            .headline
+        }
+
+        /// The caption above a grouped card.
+        public static var sectionHeader: Font {
+            .footnote.weight(.semibold)
+        }
+
+        /// A row's title.
+        public static var rowPrimary: Font {
+            .body
+        }
+
+        /// A row's title where the row is a data row rather than a setting.
+        public static var dataPrimary: Font {
+            .subheadline.weight(.semibold)
+        }
+
+        /// A row's value, aligned in a column.
+        public static var value: Font {
+            .subheadline.monospacedDigit()
+        }
+
+        /// A measured figure: a latency, a rate, a byte count.
+        public static var metric: Font {
+            .caption.monospacedDigit().weight(.semibold)
+        }
+
+        /// A badge or pill.
+        public static var badge: Font {
+            .caption.weight(.semibold)
+        }
+
+        /// The explanation under a card or a row.
+        public static var footnote: Font {
+            .footnote
+        }
+
+        /// An empty state's headline and body.
+        public static var emptyTitle: Font {
+            .headline
+        }
+
+        public static var emptyBody: Font {
+            .subheadline
+        }
+
+        /// A card's own heading, inside the card.
+        public static var cardTitle: Font {
+            .footnote.weight(.semibold)
+        }
     }
 
     /// Type that changes with the language, and the reason it does.
@@ -94,10 +181,33 @@ public enum HakoTheme {
         }
 
         public static let liquidGlassCard: CGFloat = 24
+
+        /// The capsule around a workspace's actions and the bottom search field.
+        public static let capsule: CGFloat = 17
+        public static let searchField: CGFloat = 22
     }
 
     public enum Opacity {
         public static let regularSidebarSelection: Double = 0.08
+
+        /// The hairline a card draws around itself. One value, because a card that
+        /// outlines itself more strongly than the card beside it reads as selected.
+        public static let cardBorder: Double = 0.16
+
+        /// The divider between two rows of the same card.
+        public static let rowDivider: Double = 0.18
+
+        /// A row's fill while the finger is down.
+        public static let pressedFill: Double = 0.06
+
+        /// A surface that is currently chosen, rather than merely present.
+        public static let selectedFill: Double = 0.12
+
+        /// A surface that has been opened in place - an expanded proxy group.
+        public static let expandedFill: Double = 0.06
+
+        /// A control that cannot act. Applied to the whole control, glyph included.
+        public static let disabled: Double = 0.35
     }
 
     /// Geometry of the desktop's sidebar-and-detail layout.
@@ -108,17 +218,27 @@ public enum HakoTheme {
     public enum Regular {
         public enum Sidebar {
             public static let iconSize: CGFloat = 22
-            public static let minimumWidth: CGFloat = 220
+            /// The floor a Mac window's sidebar may be dragged to. Below it the
+            /// section captions and the two-line remote-control row truncate, which
+            /// is the failure this number exists to prevent.
+            public static let minimumWidth: CGFloat = 200
             /// The desktop sidebar is narrower than the touch one by design: a Mac
             /// window has a detail column beside it and a phone does not.
-            public static let width: CGFloat = {
+            public static let idealWidth: CGFloat = {
                 #if os(macOS)
                     return 220
                 #else
                     return 256
                 #endif
             }()
-            public static let maximumWidth: CGFloat = 272
+            /// Kept under the alias the earlier round introduced, so a call site that
+            /// already asked for `width` keeps compiling while every reader sees the
+            /// same number as `idealWidth`.
+            public static var width: CGFloat {
+                idealWidth
+            }
+
+            public static let maximumWidth: CGFloat = 280
             public static let topInset: CGFloat = 32
         }
 
@@ -126,12 +246,20 @@ public enum HakoTheme {
             public static let maximumContentWidth: CGFloat = 1_120
             public static let horizontalInset: CGFloat = 56
             public static let destinationRowMinHeight: CGFloat = 68
+            /// The narrowest detail column that still reads as a column rather than a
+            /// squeezed list. A Mac window at its own minimum width lands here.
+            public static let minimumContentWidth: CGFloat = 420
         }
     }
 
     /// Geometry that exists only on the desktop.
     public enum MacOS {
         public static let destinationRowIconSize: CGFloat = 26
+        /// The smallest window the client lays out correctly, not the smallest one
+        /// AppKit would allow. The sidebar plus `Detail.minimumContentWidth`, with the
+        /// divider between them.
+        public static let minimumWindowWidth: CGFloat = 760
+        public static let minimumWindowHeight: CGFloat = 480
     }
 
     /// Geometry of the primary pages.
@@ -169,6 +297,42 @@ public enum HakoTheme {
         /// gap after it.
         public static var destinationRowDividerInset: CGFloat {
             destinationRowIconSize + Spacing.row
+        }
+
+        /// A card's own inner padding. `HakoSection` insets horizontally by this and
+        /// a card's content does the same, so a row's title lines up with the section
+        /// caption above it rather than with the card's edge.
+        public static let cardInnerPadding: CGFloat = Spacing.standard
+
+        /// The navigation header a settings, workspace, modal or report page wears.
+        ///
+        /// Tall enough for a 44pt hit target with the page's own top inset above it,
+        /// which is what keeps the control off the status bar on a notched phone.
+        public static let navigationHeaderHeight: CGFloat = 52
+        public static let pageTopInset: CGFloat = Spacing.compact
+
+        /// The bottom search field of a workspace, and the room a scrolling page has
+        /// to leave so its last card is not underneath one.
+        public static let bottomSearchHeight: CGFloat = 44
+        public static let bottomSearchInset: CGFloat = Spacing.standard
+        public static var bottomSearchClearance: CGFloat {
+            bottomSearchHeight + bottomSearchInset * 2
+        }
+
+        /// How much room a root page's last row leaves for the floating tab bar. The
+        /// shell's bar floats over the canvas, so the page has to reserve the space
+        /// itself; without this the last card sits under it.
+        public static let rootTabClearance: CGFloat = 12
+
+        /// The gap between two sections of a page, and between two cards of one
+        /// section. Named so a page asks for "a section gap" rather than for 24.
+        public static let sectionSpacing: CGFloat = Spacing.section
+        public static let cardSpacing: CGFloat = Spacing.cardGap
+
+        /// The icon well of a list row that is not a primary destination: a profile, a proxy
+        /// group, a member inside one.
+        public static var listRowIconSize: CGFloat {
+            proxyGroupIconSize
         }
     }
 }

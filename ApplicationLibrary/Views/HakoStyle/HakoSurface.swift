@@ -19,17 +19,46 @@ import SwiftUI
 #endif
 
 /// What a surface is for, which decides whether it may use the native material.
+///
+/// The set is closed on purpose. A page that needs a surface the list does not have
+/// is a page asking for a new role, and adding one here is a decision about the whole
+/// client - which is the point, because the alternative is a page inventing a fill
+/// that happens to look right on that page and nowhere else.
 public enum HakoSurfaceRole: String, CaseIterable, Sendable {
+    /// A card on a root page. The only role that may take the system's glass.
     case primaryPageCard
+    /// A card on a settings or detail page: always a stable grouped surface.
     case secondaryPageCard
+    /// The grouped card a section of rows is drawn inside.
     case groupedSection
+    /// A surface that is currently chosen: a selected member, a selected list row.
     case selection
+    /// A surface that has been opened in place, without being chosen: an expanded
+    /// proxy group's body, a disclosure that is showing its contents.
+    case expanded
+    /// A surface behind an interactive control: an icon button, a value field.
+    case control
+    /// The page canvas itself, behind everything.
+    case pageCanvas
+    /// A destructive action's own surface, where it has one.
     case destructiveAction
 
     /// Only the top-level page card is allowed to take the system's glass
     /// treatment: it is the one surface with nothing behind it to obscure.
     public var permitsNativeGlass: Bool {
         self == .primaryPageCard
+    }
+
+    /// Whether the role is a grouped card rather than a page-level surface.
+    ///
+    /// A card takes the grouped radius and a border; a canvas does not.
+    public var isCard: Bool {
+        switch self {
+        case .primaryPageCard, .secondaryPageCard, .groupedSection:
+            return true
+        case .selection, .expanded, .control, .pageCanvas, .destructiveAction:
+            return false
+        }
     }
 }
 
@@ -101,29 +130,69 @@ public enum HakoPlatformLayout {
             onSystemMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         )
     }
+
+    /// Whether the container a row sits in draws the disclosure indicator itself.
+    ///
+    /// This is the fix for the double chevron, and it is deliberately a property of
+    /// the container rather than a per-call-site flag. On the touch client a page is a
+    /// `ScrollView` of painted cards, so nothing else draws an indicator and the row
+    /// does. On the desktop and on the focus platform the container is the system's
+    /// grouped form, which draws one for every navigable row, so the row does not.
+    ///
+    /// The failure mode this prevents is precise: a `NavigationLink` inside a `Form`
+    /// gets the platform's indicator, and a custom chevron on top of it renders as
+    /// `>>`. Hiding one with an opacity would leave the row's trailing inset wrong, so
+    /// the rule is expressed as "who owns the indicator" and answered here once.
+    public static var containerDrawsDisclosureIndicator: Bool {
+        #if os(iOS)
+            false
+        #else
+            true
+        #endif
+    }
 }
 
 /// The colours a page draws with. Passed in rather than read from a global so the
 /// screenshots' forced-dark mode and the normal appearance cannot disagree.
+///
+/// The first five slots are the reference implementation's own set. `selected`,
+/// `expanded` and `control` were added by this migration because complex pages - the
+/// proxy workspace, the connection list, an expanded group - need to say "this one"
+/// and "this is open" with a surface, and the alternative was each of them reaching
+/// for `Color.accentColor.opacity(...)` with its own number.
 public struct HakoProductPalette: Equatable {
     public let canvas: Color
     public let surface: Color
     public let raisedFill: Color
     public let separator: Color
     public let card: Color
+    /// The fill of a surface that is currently chosen.
+    public let selected: Color
+    /// The fill of a surface that has been opened in place.
+    public let expanded: Color
+    /// The fill behind an interactive control that is not a card.
+    public let control: Color
 
     public init(
         canvas: Color,
         surface: Color,
         raisedFill: Color,
         separator: Color,
-        card: Color? = nil
+        card: Color? = nil,
+        selected: Color? = nil,
+        expanded: Color? = nil,
+        control: Color? = nil
     ) {
         self.canvas = canvas
         self.surface = surface
         self.raisedFill = raisedFill
         self.separator = separator
         self.card = card ?? surface
+        // The accent is the same role in every appearance, so a selection is the
+        // accent at the token's alpha rather than a second colour constant.
+        self.selected = selected ?? Color.accentColor.opacity(HakoTheme.Opacity.selectedFill)
+        self.expanded = expanded ?? raisedFill
+        self.control = control ?? raisedFill
     }
 
     /// The palette the app draws with, built from system semantic colours.
@@ -156,6 +225,28 @@ public struct HakoProductPalette: Equatable {
                 separator: Color(uiColor: .separator)
             )
         #endif
+    }
+
+    /// The fill a role draws with.
+    ///
+    /// A page asks for the role it means and the palette answers with a colour, so
+    /// "the selected member" is one decision in one place rather than a literal at
+    /// every call site.
+    public func fill(for role: HakoSurfaceRole) -> Color {
+        switch role {
+        case .primaryPageCard, .secondaryPageCard, .groupedSection:
+            return card
+        case .selection:
+            return selected
+        case .expanded:
+            return expanded
+        case .control:
+            return control
+        case .pageCanvas:
+            return canvas
+        case .destructiveAction:
+            return surface
+        }
     }
 
     #if os(macOS)

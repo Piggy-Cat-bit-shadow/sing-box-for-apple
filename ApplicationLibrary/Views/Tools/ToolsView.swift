@@ -6,8 +6,8 @@ import SwiftUI
 public struct ToolsView: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
     @EnvironmentObject private var peerStore: TailscaleSSHPeerStore
+    @Environment(\.selection) private var selection
     @EnvironmentObject private var tailscaleViewModel: TailscaleStatusViewModel
-    @StateObject private var viewModel = SettingViewModel()
     @StateObject private var usbipViewModel = USBIPStatusViewModel()
     @StateObject private var openConnectViewModel = OpenConnectStatusViewModel()
     @StateObject private var openVPNViewModel = OpenVPNStatusViewModel()
@@ -35,260 +35,16 @@ public struct ToolsView: View {
     public init() {}
 
     public var body: some View {
-        FormView {
-            if !tailscaleViewModel.endpoints.isEmpty || !openConnectViewModel.endpoints.isEmpty || !openVPNViewModel.endpoints.isEmpty {
-                Section("Endpoints") {
-                    ForEach(tailscaleViewModel.endpoints) { endpoint in
-                        FormNavigationLink {
-                            TailscaleEndpointView(viewModel: tailscaleViewModel, endpointTag: endpoint.endpointTag)
-                        } label: {
-                            HStack {
-                                Group {
-                                    HakoToolRow(
-                                        title: tailscaleViewModel.endpoints.count == 1
-                                            ? String(localized: "Tailscale")
-                                            : String(localized: "Tailscale: \(endpoint.endpointTag)"),
-                                        systemImage: "point.3.filled.connected.trianglepath.dotted",
-                                        tint: .indigo,
-                                        detail: endpoint.unreadFileCount > 0
-                                            ? String(localized: "\(endpoint.unreadFileCount) unread")
-                                            : nil
-                                    )
-                                }
-                                #if !os(tvOS)
-                                    if sendManager.hasFailedSessions(endpointTag: endpoint.endpointTag) {
-                                        Spacer()
-                                        Image(systemName: "exclamationmark.circle.fill")
-                                            .foregroundStyle(.red)
-                                    }
-                                #endif
-                            }
-                            #if !os(tvOS)
-                            .badge(sendManager.hasFailedSessions(endpointTag: endpoint.endpointTag) ? 0 : Int(endpoint.unreadFileCount))
-                            #endif
-                        }
-                        #if !os(tvOS)
-                        .contextMenu {
-                            let sshPeers = sshAvailablePeers
-                            if sshPeers.count == 1 {
-                                Button {
-                                    handleSSH(sshPeers[0])
-                                } label: {
-                                    Label("Connect via SSH", systemImage: "terminal")
-                                }
-                            } else if sshPeers.count > 1 {
-                                Section("Connect via SSH") {
-                                    ForEach(sshPeers) { info in
-                                        Button(info.peer.hostName) {
-                                            handleSSH(info)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        #endif
-                    }
-                    ForEach(openConnectViewModel.endpoints) { endpoint in
-                        FormNavigationLink {
-                            OpenConnectEndpointView(viewModel: openConnectViewModel, endpointTag: endpoint.endpointTag)
-                        } label: {
-                            HakoToolRow(
-                                title: openConnectViewModel.endpoints.count == 1
-                                    ? String(localized: "OpenConnect")
-                                    : String(localized: "OpenConnect: \(endpoint.endpointTag)"),
-                                systemImage: "network.badge.shield.half.filled",
-                                tint: .teal
-                            )
-                        }
-                    }
-                    ForEach(openVPNViewModel.endpoints) { endpoint in
-                        FormNavigationLink {
-                            OpenVPNEndpointView(viewModel: openVPNViewModel, endpointTag: endpoint.endpointTag)
-                        } label: {
-                            HakoToolRow(
-                                title: openVPNViewModel.endpoints.count == 1
-                                    ? String(localized: "OpenVPN")
-                                    : String(localized: "OpenVPN: \(endpoint.endpointTag)"),
-                                systemImage: "network.badge.shield.half.filled",
-                                tint: .cyan
-                            )
-                        }
-                    }
+        Group {
+            #if os(iOS)
+                HakoRootScaffold {
+                    sections
                 }
-            }
-
-            if !usbipViewModel.servers.isEmpty {
-                Section("Services") {
-                    ForEach(usbipViewModel.servers) { server in
-                        FormNavigationLink {
-                            #if os(macOS)
-                                USBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
-                                    .environmentObject(usbipProviderViewModel)
-                            #else
-                                USBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
-                            #endif
-                        } label: {
-                            HakoToolRow(
-                                title: usbipViewModel.servers.count == 1
-                                    ? String(localized: "USB/IP")
-                                    : String(localized: "USB/IP: \(server.serverTag)"),
-                                systemImage: "externaldrive.connected.to.line.below",
-                                tint: .orange
-                            )
-                        }
-                    }
+            #else
+                FormView {
+                    sections
                 }
-            }
-
-            Section("Network") {
-                FormNavigationLink {
-                    NetworkQualityView()
-                } label: {
-                    HakoToolRow(
-                        title: String(localized: "Network Quality"),
-                        systemImage: "network",
-                        tint: .blue
-                    )
-                }
-                FormNavigationLink {
-                    STUNTestView()
-                } label: {
-                    HakoToolRow(
-                        title: String(localized: "STUN Test"),
-                        systemImage: "arrow.triangle.swap",
-                        tint: .purple
-                    )
-                }
-            }
-
-            // Crash/OOM reports and device checks read the local device, which the
-            // remote control API does not reach.
-            if environments.remoteServer == nil {
-                Section("Debug") {
-                    #if os(iOS)
-                        NavigationLink(isActive: $showCrashReportList) {
-                            CrashReportListView()
-                        } label: {
-                            HakoToolRow(
-                                title: String(localized: "Crash Report"),
-                                systemImage: "ladybug.fill",
-                                tint: .pink,
-                                detail: unreadDetail(environments.crashReportManager.unreadCount)
-                            )
-                            .badge(environments.crashReportManager.unreadCount)
-                        }
-                        .onReceive(NotificationCenter.default.publisher(for: .reportReceived)) { notification in
-                            Task {
-                                try? await Task.sleep(nanoseconds: NSEC_PER_MSEC * 300)
-                                if let reportType = notification.object as? ReportType {
-                                    switch reportType {
-                                    case .crash:
-                                        showCrashReportList = true
-                                    case .oom:
-                                        showOOMReportList = true
-                                    case .power:
-                                        showPowerReportList = true
-                                    }
-                                }
-                            }
-                        }
-                        NavigationLink(isActive: $showOOMReportList) {
-                            OOMReportListView()
-                        } label: {
-                            HakoToolRow(
-                                title: String(localized: "OOM Report"),
-                                systemImage: "memorychip",
-                                tint: .indigo,
-                                detail: unreadDetail(environments.oomReportManager.unreadCount)
-                            )
-                            .badge(environments.oomReportManager.unreadCount)
-                        }
-                        NavigationLink(isActive: $showPowerReportList) {
-                            PowerReportListView()
-                        } label: {
-                            HakoToolRow(
-                                title: String(localized: "Power Report"),
-                                systemImage: "battery.50percent",
-                                tint: .green,
-                                detail: unreadDetail(environments.powerReportManager.unreadCount)
-                            )
-                            .badge(environments.powerReportManager.unreadCount)
-                        }
-                    #else
-                        FormNavigationLink {
-                            CrashReportListView()
-                        } label: {
-                            #if os(tvOS)
-                                HakoToolRow(
-                                    title: String(localized: "Crash Report"),
-                                    systemImage: "ladybug.fill",
-                                    tint: .pink,
-                                    detail: unreadDetail(environments.crashReportManager.unreadCount)
-                                )
-                            #else
-                                HakoToolRow(
-                                    title: String(localized: "Crash Report"),
-                                    systemImage: "ladybug.fill",
-                                    tint: .pink
-                                )
-                                .badge(environments.crashReportManager.unreadCount)
-                            #endif
-                        }
-                    #endif
-                    #if !os(iOS)
-                        FormNavigationLink {
-                            OOMReportListView()
-                        } label: {
-                            #if os(tvOS)
-                                HakoToolRow(
-                                    title: String(localized: "OOM Report"),
-                                    systemImage: "memorychip",
-                                    tint: .indigo,
-                                    detail: unreadDetail(environments.oomReportManager.unreadCount)
-                                )
-                            #else
-                                HakoToolRow(
-                                    title: String(localized: "OOM Report"),
-                                    systemImage: "memorychip",
-                                    tint: .indigo
-                                )
-                                .badge(environments.oomReportManager.unreadCount)
-                            #endif
-                        }
-                        FormNavigationLink {
-                            PowerReportListView()
-                        } label: {
-                            #if os(tvOS)
-                                HakoToolRow(
-                                    title: String(localized: "Power Report"),
-                                    systemImage: "battery.50percent",
-                                    tint: .green,
-                                    detail: unreadDetail(environments.powerReportManager.unreadCount)
-                                )
-                            #else
-                                HakoToolRow(
-                                    title: String(localized: "Power Report"),
-                                    systemImage: "battery.50percent",
-                                    tint: .green
-                                )
-                                .badge(environments.powerReportManager.unreadCount)
-                            #endif
-                        }
-                    #endif
-                    FormTextItem("Taiwan Flag Available", "touchid") {
-                        if viewModel.isLoading {
-                            HakoEmptyState(symbol: "square.grid.2x2", title: "Loading...", isBusy: true)
-                                .onAppear {
-                                    Task.detached {
-                                        await viewModel.checkTaiwanFlagAvailability()
-                                    }
-                                }
-                        } else {
-                            Text(viewModel.taiwanFlagAvailable.toString())
-                        }
-                    }
-                }
-            }
+            #endif
         }
         .modifier(ConnectionLifecycleObserver(profile: environments.extensionProfile, remoteServerID: environments.remoteServer?.id, onActive: { usbipViewModel.subscribe() }, onInactive: { usbipViewModel.cancel() }))
         .modifier(ConnectionLifecycleObserver(profile: environments.extensionProfile, remoteServerID: environments.remoteServer?.id, onActive: { openConnectViewModel.subscribe() }, onInactive: { openConnectViewModel.cancel() }))
@@ -358,6 +114,299 @@ public struct ToolsView: View {
         }
             #endif
         #endif
+    }
+
+    // MARK: - Information architecture
+
+    /// The page's sections, grouped by the question a user is asking.
+    ///
+    /// The list this replaces was flat and used the client's own vocabulary as its
+    /// headings: an "Endpoints" section, a "Services" section, a "Network" section and
+    /// a "Debug" section whose last row read `Taiwan Flag Available` with a boolean
+    /// beside it. Almost nothing on it said what the tool was for.
+    ///
+    /// The rows are the same tools. The headings are now the user's questions, and the
+    /// debug readout is gone: it measured whether the device's font renders a flag,
+    /// which is a real check the client performs for its network-permission flow, but
+    /// it is not something to show a user who came here to test their connection.
+    @ViewBuilder
+    private var sections: some View {
+        sessionSection
+        endpointSection
+        networkToolsSection
+        diagnosticsSection
+    }
+
+    /// What the tunnel is doing right now.
+    private var sessionSection: some View {
+        HakoSettingsSection(String(localized: "Current Session")) {
+            Button {
+                selection.wrappedValue = .logs
+            } label: {
+                HakoDestinationRow(
+                    title: String(localized: "Logs"),
+                    subtitle: String(localized: "What the core is writing as it runs"),
+                    systemImage: "list.bullet.rectangle",
+                    tint: HakoAccentRole.orange.color
+                )
+            }
+            .buttonStyle(HakoPushRowButtonStyle())
+            .accessibilityIdentifier("hako.tools.logs")
+        }
+    }
+
+    /// Live endpoints reported by the core: a Tailscale node, a VPN gateway.
+    @ViewBuilder
+    private var endpointSection: some View {
+        if !tailscaleViewModel.endpoints.isEmpty || !openConnectViewModel.endpoints.isEmpty || !openVPNViewModel.endpoints.isEmpty {
+            HakoSettingsSection(String(localized: "Endpoints")) {
+                ForEach(Array(tailscaleViewModel.endpoints.enumerated()), id: \.element.id) { index, endpoint in
+                    if index > 0 { HakoSettingsDivider() }
+                    FormNavigationLink {
+                        TailscaleEndpointView(viewModel: tailscaleViewModel, endpointTag: endpoint.endpointTag)
+                    } label: {
+                        HStack {
+                            Group {
+                                HakoToolRow(
+                                    title: tailscaleViewModel.endpoints.count == 1
+                                        ? String(localized: "Tailscale")
+                                        : String(localized: "Tailscale: \(endpoint.endpointTag)"),
+                                    systemImage: "point.3.filled.connected.trianglepath.dotted",
+                                    tint: .indigo,
+                                    detail: endpoint.unreadFileCount > 0
+                                        ? String(localized: "\(endpoint.unreadFileCount) unread")
+                                        : nil
+                                )
+                            }
+                            #if !os(tvOS)
+                                if sendManager.hasFailedSessions(endpointTag: endpoint.endpointTag) {
+                                    Spacer()
+                                    Image(systemName: "exclamationmark.circle.fill")
+                                        .foregroundStyle(.red)
+                                }
+                            #endif
+                        }
+                        #if !os(tvOS)
+                        .badge(sendManager.hasFailedSessions(endpointTag: endpoint.endpointTag) ? 0 : Int(endpoint.unreadFileCount))
+                        #endif
+                    }
+                    #if !os(tvOS)
+                    .contextMenu {
+                        let sshPeers = sshAvailablePeers
+                        if sshPeers.count == 1 {
+                            Button {
+                                handleSSH(sshPeers[0])
+                            } label: {
+                                Label("Connect via SSH", systemImage: "terminal")
+                            }
+                        } else if sshPeers.count > 1 {
+                            Section("Connect via SSH") {
+                                ForEach(sshPeers) { info in
+                                    Button(info.peer.hostName) {
+                                        handleSSH(info)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    #endif
+                }
+
+                ForEach(openConnectViewModel.endpoints) { endpoint in
+                    HakoSettingsDivider()
+                    FormNavigationLink {
+                        OpenConnectEndpointView(viewModel: openConnectViewModel, endpointTag: endpoint.endpointTag)
+                    } label: {
+                        HakoToolRow(
+                            title: openConnectViewModel.endpoints.count == 1
+                                ? String(localized: "OpenConnect")
+                                : String(localized: "OpenConnect: \(endpoint.endpointTag)"),
+                            systemImage: "network.badge.shield.half.filled",
+                            tint: .teal
+                        )
+                    }
+                }
+
+                ForEach(openVPNViewModel.endpoints) { endpoint in
+                    HakoSettingsDivider()
+                    FormNavigationLink {
+                        OpenVPNEndpointView(viewModel: openVPNViewModel, endpointTag: endpoint.endpointTag)
+                    } label: {
+                        HakoToolRow(
+                            title: openVPNViewModel.endpoints.count == 1
+                                ? String(localized: "OpenVPN")
+                                : String(localized: "OpenVPN: \(endpoint.endpointTag)"),
+                            systemImage: "network.badge.shield.half.filled",
+                            tint: .cyan
+                        )
+                    }
+                }
+
+                ForEach(usbipViewModel.servers) { server in
+                    HakoSettingsDivider()
+                    FormNavigationLink {
+                        #if os(macOS)
+                            USBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
+                                .environmentObject(usbipProviderViewModel)
+                        #else
+                            USBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
+                        #endif
+                    } label: {
+                        HakoToolRow(
+                            title: usbipViewModel.servers.count == 1
+                                ? String(localized: "USB/IP")
+                                : String(localized: "USB/IP: \(server.serverTag)"),
+                            systemImage: "externaldrive.connected.to.line.below",
+                            tint: .orange
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var networkToolsSection: some View {
+        HakoSettingsSection(
+            String(localized: "Network Tools"),
+            footnote: "These measure the connection the device currently has, not the tunnel."
+        ) {
+            FormNavigationLink {
+                NetworkQualityView()
+            } label: {
+                HakoToolRow(
+                    title: String(localized: "Network Quality"),
+                    systemImage: "network",
+                    tint: .blue,
+                    detail: String(localized: "Throughput and responsiveness")
+                )
+            }
+            HakoSettingsDivider()
+            FormNavigationLink {
+                STUNTestView()
+            } label: {
+                HakoToolRow(
+                    title: String(localized: "STUN Test"),
+                    systemImage: "arrow.triangle.swap",
+                    tint: .purple,
+                    detail: String(localized: "How the network sees this device")
+                )
+            }
+        }
+    }
+
+    /// The reports this device has recorded.
+    ///
+    /// Reports read the local device, which the remote-control API does not reach, so
+    /// the section is absent while this client is driving another one.
+    @ViewBuilder
+    private var diagnosticsSection: some View {
+        if environments.remoteServer == nil {
+            HakoSettingsSection(
+                String(localized: "Diagnostics"),
+                footnote: "Reports are recorded on this device and stay on it until you share them."
+            ) {
+                #if os(iOS)
+                    NavigationLink(isActive: $showCrashReportList) {
+                        CrashReportListView()
+                    } label: {
+                        reportRow(
+                            title: String(localized: "Crash Report"),
+                            systemImage: "ladybug.fill",
+                            tint: .pink,
+                            unread: environments.crashReportManager.unreadCount
+                        )
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .reportReceived)) { notification in
+                        Task {
+                            try? await Task.sleep(nanoseconds: NSEC_PER_MSEC * 300)
+                            if let reportType = notification.object as? ReportType {
+                                switch reportType {
+                                case .crash:
+                                    showCrashReportList = true
+                                case .oom:
+                                    showOOMReportList = true
+                                case .power:
+                                    showPowerReportList = true
+                                }
+                            }
+                        }
+                    }
+                    HakoSettingsDivider()
+                    NavigationLink(isActive: $showOOMReportList) {
+                        OOMReportListView()
+                    } label: {
+                        reportRow(
+                            title: String(localized: "Out of Memory Report"),
+                            systemImage: "memorychip",
+                            tint: .indigo,
+                            unread: environments.oomReportManager.unreadCount
+                        )
+                    }
+                    HakoSettingsDivider()
+                    NavigationLink(isActive: $showPowerReportList) {
+                        PowerReportListView()
+                    } label: {
+                        reportRow(
+                            title: String(localized: "Power Report"),
+                            systemImage: "battery.50percent",
+                            tint: .green,
+                            unread: environments.powerReportManager.unreadCount
+                        )
+                    }
+                #else
+                    FormNavigationLink {
+                        CrashReportListView()
+                    } label: {
+                        HakoToolRow(
+                            title: String(localized: "Crash Report"),
+                            systemImage: "ladybug.fill",
+                            tint: .pink,
+                            detail: unreadDetail(environments.crashReportManager.unreadCount)
+                        )
+                    }
+                    HakoSettingsDivider()
+                    FormNavigationLink {
+                        OOMReportListView()
+                    } label: {
+                        HakoToolRow(
+                            title: String(localized: "Out of Memory Report"),
+                            systemImage: "memorychip",
+                            tint: .indigo,
+                            detail: unreadDetail(environments.oomReportManager.unreadCount)
+                        )
+                    }
+                    HakoSettingsDivider()
+                    FormNavigationLink {
+                        PowerReportListView()
+                    } label: {
+                        HakoToolRow(
+                            title: String(localized: "Power Report"),
+                            systemImage: "battery.50percent",
+                            tint: .green,
+                            detail: unreadDetail(environments.powerReportManager.unreadCount)
+                        )
+                    }
+                #endif
+            }
+        }
+    }
+
+    /// A report row on the touch client: the count is the row's own badge rather than a
+    /// subtitle, because it is a number that changes and the row already has its title.
+    private func reportRow(
+        title: String,
+        systemImage: String,
+        tint: HakoAccentRole,
+        unread: Int
+    ) -> some View {
+        HakoDestinationRow(
+            title: title,
+            subtitle: unread > 0 ? String(localized: "\(unread) unread") : nil,
+            systemImage: systemImage,
+            tint: tint.color,
+            badge: unread > 0 ? "\(unread)" : nil,
+            badgeEmphasis: .info
+        )
     }
 
     /// The second line a report row shows on the touch platforms, where a row has one.

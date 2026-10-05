@@ -178,14 +178,24 @@ public enum HakoPrimaryChildArmer {
 
 /// The touch client's shell.
 ///
-/// The caller supplies the page contents, the badge and the bottom accessory; the
-/// shell owns the tab bar, the mapping to and from `selection`, and the
-/// first-appearance animation rule.
-public struct HakoPrimaryShell<Accessory: View>: View {
+/// The caller supplies the page contents and the badge; the shell owns the tab bar,
+/// the mapping to and from `selection`, and the first-appearance animation rule.
+///
+/// # Why there is no accessory slot
+///
+/// There used to be one, and the previous round used it to float a second global bar -
+/// a runtime status pill with its own start control - above the tab bar. Two stacked
+/// global bars is the single largest source of the "several apps stitched together"
+/// reading this migration removes: the user cannot tell which of the two is the app's
+/// navigation and which is a status readout, and every page pays for both.
+///
+/// The slot is gone rather than merely unused, because an unused slot is an invitation.
+/// Runtime state is a card on Home, the start control is Home's primary action, and the
+/// remote-control state is a banner on the page that owns it.
+public struct HakoPrimaryShell: View {
     @Binding private var selection: NavigationPage
     private let palette: HakoProductPalette
     private let toolsBadge: Int
-    @ViewBuilder private let accessory: () -> Accessory
     @ViewBuilder private let pageContent: (NavigationPage) -> AnyView
 
     @State private var initializedTabs: Set<HakoPrimaryTab> = []
@@ -200,13 +210,11 @@ public struct HakoPrimaryShell<Accessory: View>: View {
         selection: Binding<NavigationPage>,
         palette: HakoProductPalette = .system,
         toolsBadge: Int = 0,
-        @ViewBuilder accessory: @escaping () -> Accessory,
         @ViewBuilder pageContent: @escaping (NavigationPage) -> some View
     ) {
         _selection = selection
         self.palette = palette
         self.toolsBadge = toolsBadge
-        self.accessory = accessory
         self.pageContent = { AnyView(pageContent($0)) }
     }
 
@@ -222,14 +230,6 @@ public struct HakoPrimaryShell<Accessory: View>: View {
                         // nothing. The push also gives the page the back button and
                         // the interactive dismissal the platform expects.
                         .background(childDestination(for: primary))
-                        .safeAreaInset(edge: .bottom, spacing: 0) {
-                            accessory()
-                                .transaction { transaction in
-                                    if !initializedTabs.contains(primary) {
-                                        transaction.disablesAnimations = true
-                                    }
-                                }
-                        }
                         .onAppear {
                             // The root has now rendered, so its navigation host exists and a
                             // child selected before this moment can be pushed onto it. This is
@@ -350,25 +350,34 @@ public struct HakoPrimaryShell<Accessory: View>: View {
             )
         ) {
             if let child = pushedChild[primary] {
-                pageContent(child)
+                childPage(child)
             }
         }
     }
-}
 
-public extension HakoPrimaryShell where Accessory == EmptyView {
-    init(
-        selection: Binding<NavigationPage>,
-        palette: HakoProductPalette = .system,
-        toolsBadge: Int = 0,
-        @ViewBuilder pageContent: @escaping (NavigationPage) -> some View
-    ) {
-        self.init(
-            selection: selection,
-            palette: palette,
-            toolsBadge: toolsBadge,
-            accessory: { EmptyView() },
-            pageContent: pageContent
-        )
+    /// A page pushed inside a primary.
+    ///
+    /// The root tab bar belongs to the roots and to nothing else, so a pushed page
+    /// hides it. That is the whole rule of the presentation policy, and it is applied
+    /// here - at the one place a child page is built - rather than by each page
+    /// remembering to ask, because a page that forgot would be a page whose tab bar
+    /// leaked.
+    ///
+    /// `toolbar(_:for: .tabBar)` is iOS 16 and later. On iOS 15 there is no SwiftUI
+    /// way to hide the bar of an enclosing `TabView`, and reaching into the backing
+    /// `UITabBarController` would be an untestable hack on a system this build cannot
+    /// run on; the bar therefore stays on that one system version.
+    @ViewBuilder
+    private func childPage(_ child: NavigationPage) -> some View {
+        #if os(iOS)
+            if #available(iOS 16.0, *) {
+                pageContent(child)
+                    .toolbar(.hidden, for: .tabBar)
+            } else {
+                pageContent(child)
+            }
+        #else
+            pageContent(child)
+        #endif
     }
 }

@@ -4,9 +4,24 @@
 //
 //  The Home page, in the HAKO/Clash page language.
 //
-//  Structure follows Hako-Client (GPL-3.0) `Features/Home/HakoHomeView.swift` at
-//  commit 62aa2f2f: profile and service state first, then the outbound mode, then
-//  the shortcuts into proxies and activity, then traffic.
+//  Structure follows Hako-Client (GPL-3.0) `Sources/OverviewContent.swift` at commit
+//  62aa2f2f: the connection card first and unconditionally, then the widgets the user
+//  has kept, then the way into everything else.
+//
+//  # The order, and why it is this order
+//
+//    1. session      what am I running, and the one control that changes it
+//    2. profile      which configuration, and what can be done to it
+//    3. mode         how outbound traffic is being routed
+//    4. shortcuts    the way into proxies, activity and logs
+//    5. traffic      what it is costing, live
+//    6. runtime      what the kernel is doing
+//
+//  The page this replaces opened with a grid of figures - memory, goroutines,
+//  connections, upload, download - which is a dashboard for someone watching the
+//  kernel rather than a home screen for someone using the tunnel. The figures are all
+//  still here; they have moved behind the state they describe, and they are the part
+//  of the page that yields when the page is short.
 //
 //  # What is reused and what is not
 //
@@ -19,13 +34,6 @@
 //
 //  What HAKO supplies is the page: one canvas, one column, one card language, and
 //  destination rows that lead into the rest of the client.
-//
-//  # Why the cards are not wrapped in a section
-//
-//  Each card already draws its own surface, now with the shared card radius and
-//  insets. Wrapping one in a painted section would put a card inside a card, so the
-//  page stacks them on the canvas and only the bare destination rows get a painted
-//  section of their own.
 //
 
 import Foundation
@@ -92,7 +100,8 @@ public struct HakoHomeView: View {
     }
 
     public var body: some View {
-        HakoPrimaryPage {
+        HakoRootScaffold {
+            sessionCard
             profileCard
             if showsConnectedCards, enabledCards.contains(.clashMode) {
                 ClashModeCard()
@@ -100,18 +109,11 @@ public struct HakoHomeView: View {
             }
             shortcutsSection
             if showsConnectedCards {
-                trafficCards
+                trafficSection
                 if enabledCards.contains(.httpProxy), systemProxyAvailable {
                     httpProxyCard
                 }
-                if enabledCards.contains(.status) {
-                    StatusCard()
-                        .environmentObject(environments.commandClient)
-                }
-                if enabledCards.contains(.connections) {
-                    ConnectionsCard()
-                        .environmentObject(environments.commandClient)
-                }
+                runtimeSection
             }
         }
         .alert($coordinator.alert)
@@ -120,6 +122,102 @@ public struct HakoHomeView: View {
         // lives here because the switch itself is asynchronous and this page owns the
         // control that started it.
         .disabled(!Variant.screenshotMode && (!profile.status.isSwitchable || coordinator.reasserting))
+    }
+
+    // MARK: - Session
+
+    /// The first card: the tunnel's state, the profile it is running, and the one
+    /// control that starts or stops it.
+    ///
+    /// This is where the floating start control went when the second global bottom bar
+    /// was removed. It belongs here rather than on a bar: "start the tunnel" is the
+    /// page's primary action, and a primary action that follows the user onto every
+    /// other page is a bar, not a button.
+    private var sessionCard: some View {
+        HakoCardSurface(
+            fill: HakoProductPalette.system.card,
+            separator: HakoProductPalette.system.separator,
+            cornerRadius: HakoTheme.Radius.groupedSection
+        ) {
+            VStack(alignment: .leading, spacing: HakoTheme.Spacing.standard) {
+                HStack(alignment: .center, spacing: HakoTheme.Spacing.row) {
+                    VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+                        HStack(spacing: HakoTheme.Spacing.compact) {
+                            Circle()
+                                .fill(sessionTint)
+                                .frame(width: 9, height: 9)
+                                .accessibilityHidden(true)
+                            Text(sessionTitle)
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.primary)
+                        }
+                        Text(selectedProfileName ?? String(localized: "No profile selected"))
+                            .font(HakoTheme.Typography.rowSubtitle(Locale.current))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer(minLength: HakoTheme.Spacing.compact)
+
+                    StartStopButton(showsRuntimeDuration: true)
+                }
+
+                if let detail = sessionDetail {
+                    HakoStatusLine(
+                        detail.title,
+                        detail: detail.value,
+                        tint: detail.emphasis
+                    )
+                }
+            }
+            .padding(HakoTheme.Layout.cardInnerPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var sessionTitle: String {
+        switch profile.status {
+        case .connected: String(localized: "Started")
+        case .connecting: String(localized: "Starting")
+        case .disconnecting: String(localized: "Stopping")
+        case .reasserting: String(localized: "Reasserting")
+        case .disconnected: String(localized: "Stopped")
+        default: String(localized: "Unknown")
+        }
+    }
+
+    private var sessionTint: Color {
+        switch profile.status {
+        case .connected: .green
+        case .connecting, .reasserting: .orange
+        case .disconnecting: .orange
+        case .disconnected: .secondary
+        default: .red
+        }
+    }
+
+    /// One line of live state, and only one: the page's job is to answer "is it
+    /// running" first and "how is it doing" second, and the second answer belongs to
+    /// the runtime card further down.
+    private var sessionDetail: (title: String, value: String?, emphasis: HakoStatusBadge.Emphasis)? {
+        if Variant.screenshotMode {
+            return (String(localized: "Remote control"), nil, .neutral)
+        }
+        if environments.remoteServer != nil {
+            return (String(localized: "Remote control"), nil, .info)
+        }
+        if environments.emptyProfiles {
+            return (String(localized: "Add a profile to start"), nil, .warning)
+        }
+        if !profile.status.isSwitchable {
+            return (String(localized: "Switching…"), nil, .info)
+        }
+        return nil
+    }
+
+    private var selectedProfileName: String? {
+        profileList.first { $0.id == selectedProfileID }?.name
     }
 
     // MARK: - Cards
@@ -146,16 +244,78 @@ public struct HakoHomeView: View {
         }
     }
 
+    /// Traffic, side by side where both cards are enabled and stacked where only one is.
+    ///
+    /// The two cards are half-width by design and were previously laid out by the card
+    /// grid's own grouping rules. A single card is *not* left at half width, because a
+    /// half-width card alone on a page reads as a layout that failed rather than as one
+    /// the user configured.
     @ViewBuilder
-    private var trafficCards: some View {
-        if enabledCards.contains(.uploadTraffic) {
-            UploadTrafficCard()
-                .environmentObject(environments.commandClient)
+    private var trafficSection: some View {
+        let showsUpload = enabledCards.contains(.uploadTraffic)
+        let showsDownload = enabledCards.contains(.downloadTraffic)
+
+        if showsUpload, showsDownload {
+            LazyVGrid(columns: HakoHomeView.pairColumns, alignment: .leading, spacing: HakoTheme.Spacing.cardGap) {
+                uploadCard
+                downloadCard
+            }
+        } else if showsUpload {
+            uploadCard
+        } else if showsDownload {
+            downloadCard
         }
-        if enabledCards.contains(.downloadTraffic) {
-            DownloadTrafficCard()
-                .environmentObject(environments.commandClient)
+    }
+
+    private var uploadCard: some View {
+        UploadTrafficCard()
+            .environmentObject(environments.commandClient)
+            .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var downloadCard: some View {
+        DownloadTrafficCard()
+            .environmentObject(environments.commandClient)
+            .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    /// The kernel's own figures, under one heading rather than as the page's skeleton.
+    @ViewBuilder
+    private var runtimeSection: some View {
+        let showsStatus = enabledCards.contains(.status)
+        let showsConnections = enabledCards.contains(.connections)
+
+        if showsStatus, showsConnections {
+            LazyVGrid(columns: HakoHomeView.pairColumns, alignment: .leading, spacing: HakoTheme.Spacing.cardGap) {
+                statusCard
+                connectionsCard
+            }
+        } else if showsStatus {
+            statusCard
+        } else if showsConnections {
+            connectionsCard
         }
+    }
+
+    private var statusCard: some View {
+        StatusCard()
+            .environmentObject(environments.commandClient)
+            .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var connectionsCard: some View {
+        ConnectionsCard()
+            .environmentObject(environments.commandClient)
+            .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    /// The two equal columns a paired card row uses.
+    ///
+    /// `LazyVGrid` rather than an `HStack` so the pair collapses to one column by itself
+    /// on a narrow window or at a large Dynamic Type size, without the page having to
+    /// measure anything.
+    private static var pairColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 150), spacing: HakoTheme.Spacing.cardGap)]
     }
 
     private var httpProxyCard: some View {
@@ -170,10 +330,10 @@ public struct HakoHomeView: View {
     /// The shortcuts the reference design puts between the mode and the traffic.
     ///
     /// These are the client's own destinations: the two sheets the root view
-    /// presents, and the log page, which is selected rather than pushed so the
+    /// presents, and the logs page, which is selected rather than pushed so the
     /// existing "logs selected → connect the command client" hook still runs.
     private var shortcutsSection: some View {
-        HakoSection(palette: .system) {
+        HakoSettingsSection(palette: .system) {
             if showGroups {
                 shortcutRow(
                     title: String(localized: "Proxies"),
@@ -217,7 +377,7 @@ public struct HakoHomeView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HakoDestinationRow(
+            HakoNavigationRow(
                 title: title,
                 subtitle: subtitle,
                 systemImage: systemImage,

@@ -1,0 +1,707 @@
+//
+//  HakoData.swift
+//  ApplicationLibrary
+//
+//  The data-presentation layer: cards and rows for the pages that show live values
+//  rather than settings.
+//
+//  # Why this is separate from HakoRow
+//
+//  A settings row and a data row are different objects that happen to be drawn with
+//  the same measurements. A settings row is a promise - "tapping this changes
+//  something" - and its shape is title, optional explanation, one control. A data row
+//  is a record: it says where a connection is going, how it is routed and what it has
+//  cost, all at once, in a list of hundreds, while the numbers change underneath it.
+//
+//  Wrapping a connection in a settings row is what produced the previous round's
+//  layout failures: the metric pushed the destination off the line, the badge
+//  overflowed, and an IPv6 literal was truncated into something unrecognisable.
+//  These components put the priorities in the right order, so the record's identity
+//  survives and the figures give way.
+//
+
+import SwiftUI
+
+/// A badge's role, which decides how strongly it reads.
+public enum HakoBadgeRole: String, CaseIterable, Sendable {
+    /// A live fact about the record: its protocol, its state.
+    case status
+    /// Something the record satisfies: a rule's type, a group's strategy.
+    case requirement
+    /// A category the record belongs to. Reads the quietest.
+    case category
+
+    var emphasis: HakoStatusBadge.Emphasis {
+        switch self {
+        case .status: .info
+        case .requirement: .neutral
+        case .category: .neutral
+        }
+    }
+}
+
+/// The shared badge: a short label in a capsule, in one of three roles.
+///
+/// It is deliberately not a button and not a control. Anything interactive belongs in
+/// the row's trailing slot, which is why a badge can never steal a tap.
+public struct HakoBadge: View {
+    private let text: String
+    private let role: HakoBadgeRole
+    private let emphasis: HakoStatusBadge.Emphasis?
+
+    public init(_ text: String, role: HakoBadgeRole = .status, emphasis: HakoStatusBadge.Emphasis? = nil) {
+        self.text = text
+        self.role = role
+        self.emphasis = emphasis
+    }
+
+    public var body: some View {
+        HakoStatusBadge(text, emphasis: emphasis ?? role.emphasis)
+            .accessibilityHidden(true)
+    }
+}
+
+/// A horizontal run of badges that never overflows its row.
+///
+/// The run shows what fits and folds the rest into a `+n`, because a badge that pushes
+/// the record's own name off the line has done more harm than the fact it carried. The
+/// complete set is still in the row's accessibility label.
+public struct HakoBadgeRow: View {
+    private let badges: [String]
+    private let role: HakoBadgeRole
+    private let maximumVisible: Int
+
+    public init(_ badges: [String], role: HakoBadgeRole = .status, maximumVisible: Int = 3) {
+        self.badges = badges
+        self.role = role
+        self.maximumVisible = maximumVisible
+    }
+
+    public var body: some View {
+        let visible = Array(badges.prefix(maximumVisible))
+        let overflow = badges.count - visible.count
+
+        HStack(spacing: HakoTheme.Spacing.tight) {
+            ForEach(Array(visible.enumerated()), id: \.offset) { _, badge in
+                HakoBadge(badge, role: role)
+            }
+            if overflow > 0 {
+                HakoBadge("+\(overflow)", role: .category)
+            }
+        }
+        .lineLimit(1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(badges.joined(separator: ", ")))
+    }
+}
+
+/// A card that holds records rather than settings.
+///
+/// One card for the whole list on the touch client, not one per record: a connection
+/// list holds hundreds of rows, and per-row material is the cost the design notes call
+/// out. The card takes an optional header and an optional footnote, and draws its own
+/// dividers between the rows it is given.
+public struct HakoDataCard<Content: View, Header: View, Footer: View>: View {
+    private let palette: HakoProductPalette
+    private let header: Header
+    private let footer: Footer
+    private let content: Content
+
+    public init(
+        palette: HakoProductPalette = .system,
+        @ViewBuilder header: () -> Header,
+        @ViewBuilder footer: () -> Footer,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.palette = palette
+        self.header = header()
+        self.footer = footer()
+        self.content = content()
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: HakoTheme.Spacing.compact) {
+            header
+
+            HakoCardSurface(
+                fill: palette.card,
+                separator: palette.separator,
+                cornerRadius: HakoTheme.Radius.groupedSection
+            ) {
+                VStack(spacing: 0) {
+                    content
+                }
+                .padding(.horizontal, HakoTheme.Layout.cardInnerPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            footer
+        }
+    }
+}
+
+public extension HakoDataCard where Header == EmptyView, Footer == EmptyView {
+    init(
+        palette: HakoProductPalette = .system,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.init(palette: palette, header: { EmptyView() }, footer: { EmptyView() }, content: content)
+    }
+}
+
+/// A single record in a data card.
+///
+/// The composition, in the order it is laid out:
+///
+///   1. a leading mark - an icon well, a protocol tile, a state dot;
+///   2. the record's identity: its destination or name, which gets the line's
+///      `layoutPriority` and may be truncated only in the middle;
+///   3. the route or chain beneath it, one line, secondary;
+///   4. the badges, which yield before the identity;
+///   5. the trailing figures, which yield last and are monospaced so a column of
+///      them lines up.
+///
+/// A record therefore stays recognisable at every width: the destination is the last
+/// thing to give way, and the metric is the first.
+public struct HakoDataRow<Leading: View, Trailing: View>: View {
+    private let title: String
+    private let route: String?
+    private let badges: [String]
+    private let badgeRole: HakoBadgeRole
+    private let titleIsMonospaced: Bool
+    private let leading: Leading
+    private let trailing: Trailing
+
+    public init(
+        title: String,
+        route: String? = nil,
+        badges: [String] = [],
+        badgeRole: HakoBadgeRole = .status,
+        titleIsMonospaced: Bool = false,
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.title = title
+        self.route = route
+        self.badges = badges
+        self.badgeRole = badgeRole
+        self.titleIsMonospaced = titleIsMonospaced
+        self.leading = leading()
+        self.trailing = trailing()
+    }
+
+    public var body: some View {
+        HStack(alignment: .top, spacing: HakoTheme.Spacing.row) {
+            leading
+
+            VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+                Text(title)
+                    .font(titleIsMonospaced
+                        ? .subheadline.monospaced().weight(.semibold)
+                        : HakoTheme.FontRole.dataPrimary)
+                    // The identity is what the row is about, so it is the only part
+                    // allowed to ask for space first, and the only part allowed to
+                    // truncate - in the middle, because the end of a host name and the
+                    // end of an IPv6 literal are what identify it.
+                    .truncationMode(.middle)
+                    .lineLimit(2)
+                    .layoutPriority(2)
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+
+                if let route, !route.isEmpty {
+                    Text(route)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .truncationMode(.middle)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        .textSelection(.enabled)
+                }
+
+                if !badges.isEmpty {
+                    HakoBadgeRow(badges, role: badgeRole)
+                        .layoutPriority(0)
+                }
+            }
+
+            Spacer(minLength: HakoTheme.Spacing.compact)
+
+            trailing
+        }
+        .padding(.vertical, HakoTheme.Spacing.row)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+public extension HakoDataRow where Leading == EmptyView, Trailing == EmptyView {
+    init(
+        title: String,
+        route: String? = nil,
+        badges: [String] = [],
+        badgeRole: HakoBadgeRole = .status,
+        titleIsMonospaced: Bool = false
+    ) {
+        self.init(
+            title: title,
+            route: route,
+            badges: badges,
+            badgeRole: badgeRole,
+            titleIsMonospaced: titleIsMonospaced,
+            leading: { EmptyView() },
+            trailing: { EmptyView() }
+        )
+    }
+}
+
+/// The figures at the end of a data row: uploaded, downloaded, duration.
+///
+/// A column of them, right-aligned and monospaced, so a list of connections can be
+/// read down rather than across. Each pair is one line, because two figures on two
+/// lines is what makes a dense list scanable.
+public struct HakoMetricStack: View {
+    public struct Line: Identifiable {
+        public let id = UUID()
+        public let symbol: String
+        public let text: String
+
+        public init(symbol: String, text: String) {
+            self.symbol = symbol
+            self.text = text
+        }
+    }
+
+    private let lines: [Line]
+    private let tint: Color?
+
+    public init(_ lines: [Line], tint: Color? = nil) {
+        self.lines = lines
+        self.tint = tint
+    }
+
+    public var body: some View {
+        VStack(alignment: .trailing, spacing: HakoTheme.Spacing.tight) {
+            ForEach(lines) { line in
+                HStack(spacing: HakoTheme.Spacing.tight) {
+                    Image(systemName: line.symbol)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    Text(line.text)
+                        .font(HakoTheme.FontRole.metric)
+                        .foregroundStyle(tint ?? .secondary)
+                        // A large figure gives way before the record's name does: the
+                        // alternative is a rate that pushes a host name off the row.
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The one-line summary above a data list: how many records there are, and what they
+/// add up to.
+///
+/// It is a card rather than a row of loose figures because it is the list's own
+/// heading, and a heading that is not a surface reads as content that has not loaded.
+public struct HakoSummaryCard<Content: View>: View {
+    private let title: String
+    private let symbol: String
+    private let tint: HakoAccentRole
+    private let content: Content
+
+    public init(
+        _ title: String,
+        symbol: String,
+        tint: HakoAccentRole,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.symbol = symbol
+        self.tint = tint
+        self.content = content()
+    }
+
+    public var body: some View {
+        HakoCardSurface(
+            fill: HakoProductPalette.system.card,
+            separator: HakoProductPalette.system.separator,
+            cornerRadius: HakoTheme.Radius.groupedSection
+        ) {
+            VStack(alignment: .leading, spacing: HakoTheme.Spacing.row) {
+                HakoCardTitle(verbatim: title, systemImage: symbol, tint: tint.color)
+                content
+            }
+            .padding(HakoTheme.Layout.cardInnerPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// One labelled figure inside a summary card.
+public struct HakoSummaryMetric: View {
+    private let label: String
+    private let value: String
+    private let symbol: String?
+
+    public init(_ label: String, value: String, symbol: String? = nil) {
+        self.label = label
+        self.value = value
+        self.symbol = symbol
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+            HStack(spacing: HakoTheme.Spacing.tight) {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(value)
+                .font(.subheadline.monospacedDigit().weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A label and a value on one line, for the routing summary of a connection.
+public struct HakoRouteSummaryRow: View {
+    private let label: String
+    private let value: String
+
+    public init(_ label: String, value: String) {
+        self.label = label
+        self.value = value
+    }
+
+    public var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
+            Text(label)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .layoutPriority(1)
+            Spacer(minLength: HakoTheme.Spacing.tight)
+            Text(value)
+                .font(.footnote)
+                .foregroundStyle(.primary)
+                .truncationMode(.middle)
+                .lineLimit(1)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The header of a proxy group, and the proxy group's own summary line.
+///
+/// The group is the unit of the proxy workspace: its name, how it chooses, which member
+/// it currently resolves to, how many members it has, and two actions - test, and open
+/// it in place. The selected member is shown here rather than only inside the expanded
+/// body because a collapsed group still has to answer "what am I using".
+public struct HakoExpandableGroupRow: View {
+    private let name: String
+    private let strategy: String
+    private let selectedMember: String?
+    private let memberCount: Int
+    private let isExpanded: Bool
+    private let isTesting: Bool
+    private let isSelectable: Bool
+    private let onToggle: () -> Void
+    private let onTest: (() -> Void)?
+
+    public init(
+        name: String,
+        strategy: String,
+        selectedMember: String?,
+        memberCount: Int,
+        isExpanded: Bool,
+        isTesting: Bool = false,
+        isSelectable: Bool = true,
+        onToggle: @escaping () -> Void,
+        onTest: (() -> Void)? = nil
+    ) {
+        self.name = name
+        self.strategy = strategy
+        self.selectedMember = selectedMember
+        self.memberCount = memberCount
+        self.isExpanded = isExpanded
+        self.isTesting = isTesting
+        self.isSelectable = isSelectable
+        self.onToggle = onToggle
+        self.onTest = onTest
+    }
+
+    public var body: some View {
+        HStack(alignment: .center, spacing: HakoTheme.Spacing.row) {
+            // The disclosure control is a button of its own rather than the whole row,
+            // because the row also carries a test action: making the entire surface
+            // toggle is what makes a member tap expand a group instead of selecting a
+            // member.
+            Button(action: onToggle) {
+                HStack(alignment: .center, spacing: HakoTheme.Spacing.row) {
+                    chevron
+                    copy
+                    Spacer(minLength: HakoTheme.Spacing.compact)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(HakoPushRowButtonStyle())
+            .accessibilityLabel(Text(isExpanded ? "Collapse" : "Expand"))
+            .accessibilityAddTraits(isExpanded ? [.isButton, .isSelected] : .isButton)
+
+            if let onTest {
+                HakoActionItem(
+                    systemImage: "bolt.fill",
+                    label: String(localized: "Test latency"),
+                    isBusy: isTesting,
+                    action: onTest
+                )
+            }
+        }
+        .padding(.vertical, HakoTheme.Spacing.compact)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.tertiary)
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            .frame(width: HakoTheme.Spacing.standard)
+            .accessibilityHidden(true)
+    }
+
+    private var copy: some View {
+        VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+            HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
+                Text(name)
+                    .font(HakoTheme.FontRole.dataPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                HakoBadge(strategy, role: .requirement)
+                Spacer(minLength: 0)
+                HakoBadge("\(memberCount)", role: .category)
+            }
+
+            if isSelectable, let selectedMember, !selectedMember.isEmpty {
+                HStack(spacing: HakoTheme.Spacing.tight) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(Color.accentColor)
+                        .accessibilityHidden(true)
+                    Text(selectedMember)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            } else if !isSelectable {
+                Text("Automatic selection")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+/// A member of a proxy group, in the shared row language.
+///
+/// Selection is one tap and expansion is another control, deliberately: a member row
+/// that both selected and expanded was the "member tap triggers expand instead of
+/// select" defect the manual names.
+public struct HakoProxyMemberRow: View {
+    private let name: String
+    private let protocolName: String
+    private let latency: String?
+    private let latencyTint: Color?
+    private let isSelected: Bool
+    private let isSelectable: Bool
+    private let isTesting: Bool
+    private let onSelect: () -> Void
+    private let onTest: (() -> Void)?
+
+    public init(
+        name: String,
+        protocolName: String,
+        latency: String?,
+        latencyTint: Color? = nil,
+        isSelected: Bool,
+        isSelectable: Bool = true,
+        isTesting: Bool = false,
+        onSelect: @escaping () -> Void,
+        onTest: (() -> Void)? = nil
+    ) {
+        self.name = name
+        self.protocolName = protocolName
+        self.latency = latency
+        self.latencyTint = latencyTint
+        self.isSelected = isSelected
+        self.isSelectable = isSelectable
+        self.isTesting = isTesting
+        self.onSelect = onSelect
+        self.onTest = onTest
+    }
+
+    public var body: some View {
+        HStack(spacing: HakoTheme.Spacing.compact) {
+            Button(action: onSelect) {
+                HStack(spacing: HakoTheme.Spacing.compact) {
+                    HakoSelectionMark(isSelected: isSelected)
+                    Text(name)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .layoutPriority(1)
+                    Spacer(minLength: HakoTheme.Spacing.tight)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(HakoPushRowButtonStyle())
+            .disabled(!isSelectable)
+            .accessibilityLabel(Text(name))
+
+            HakoBadge(protocolName, role: .category)
+
+            if let latency {
+                Text(latency)
+                    .font(HakoTheme.FontRole.metric)
+                    .foregroundStyle(latencyTint ?? .secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(minWidth: 44, alignment: .trailing)
+            }
+
+            if let onTest {
+                HakoActionItem(
+                    systemImage: "bolt.fill",
+                    label: String(localized: "Test latency"),
+                    isBusy: isTesting,
+                    action: onTest
+                )
+                .frame(width: HakoTheme.Control.actionItemMinimumWidth)
+            }
+        }
+        .padding(.vertical, HakoTheme.Spacing.compact)
+        .frame(minHeight: HakoTheme.Control.toggleRowMinHeight)
+    }
+}
+
+/// A tile that carries out an action the page cannot express as a row: import, scan,
+/// restore.
+///
+/// Used in the config centre and the import sheets, where the action is the point of
+/// the page rather than an entry in a list.
+public struct HakoActionTile: View {
+    private let title: String
+    private let systemImage: String
+    private let tint: HakoAccentRole
+    private let isEnabled: Bool
+    private let action: () -> Void
+
+    public init(
+        _ title: String,
+        systemImage: String,
+        tint: HakoAccentRole,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.tint = tint
+        self.isEnabled = isEnabled
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            VStack(spacing: HakoTheme.Spacing.compact) {
+                HakoIconWell(tint: tint.color) {
+                    Image(systemName: systemImage)
+                        .font(.body.weight(.semibold))
+                }
+                Text(title)
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, HakoTheme.Spacing.row)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(HakoPushRowButtonStyle())
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
+        .accessibilityLabel(Text(title))
+    }
+}
+
+/// A full-width progress or status line above a card of records: an update in flight,
+/// a subscription's expiry.
+public struct HakoStatusLine: View {
+    private let title: String
+    private let detail: String?
+    private let tint: HakoStatusBadge.Emphasis
+    private let isBusy: Bool
+
+    public init(_ title: String, detail: String? = nil, tint: HakoStatusBadge.Emphasis = .neutral, isBusy: Bool = false) {
+        self.title = title
+        self.detail = detail
+        self.tint = tint
+        self.isBusy = isBusy
+    }
+
+    public var body: some View {
+        HStack(spacing: HakoTheme.Spacing.compact) {
+            if isBusy {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Circle()
+                    .fill(tint.roleTint)
+                    .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+            }
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            Spacer(minLength: HakoTheme.Spacing.compact)
+            if let detail {
+                Text(detail)
+                    .font(HakoTheme.FontRole.metric)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private extension HakoStatusBadge.Emphasis {
+    var roleTint: Color {
+        switch self {
+        case .neutral: .secondary
+        case .info: .blue
+        case .success: .green
+        case .warning: .orange
+        case .failure: .red
+        }
+    }
+}

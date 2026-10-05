@@ -1,6 +1,30 @@
 import Library
 import SwiftUI
 
+/// What the system routes through the tunnel.
+///
+/// # What this page used to be
+///
+/// Six toggles whose titles were the NetworkExtension property names -
+/// `includeAllNetworks`, `excludeAPNs`, `excludeCellularServices`,
+/// `excludeLocalNetworks`, `enforceRoutes`, `excludeDeviceCommunication` - each
+/// carrying the framework's own documentation pasted into its footer, each ending in
+/// its own high-saturation `Apple Documentation` link, and one of them describing
+/// itself as "No documentation."
+///
+/// That is not a settings page; it is a header file with switches. The properties are
+/// still the source of truth and the switches still write the same preferences with the
+/// same polarity, but the page now says what each one does to the user's traffic, in one
+/// line, and the framework's documentation is a single link at the end of the page.
+///
+/// # Why the polarity is not inverted
+///
+/// The manual's wording for these rows is positive - "Include APNs" - while the stored
+/// preferences are negative (`exclude_apns` defaults to true). Relabelling them
+/// positively would mean inverting each toggle, which changes what an existing user
+/// sees without changing what they get, and hides the fact that the default is to
+/// exclude. The titles therefore state what the switch does to the traffic, positively
+/// where the property is positive and negatively where it is negative.
 struct PacketTunnelView: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
     @State private var isLoading = true
@@ -14,100 +38,157 @@ struct PacketTunnelView: View {
     @State private var excludeDeviceCommunication = false
 
     init() {}
+
     var body: some View {
-        Group {
+        HakoSettingsScaffold(title: String(localized: "Tunnel")) {
             if isLoading {
-                ProgressView().onAppear {
-                    Task {
-                        await loadSettings()
-                    }
-                }
-            } else {
-                FormView {
-                    #if !os(tvOS)
-                        FormToggle("includeAllNetworks", """
-                        If this property is true, the system routes network traffic through the tunnel except traffic for designated system services necessary for maintaining expected device functionality. You can exclude some types of traffic using the **excludeAPNs**, **excludeLocalNetworks**, and **excludeCellularServices** properties in combination with this property.
-
-                        when enabled, the default TUN stack is changed to `gvisor`, and the `system` and `mixed` stacks are not available.
-
-                        [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3131931-includeallnetworks)
-                        """, $includeAllNetworks) { newValue in
-                            await SharedPreferences.includeAllNetworks.set(newValue)
-                            await restartService()
-                        }
-
-                        if #available(iOS 16.4, macOS 13.3, *) {
-                            FormToggle("excludeAPNs", """
-                            If this property is true, the system excludes Apple Push Notification services (APNs) traffic, but only when the **includeAllNetworks** property is also true.
-
-                            [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140516-excludeapns)
-                            """, $excludeAPNs) { newValue in
-                                await SharedPreferences.excludeAPNs.set(newValue)
-                                await restartService()
-                            }
-
-                            FormToggle("excludeCellularServices", """
-                            If this property is true, the system excludes cellular services — such as Wi-Fi Calling, MMS, SMS, and Visual Voicemail — but only when the **includeAllNetworks** property is also true. This property doesn't impact services that use the cellular network only — such as VoLTE — which the system automatically excludes.
-
-                            [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140517-excludecellularservices)
-                            """, $excludeCellularServices) { newValue in
-                                await SharedPreferences.excludeCellularServices.set(newValue)
-                                await restartService()
-                            }
-                        }
-
-                        FormToggle("excludeLocalNetworks", """
-                        If this property is true, the system excludes network connections to hosts on the local network — such as AirPlay, AirDrop, and CarPlay — but only when the **includeAllNetworks** or **enforceRoutes** property is also true.
-
-                        [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3143658-excludelocalnetworks)
-                        """, $excludeLocalNetworks) { newValue in
-                            await SharedPreferences.excludeLocalNetworks.set(newValue)
-                            await restartService()
-                        }
-
-                        FormToggle("enforceRoutes", """
-                        If this property is true when the **includeAllNetworks** property is false, the system scopes the included routes to the VPN and the excluded routes to the current primary network interface. This property supersedes the system routing table and scoping operations by apps.
-
-                        If you set both the **enforceRoutes** and **excludeLocalNetworks** properties to true, the system excludes network connections to hosts on the local network.
-
-                        [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3689459-enforceroutes)
-                        """, $enforceRoutes) { newValue in
-                            await SharedPreferences.enforceRoutes.set(newValue)
-                            await restartService()
-                        }
-
-                        if #available(iOS 17.4, macOS 14.4, *) {
-                            FormToggle("excludeDeviceCommunication", """
-                            No documentation.
-
-                            [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/excludedevicecommunication)
-                            """, $excludeDeviceCommunication) { newValue in
-                                await SharedPreferences.excludeDeviceCommunication.set(newValue)
-                                await restartService()
-                            }
-                        }
-
-                    #endif
-
-                    FormButton {
+                HakoLoadingState()
+                    .onAppear {
                         Task {
-                            await SharedPreferences.resetPacketTunnel()
-                            await restartService()
-                            isLoading = true
+                            await loadSettings()
                         }
-                    } label: {
-                        Label("Reset", systemImage: "eraser.fill")
                     }
-                    .foregroundColor(.red)
+            } else {
+                routingSection
+                exclusionSection
+                resetSection
+                documentationSection
+            }
+        }
+        .alert($alert)
+    }
+
+    // MARK: - Sections
+
+    private var routingSection: some View {
+        HakoSettingsSection(
+            String(localized: "Routing"),
+            footnote: "Changing any of these restarts the tunnel."
+        ) {
+            HakoToggleRow(
+                String(localized: "Include All Networks"),
+                subtitle: String(localized: "Route everything through the tunnel, except the system services the device needs to stay online."),
+                isOn: $includeAllNetworks
+            ) { newValue in
+                Task {
+                    await SharedPreferences.includeAllNetworks.set(newValue)
+                    await restartService()
+                }
+            }
+
+            HakoSettingsDivider()
+
+            HakoToggleRow(
+                String(localized: "Enforce Routes"),
+                subtitle: String(localized: "Keep the routes the tunnel does not carry on the current network interface, overriding the system routing table."),
+                isOn: $enforceRoutes
+            ) { newValue in
+                Task {
+                    await SharedPreferences.enforceRoutes.set(newValue)
+                    await restartService()
                 }
             }
         }
-        .navigationTitle("Packet Tunnel")
-        .alert($alert)
-        #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-        #endif
     }
+
+    private var exclusionSection: some View {
+        HakoSettingsSection(
+            String(localized: "Excluded Traffic"),
+            footnote: "These apply only while Include All Networks or Enforce Routes is on."
+        ) {
+            if #available(iOS 16.4, macOS 13.3, *) {
+                HakoToggleRow(
+                    String(localized: "Exclude APNs"),
+                    subtitle: String(localized: "Leave Apple Push Notification traffic outside the tunnel."),
+                    isOn: $excludeAPNs
+                ) { newValue in
+                    Task {
+                        await SharedPreferences.excludeAPNs.set(newValue)
+                        await restartService()
+                    }
+                }
+
+                HakoSettingsDivider()
+
+                HakoToggleRow(
+                    String(localized: "Exclude Cellular Services"),
+                    subtitle: String(localized: "Leave Wi-Fi Calling, MMS, SMS and Visual Voicemail outside the tunnel."),
+                    isOn: $excludeCellularServices
+                ) { newValue in
+                    Task {
+                        await SharedPreferences.excludeCellularServices.set(newValue)
+                        await restartService()
+                    }
+                }
+
+                HakoSettingsDivider()
+            }
+
+            HakoToggleRow(
+                String(localized: "Exclude Local Networks"),
+                subtitle: String(localized: "Leave AirPlay, AirDrop, CarPlay and other local-network traffic outside the tunnel."),
+                isOn: $excludeLocalNetworks
+            ) { newValue in
+                Task {
+                    await SharedPreferences.excludeLocalNetworks.set(newValue)
+                    await restartService()
+                }
+            }
+
+            if #available(iOS 17.4, macOS 14.4, *) {
+                HakoSettingsDivider()
+
+                HakoToggleRow(
+                    String(localized: "Exclude Device Communication"),
+                    subtitle: String(localized: "Leave traffic between this device and nearby devices outside the tunnel."),
+                    isOn: $excludeDeviceCommunication
+                ) { newValue in
+                    Task {
+                        await SharedPreferences.excludeDeviceCommunication.set(newValue)
+                        await restartService()
+                    }
+                }
+            }
+        }
+    }
+
+    private var resetSection: some View {
+        HakoSettingsSection(footnote: "Returns every option on this page to its default.") {
+            HakoDestructiveRow(
+                String(localized: "Reset Tunnel Settings"),
+                subtitle: String(localized: "Use the defaults the client ships with."),
+                systemImage: "eraser.fill"
+            ) {
+                Task {
+                    await SharedPreferences.resetPacketTunnel()
+                    await restartService()
+                    isLoading = true
+                }
+            }
+        }
+    }
+
+    /// One link for the whole page rather than one per row.
+    ///
+    /// The properties are Apple's, and the honest place to explain them is Apple's
+    /// documentation - once, as a destination, instead of as a saturated word repeated
+    /// under six switches.
+    private var documentationSection: some View {
+        HakoSettingsSection {
+            Link(destination: URL(string: "https://developer.apple.com/documentation/networkextension/nevpnprotocol")!) {
+                HakoNavigationRow(
+                    title: String(localized: "Apple's tunnel routing reference"),
+                    subtitle: String(localized: "How the system decides what a VPN routes"),
+                    systemImage: "doc.text.fill",
+                    tint: HakoAccentRole.blue.color,
+                    linksOut: true
+                )
+            }
+            .buttonStyle(HakoPushRowButtonStyle())
+        }
+    }
+
+    // MARK: - Behaviour
 
     private func restartService() async {
         guard let profile = environments.extensionProfile, profile.status.isConnected else {

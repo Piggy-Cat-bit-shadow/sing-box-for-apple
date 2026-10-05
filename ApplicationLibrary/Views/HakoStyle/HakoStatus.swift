@@ -147,26 +147,76 @@ public struct HakoCardLine: View {
     private let title: String
     private let value: String
     private let monospacedValue: Bool
+    private let systemImage: String?
+    private let tint: HakoAccentRole?
 
-    public init(_ title: String, value: String, monospacedValue: Bool = true) {
+    public init(
+        _ title: String,
+        value: String,
+        monospacedValue: Bool = true,
+        systemImage: String? = nil,
+        tint: HakoAccentRole? = nil
+    ) {
         self.title = title
         self.value = value
         self.monospacedValue = monospacedValue
+        self.systemImage = systemImage
+        self.tint = tint
     }
 
     public var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
-            Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            label
             Spacer(minLength: HakoTheme.Spacing.compact)
             Text(value)
-                .font(.subheadline)
+                .font(HakoTheme.FontRole.value)
                 .monospacedDigitIf(monospacedValue)
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.trailing)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if let systemImage {
+            Label {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } icon: {
+                Image(systemName: systemImage)
+                    .foregroundStyle(tint?.color ?? .secondary)
+            }
+        } else {
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// A measured figure, on its own.
+///
+/// A latency, a rate, a byte count: monospaced so a column of them lines up, and
+/// never the primary thing on a row - the row's title is. It exists so the workspace
+/// rows stop each picking `.caption` or `.subheadline` for the same number.
+public struct HakoMetricText: View {
+    private let text: String
+    private let tint: Color?
+
+    public init(_ text: String, tint: Color? = nil) {
+        self.text = text
+        self.tint = tint
+    }
+
+    public var body: some View {
+        Text(text)
+            .font(HakoTheme.FontRole.metric)
+            .foregroundStyle(tint ?? .secondary)
+            .lineLimit(1)
+            .accessibilityLabel(text)
     }
 }
 

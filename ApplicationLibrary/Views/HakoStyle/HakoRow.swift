@@ -52,6 +52,19 @@ public struct HakoIconWell<Icon: View>: View {
 /// destination - a `NavigationLink`, a `Button`, or a selection row - which keeps
 /// this component free of navigation policy and lets the same row serve a push, a
 /// sheet and a sidebar.
+///
+/// # Why the chevron is a parameter
+///
+/// A row inside the system's own grouped form already gets the platform's disclosure
+/// indicator: a `NavigationLink` in a `Form` draws one. Drawing this component's
+/// chevron on top of that is what produced the `>>` this migration exists to remove.
+///
+/// The two are therefore not both allowed, and the rule is structural rather than
+/// cosmetic: this row draws its own indicator exactly when the surrounding container
+/// does not. `HakoPlatformLayout.pageUsesSystemSettingsIdiom` is the same switch that
+/// decides whether the container is a `Form` or a painted card, so it is also the
+/// answer here - and a caller that knows better says so explicitly rather than hiding
+/// one behind an opacity.
 public struct HakoDestinationRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.locale) private var locale
@@ -60,17 +73,27 @@ public struct HakoDestinationRow: View {
     public let subtitle: String?
     public let systemImage: String
     public let tint: Color
+    /// A short fact that belongs on the row's own line: a count, a state.
+    public let badge: String?
+    public let badgeEmphasis: HakoStatusBadge.Emphasis
+    private let showsDisclosure: Bool
 
     public init(
         title: String,
         subtitle: String? = nil,
         systemImage: String,
-        tint: Color
+        tint: Color,
+        badge: String? = nil,
+        badgeEmphasis: HakoStatusBadge.Emphasis = .neutral,
+        showsDisclosure: Bool? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
         self.systemImage = systemImage
         self.tint = tint
+        self.badge = badge
+        self.badgeEmphasis = badgeEmphasis
+        self.showsDisclosure = showsDisclosure ?? !HakoPlatformLayout.pageUsesSystemSettingsIdiom
     }
 
     public var body: some View {
@@ -113,10 +136,19 @@ public struct HakoDestinationRow: View {
 
     private var destinationCopy: some View {
         VStack(alignment: .leading, spacing: HakoTheme.Typography.rowSubtitleGap(locale)) {
-            Text(title)
-                .font(.body)
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
+                Text(title)
+                    .font(HakoTheme.FontRole.rowPrimary)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // Inline only while the row still has one line to give: at
+                // accessibility sizes the badge would push the title into a
+                // truncation, so it moves below the copy instead.
+                if let badge, !badge.isEmpty, dynamicTypeSize < .accessibility1 {
+                    HakoStatusBadge(badge, emphasis: badgeEmphasis)
+                }
+            }
 
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
@@ -124,14 +156,21 @@ public struct HakoDestinationRow: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            if let badge, !badge.isEmpty, dynamicTypeSize >= .accessibility1 {
+                HakoStatusBadge(badge, emphasis: badgeEmphasis)
+            }
         }
     }
 
+    @ViewBuilder
     private var disclosureIcon: some View {
-        Image(systemName: "chevron.right")
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.tertiary)
-            .accessibilityHidden(true)
+        if showsDisclosure {
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+        }
     }
 
     /// The row floor on touch platforms only: the desktop section idiom sizes its
@@ -299,5 +338,329 @@ public struct HakoToolRow: View {
                 tint: tint.color
             )
         #endif
+    }
+}
+
+/// A navigable row's label: icon well, title, optional subtitle, one chevron.
+///
+/// It carries no action, exactly like `HakoDestinationRow`, and exists under its own
+/// name because its contract is narrower: this is the label of something that pushes a
+/// page, so it is the only row that draws a disclosure indicator, and it draws exactly
+/// one. A page composes it with the presenter it already uses -
+/// `NavigationLink { } label: { }` on the touch client, `NavigationLink(value:)` on the
+/// desktop - and never adds a chevron of its own.
+public struct HakoNavigationRow: View {
+    private let title: String
+    private let subtitle: String?
+    private let systemImage: String
+    private let tint: Color
+    private let value: String?
+    private let badge: String?
+    private let badgeEmphasis: HakoStatusBadge.Emphasis
+    private let linksOut: Bool
+    private let showsDisclosure: Bool?
+
+    public init(
+        title: String,
+        subtitle: String? = nil,
+        systemImage: String,
+        tint: Color,
+        value: String? = nil,
+        badge: String? = nil,
+        badgeEmphasis: HakoStatusBadge.Emphasis = .neutral,
+        linksOut: Bool = false,
+        showsDisclosure: Bool? = nil
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.tint = tint
+        self.value = value
+        self.badge = badge
+        self.badgeEmphasis = badgeEmphasis
+        self.linksOut = linksOut
+        self.showsDisclosure = showsDisclosure
+    }
+
+    public var body: some View {
+        HakoRowBody(
+            title: title,
+            subtitle: subtitle,
+            systemImage: systemImage,
+            tint: tint,
+            value: value,
+            badge: badge,
+            badgeEmphasis: badgeEmphasis,
+            showsDisclosure: showsDisclosure ?? (!HakoPlatformLayout.containerDrawsDisclosureIndicator && !linksOut)
+        ) {
+            // A row that leaves the app says so with the platform's external-link mark
+            // rather than a chevron: a chevron promises another page inside this client,
+            // and the difference is the one thing a user needs to know before tapping.
+            if linksOut {
+                Image(systemName: "arrow.up.forward.app")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityHint(linksOut ? Text("Opens outside the app") : Text(""))
+    }
+}
+
+/// The shared body of every row that carries an icon well, a title and a trailing
+/// element.
+///
+/// Extracted so the navigable row, the toggle row and the destructive row cannot
+/// drift: the icon size, the icon-to-text gap and the two-line spacing are the design
+/// language, and three copies of them is how a page ends up with one row a point
+/// taller than its neighbours.
+struct HakoRowBody<Trailing: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.locale) private var locale
+
+    let title: String
+    var subtitle: String?
+    var systemImage: String?
+    var tint: Color?
+    var value: String?
+    var badge: String?
+    var badgeEmphasis: HakoStatusBadge.Emphasis = .neutral
+    var showsDisclosure: Bool = false
+    /// A view that replaces the trailing disclosure - a toggle, a picker, a mark.
+    @ViewBuilder var trailing: () -> Trailing
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        systemImage: String? = nil,
+        tint: Color? = nil,
+        value: String? = nil,
+        badge: String? = nil,
+        badgeEmphasis: HakoStatusBadge.Emphasis = .neutral,
+        showsDisclosure: Bool = false,
+        @ViewBuilder trailing: @escaping () -> Trailing = { EmptyView() }
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.tint = tint
+        self.value = value
+        self.badge = badge
+        self.badgeEmphasis = badgeEmphasis
+        self.showsDisclosure = showsDisclosure
+        self.trailing = trailing
+    }
+
+    var body: some View {
+        HStack(
+            alignment: dynamicTypeSize >= .accessibility1 ? .top : .center,
+            spacing: HakoTheme.Spacing.row
+        ) {
+            if let systemImage, let tint {
+                HakoIconWell(tint: tint) {
+                    Image(systemName: systemImage)
+                        .font(.body.weight(.semibold))
+                }
+            }
+
+            copy
+
+            Spacer(minLength: HakoTheme.Spacing.compact)
+
+            trailing()
+
+            if showsDisclosure {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.vertical, HakoPlatformLayout.pageUsesSystemSettingsIdiom
+            ? HakoTheme.Spacing.tight
+            : HakoTheme.Spacing.compact)
+        .frame(minHeight: HakoPlatformLayout.pageUsesSystemSettingsIdiom
+            ? nil
+            : HakoTheme.Control.toggleRowMinHeight)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    private var copy: some View {
+        VStack(alignment: .leading, spacing: HakoTheme.Typography.rowSubtitleGap(locale)) {
+            HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
+                Text(title)
+                    .font(HakoTheme.FontRole.rowPrimary)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let badge, !badge.isEmpty, dynamicTypeSize < .accessibility1 {
+                    HakoStatusBadge(badge, emphasis: badgeEmphasis)
+                }
+            }
+
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(HakoTheme.Typography.rowSubtitle(locale))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let badge, !badge.isEmpty, dynamicTypeSize >= .accessibility1 {
+                HakoStatusBadge(badge, emphasis: badgeEmphasis)
+            }
+
+            if let value, !value.isEmpty {
+                Text(value)
+                    .font(HakoTheme.FontRole.value)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// A row whose trailing side is a switch, in the shared row language.
+///
+/// The toggle is the row's only control: the row's text does not also act, because a
+/// row that both navigates and switches is the "error hit" this migration removes.
+public struct HakoToggleRow: View {
+    private let title: String
+    private let subtitle: String?
+    private let isOn: Binding<Bool>
+    private let isEnabled: Bool
+    private let onChange: ((Bool) -> Void)?
+
+    public init(
+        _ title: String,
+        subtitle: String? = nil,
+        isOn: Binding<Bool>,
+        isEnabled: Bool = true,
+        onChange: ((Bool) -> Void)? = nil
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.isOn = isOn
+        self.isEnabled = isEnabled
+        self.onChange = onChange
+    }
+
+    public var body: some View {
+        HakoRowBody(title: title, subtitle: subtitle) {
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .disabled(!isEnabled)
+                .onChangeCompat(of: isOn.wrappedValue) { newValue in
+                    onChange?(newValue)
+                }
+        }
+        .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
+    }
+}
+
+/// A row that carries out a destructive action: erase, reset, delete, uninstall.
+///
+/// One component so every destructive control in the client is red, is a row, and is
+/// disabled in the same way, rather than three pages inventing three treatments for
+/// the same promise.
+public struct HakoDestructiveRow: View {
+    private let title: String
+    private let subtitle: String?
+    private let systemImage: String
+    private let isEnabled: Bool
+    private let action: () -> Void
+
+    public init(
+        _ title: String,
+        subtitle: String? = nil,
+        systemImage: String = "trash.fill",
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.isEnabled = isEnabled
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            HakoRowBody(title: title, subtitle: subtitle, systemImage: systemImage, tint: .red) {
+                EmptyView()
+            }
+        }
+        .buttonStyle(HakoPushRowButtonStyle())
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
+    }
+}
+
+/// A row that chooses one value out of several: a profile, a mode, an option.
+///
+/// The mark is drawn in both states rather than added and removed, so the row's
+/// trailing edge does not move when the selection changes - which is what made the
+/// pickers disagree about what "not selected" looks like.
+public struct HakoSelectionRow: View {
+    private let title: String
+    private let subtitle: String?
+    private let systemImage: String?
+    private let tint: Color?
+    private let isSelected: Bool
+    private let action: () -> Void
+
+    public init(
+        title: String,
+        subtitle: String? = nil,
+        systemImage: String? = nil,
+        tint: Color? = nil,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.tint = tint
+        self.isSelected = isSelected
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            HakoRowBody(
+                title: title,
+                subtitle: subtitle,
+                systemImage: systemImage,
+                tint: tint
+            ) {
+                HakoSelectionMark(isSelected: isSelected)
+            }
+        }
+        .buttonStyle(HakoPushRowButtonStyle())
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// A row that says one thing and shows another: a label and its measured figure,
+/// aligned so a column of them can be read down.
+public struct HakoMetricRow: View {
+    private let title: String
+    private let value: String
+    private let systemImage: String?
+    private let tint: HakoAccentRole?
+
+    public init(
+        _ title: String,
+        value: String,
+        systemImage: String? = nil,
+        tint: HakoAccentRole? = nil
+    ) {
+        self.title = title
+        self.value = value
+        self.systemImage = systemImage
+        self.tint = tint
+    }
+
+    public var body: some View {
+        HakoCardLine(title, value: value, systemImage: systemImage, tint: tint)
     }
 }

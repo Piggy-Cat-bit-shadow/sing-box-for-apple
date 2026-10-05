@@ -81,244 +81,115 @@ public enum SettingsPage: Hashable {
 }
 
 public struct SettingView: View {
-    private enum Tabs: Int, CaseIterable, Identifiable {
-        var id: Self {
-            self
+    /// A destination the More tab can open.
+    ///
+    /// It carries everything the row needs and everything the push needs, so the two
+    /// cannot disagree: a row whose title says one thing and whose destination is
+    /// another is the kind of defect a hand-written list of links produces.
+    struct Destination: Identifiable {
+        var id: String {
+            pageKey
         }
 
-        case app, core, packetTunnel, onDemandRules, profileOverride, remoteControl, sponsors
-
+        let pageKey: String
+        let title: String
+        /// One short line saying what the page is for, in the user's terms.
+        let subtitle: String
+        let systemImage: String
+        let accent: HakoAccentRole
+        /// Whether the row leaves the app rather than pushing a page.
+        var linksOut: Bool = false
+        let content: () -> AnyView
         #if os(macOS)
-            var page: SettingsPage {
-                switch self {
-                case .app:
-                    return .app
-                case .core:
-                    return .core
-                case .packetTunnel:
-                    return .packetTunnel
-                case .onDemandRules:
-                    return .onDemandRules
-                case .profileOverride:
-                    return .profileOverride
-                case .remoteControl:
-                    return .remoteControl
-                case .sponsors:
-                    return .sponsors
-                }
+            /// The value `NavigationLink(value:)` pushes. Derived from the row's own key
+            /// rather than written twice, so a row cannot push a page it does not name.
+            var page: SettingsPage? {
+                SettingsPage(settingsKey: pageKey)
             }
         #endif
-
-        /// The row this page presents.
-        ///
-        /// The two idioms are the ones the whole design system uses: the touch
-        /// platforms draw a tinted icon well with a chevron, and the desktop keeps
-        /// the platform's own settings row, where an icon well would read as a
-        /// foreign element in a `Form`.
-        @ViewBuilder
-        var label: some View {
-            #if os(macOS)
-                Label(title, systemImage: iconImage)
-            #else
-                HakoDestinationRow(
-                    title: title,
-                    systemImage: iconImage,
-                    tint: accent.color
-                )
-            #endif
-        }
-
-        /// The tint of this destination's icon well.
-        private var accent: HakoAccentRole {
-            switch self {
-            case .app: return .blue
-            case .core: return .indigo
-            case .packetTunnel: return .teal
-            case .onDemandRules: return .orange
-            case .profileOverride: return .purple
-            case .remoteControl: return .cyan
-            case .sponsors: return .pink
-            }
-        }
-
-        var title: String {
-            switch self {
-            case .app:
-                return String(localized: "App")
-            case .core:
-                return String(localized: "Core")
-            case .packetTunnel:
-                return String(localized: "Packet Tunnel")
-            case .onDemandRules:
-                return String(localized: "On Demand Rules")
-            case .profileOverride:
-                return String(localized: "Profile Override")
-            case .remoteControl:
-                return String(localized: "Remote Control")
-            case .sponsors:
-                return String(localized: "Sponsors")
-            }
-        }
-
-        private var iconImage: String {
-            switch self {
-            case .app:
-                return "app.badge.fill"
-            case .core:
-                return "shippingbox.fill"
-            case .packetTunnel:
-                return "aspectratio.fill"
-            case .onDemandRules:
-                return "filemenu.and.selection"
-            case .profileOverride:
-                return "square.dashed.inset.filled"
-            case .remoteControl:
-                return "antenna.radiowaves.left.and.right"
-            case .sponsors:
-                return "heart.fill"
-            }
-        }
-
-        @MainActor
-        var contentView: some View {
-            Group {
-                switch self {
-                case .app:
-                    AppView()
-                case .core:
-                    CoreView()
-                case .packetTunnel:
-                    PacketTunnelView()
-                case .onDemandRules:
-                    OnDemandRulesView()
-                case .profileOverride:
-                    ProfileOverrideView()
-                case .remoteControl:
-                    RemoteControlView()
-                case .sponsors:
-                    SponsorsView()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            #if os(iOS)
-                .background(Color(uiColor: .systemGroupedBackground))
-            #endif
-        }
-
-        @MainActor
-        var navigationLink: some View {
-            #if os(macOS)
-                FormNavigationLink(value: page) {
-                    label
-                }
-            #else
-                FormNavigationLink {
-                    contentView
-                } label: {
-                    label
-                }
-            #endif
-        }
     }
 
-    #if os(macOS)
-        @MainActor
-        private static func destinationView(for page: SettingsPage) -> some View {
-            Group {
-                switch page {
-                case .app:
-                    AppView()
-                case .core:
-                    CoreView()
-                case .packetTunnel:
-                    PacketTunnelView()
-                case .onDemandRules:
-                    OnDemandRulesView()
-                case .profileOverride:
-                    ProfileOverrideView()
-                case .remoteControl:
-                    RemoteControlView()
-                case .sponsors:
-                    SponsorsView()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    /// The More tab's information architecture.
+    ///
+    /// The tab this replaces was a flat list of the client's own vocabulary - App, Core,
+    /// Packet Tunnel, On Demand Rules, Profile Override, Remote Control - which is a
+    /// map of the source tree rather than of anything a user does. The same pages are
+    /// here, grouped by the question they answer.
+    struct SettingsGroup: Identifiable {
+        var id: String {
+            title
         }
-    #endif
+
+        let title: String
+        let destinations: [Destination]
+    }
 
     #if os(iOS)
         @State private var showRemoteControl = false
-        #if os(iOS)
-            @Environment(\.pendingSettingsPage) private var pendingSettingsPage
-        #endif
+        @Environment(\.pendingSettingsPage) private var pendingSettingsPage
     #endif
 
     public init() {}
+
     public var body: some View {
-        FormView {
-            Section {
-                Tabs.app.navigationLink
-                Tabs.core.navigationLink
-                #if !os(tvOS)
-                    Tabs.packetTunnel.navigationLink
-                #endif
-                Tabs.onDemandRules.navigationLink
-                Tabs.profileOverride.navigationLink
-                #if !os(tvOS)
-                    remoteControlLink
-                #endif
-                #if JAILBREAK
-                    FormNavigationLink {
-                        JailbreakView()
-                    } label: {
-                        Label("Jailbreak", systemImage: "lock.shield.fill")
-                    }
-                #endif
-            }
-            #if !os(tvOS)
-                Section("About") {
-                    Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/"))!) {
-                        Label("Documentation", systemImage: "doc.on.doc.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.accentColor)
-                    .contextMenu {
-                        Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/changelog/"))!) {
-                            Text("Changelog")
-                        }
-                        Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/configuration/"))!) {
-                            Text("Configuration")
-                        }
-                    }
-                    Link(destination: URL(string: String("https://github.com/Piggy-Cat-bit-shadow/sing-box"))!) {
-                        Label("Source Code", systemImage: "pills.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.accentColor)
-                    .contextMenu {
-                        Link(destination: URL(string: String("https://github.com/Piggy-Cat-bit-shadow/sing-box/releases"))!) {
-                            Text("Releases")
-                        }
-                    }
-                    RequestReviewButton {
-                        Label("Rate on the App Store", systemImage: "text.bubble.fill")
-                    }
-                    #if os(macOS)
-                        if Variant.useSystemExtension {
-                            Tabs.sponsors.navigationLink
-                        }
-                    #endif
-                }
-            #endif
-        }
-        #if os(macOS)
-        .formNavigationDestination(for: SettingsPage.self) { page in
-            Self.destinationView(for: page)
-        }
+        #if os(macOS) || os(tvOS)
+            formBody
+        #else
+            compactBody
         #endif
     }
 
+    // MARK: - The compact root
+
     #if os(iOS)
+        private var compactBody: some View {
+            HakoRootScaffold {
+                ForEach(groups) { group in
+                    HakoSettingsSection(group.title) {
+                        ForEach(Array(group.destinations.enumerated()), id: \.element.id) { index, destination in
+                            navigationRow(destination)
+                            if index != group.destinations.count - 1 {
+                                HakoSettingsDivider()
+                            }
+                        }
+                    }
+                }
+
+                aboutSection
+            }
+            .onAppear { applyPendingSettingsPage() }
+            .onChangeCompat(of: pendingSettingsPage?.wrappedValue) { _ in
+                applyPendingSettingsPage()
+            }
+        }
+
+        @ViewBuilder
+        private func navigationRow(_ destination: Destination) -> some View {
+            if destination.pageKey == SettingsPage.remoteControl.settingsKey {
+                NavigationLink(isActive: $showRemoteControl) {
+                    destination.content()
+                } label: {
+                    rowLabel(destination)
+                }
+            } else {
+                NavigationLink {
+                    destination.content()
+                } label: {
+                    rowLabel(destination)
+                }
+            }
+        }
+
+        private func rowLabel(_ destination: Destination) -> some View {
+            HakoNavigationRow(
+                title: destination.title,
+                subtitle: destination.subtitle,
+                systemImage: destination.systemImage,
+                tint: destination.accent.color,
+                linksOut: destination.linksOut
+            )
+        }
+
         /// Applies a settings page the root asked for, now that this page exists.
         ///
         /// The request is cleared before the push so a later appearance cannot push twice, and the
@@ -329,9 +200,6 @@ public struct SettingView: View {
                 requested: pendingSettingsPage?.wrappedValue,
                 isRemoteControlPresented: showRemoteControl
             )
-            // Traced only when there was a request to decide about, so an ordinary appearance adds no
-            // line. The `push` answer is the one that matters: a request arriving after the page is
-            // already open is satisfied without a second push, which is the case this exists for.
             if let requested = pendingSettingsPage?.wrappedValue {
                 HakoUITrace.transition(
                     "settings-apply \(requested)",
@@ -349,21 +217,297 @@ public struct SettingView: View {
         }
     #endif
 
-    #if !os(tvOS)
-        private var remoteControlLink: some View {
-            #if os(iOS)
-                NavigationLink(isActive: $showRemoteControl) {
-                    Tabs.remoteControl.contentView
-                } label: {
-                    Tabs.remoteControl.label
+    // MARK: - The desktop form
+
+    #if os(macOS) || os(tvOS)
+        private var formBody: some View {
+            FormView {
+                ForEach(desktopGroups) { group in
+                    Section {
+                        ForEach(group.destinations) { destination in
+                            #if os(macOS)
+                                FormNavigationLink(value: destination.page) {
+                                    HakoToolRow(
+                                        title: destination.title,
+                                        systemImage: destination.systemImage,
+                                        tint: destination.accent
+                                    )
+                                }
+                            #else
+                                FormNavigationLink {
+                                    destination.content()
+                                } label: {
+                                    HakoToolRow(
+                                        title: destination.title,
+                                        systemImage: destination.systemImage,
+                                        tint: destination.accent
+                                    )
+                                }
+                            #endif
+                        }
+                    } header: {
+                        Text(group.title)
+                    }
                 }
-                .onAppear { applyPendingSettingsPage() }
-                .onChangeCompat(of: pendingSettingsPage?.wrappedValue) { _ in
-                    applyPendingSettingsPage()
+
+                aboutFormSection
+            }
+            #if os(macOS)
+            .formNavigationDestination(for: SettingsPage.self) { page in
+                Self.destinationView(for: page)
+            }
+            #endif
+        }
+
+        #if os(macOS)
+            @MainActor
+            private static func destinationView(for page: SettingsPage) -> some View {
+                Group {
+                    switch page {
+                    case .app:
+                        AppView()
+                    case .core:
+                        CoreView()
+                    case .packetTunnel:
+                        PacketTunnelView()
+                    case .onDemandRules:
+                        OnDemandRulesView()
+                    case .profileOverride:
+                        ProfileOverrideView()
+                    case .remoteControl:
+                        RemoteControlView()
+                    case .sponsors:
+                        SponsorsView()
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+        #endif
+    #endif
+
+    // MARK: - About
+
+    #if os(iOS)
+        private var aboutSection: some View {
+            HakoSettingsSection(String(localized: "About")) {
+                Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/"))!) {
+                    rowLabel(aboutDestination(
+                        title: String(localized: "Documentation"),
+                        subtitle: String(localized: "The manual for the core this client runs"),
+                        systemImage: "doc.text.fill",
+                        accent: .blue
+                    ))
+                }
+                .buttonStyle(HakoPushRowButtonStyle())
+                HakoSettingsDivider()
+                Link(destination: URL(string: "https://github.com/Piggy-Cat-bit-shadow/sing-box")!) {
+                    rowLabel(aboutDestination(
+                        title: String(localized: "Source Code"),
+                        subtitle: String(localized: "This client's repository"),
+                        systemImage: "chevron.left.forwardslash.chevron.right",
+                        accent: .purple
+                    ))
+                }
+                .buttonStyle(HakoPushRowButtonStyle())
+                HakoSettingsDivider()
+                RequestReviewButton {
+                    rowLabel(aboutDestination(
+                        title: String(localized: "Rate on the App Store"),
+                        subtitle: nil,
+                        systemImage: "text.bubble.fill",
+                        accent: .pink
+                    ))
+                }
+            }
+        }
+
+        /// An About entry uses the same row as a settings destination, so the section does
+        /// not switch visual language halfway down the page. It has no destination, which
+        /// is why the disclosure is suppressed: the row leaves the app, it does not push.
+        private func aboutDestination(
+            title: String,
+            subtitle: String?,
+            systemImage: String,
+            accent: HakoAccentRole
+        ) -> Destination {
+            Destination(
+                pageKey: "about.\(title)",
+                title: title,
+                subtitle: subtitle ?? "",
+                systemImage: systemImage,
+                accent: accent,
+                linksOut: true,
+                content: { AnyView(EmptyView()) }
+            )
+        }
+    #endif
+
+    #if os(macOS) || os(tvOS)
+        private var aboutFormSection: some View {
+            Section("About") {
+                Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/"))!) {
+                    Label("Documentation", systemImage: "doc.on.doc.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.accentColor)
+                .contextMenu {
+                    Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/changelog/"))!) {
+                        Text("Changelog")
+                    }
+                    Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/configuration/"))!) {
+                        Text("Configuration")
+                    }
+                }
+                Link(destination: URL(string: String("https://github.com/Piggy-Cat-bit-shadow/sing-box"))!) {
+                    Label("Source Code", systemImage: "pills.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.accentColor)
+                .contextMenu {
+                    Link(destination: URL(string: "https://github.com/Piggy-Cat-bit-shadow/sing-box/releases")!) {
+                        Text("Releases")
+                    }
+                }
+                RequestReviewButton {
+                    Label("Rate on the App Store", systemImage: "text.bubble.fill")
+                }
+                #if os(macOS)
+                    // Sponsors is part of the About section on the desktop, because that
+                    // is where the platform's own settings windows put it, and because
+                    // the desktop only offers it on the system-extension build.
+                    if Variant.useSystemExtension {
+                        ForEach(sponsorsDestination) { destination in
+                            FormNavigationLink(value: destination.page) {
+                                HakoToolRow(
+                                    title: destination.title,
+                                    systemImage: destination.systemImage,
+                                    tint: destination.accent
+                                )
+                            }
+                        }
+                    }
+                    #if JAILBREAK
+                        FormNavigationLink {
+                            JailbreakView()
+                        } label: {
+                            Label("Jailbreak", systemImage: "lock.shield.fill")
+                        }
+                    #endif
+                #endif
+            }
+        }
+
+        private var sponsorsDestination: [Destination] {
+            groups.flatMap(\.destinations).filter { $0.pageKey == "sponsors" }
+        }
+
+        /// The desktop renders the same groups minus the ones the About section owns.
+        private var desktopGroups: [SettingsGroup] {
+            #if os(macOS)
+                groups.filter { $0.id != String(localized: "Support") }
             #else
-                Tabs.remoteControl.navigationLink
+                groups
             #endif
         }
     #endif
+
+    // MARK: - The map
+
+    private var groups: [SettingsGroup] {
+        [
+            SettingsGroup(title: String(localized: "Connection"), destinations: [
+                Destination(
+                    pageKey: "onDemandRules",
+                    title: String(localized: "On Demand"),
+                    subtitle: String(localized: "When the tunnel connects and disconnects by itself"),
+                    systemImage: "filemenu.and.selection",
+                    accent: .orange,
+                    content: { AnyView(OnDemandRulesView()) }
+                ),
+                Destination(
+                    pageKey: "packetTunnel",
+                    title: String(localized: "Tunnel"),
+                    subtitle: String(localized: "What the system routes through the tunnel"),
+                    systemImage: "aspectratio.fill",
+                    accent: .teal,
+                    content: { AnyView(PacketTunnelView()) }
+                ),
+                Destination(
+                    pageKey: "profileOverride",
+                    title: String(localized: "Routing Override"),
+                    subtitle: String(localized: "Routes the client adjusts for compatibility"),
+                    systemImage: "square.dashed.inset.filled",
+                    accent: .purple,
+                    content: { AnyView(ProfileOverrideView()) }
+                ),
+            ]),
+            SettingsGroup(title: String(localized: "Application"), destinations: [
+                Destination(
+                    pageKey: "app",
+                    title: String(localized: "Client Settings"),
+                    subtitle: String(localized: "Language, menu bar, updates and caches"),
+                    systemImage: "app.badge.fill",
+                    accent: .blue,
+                    content: { AnyView(AppView()) }
+                ),
+            ]),
+            SettingsGroup(title: String(localized: "Core and Data"), destinations: [
+                Destination(
+                    pageKey: "core",
+                    title: String(localized: "Core"),
+                    subtitle: String(localized: "Version and working directory"),
+                    systemImage: "shippingbox.fill",
+                    accent: .indigo,
+                    content: { AnyView(CoreView()) }
+                ),
+            ]),
+            SettingsGroup(title: String(localized: "Remote and Configuration"), destinations: [
+                Destination(
+                    pageKey: "remoteControl",
+                    title: String(localized: "Remote Control"),
+                    subtitle: String(localized: "Drive another device from this one"),
+                    systemImage: "antenna.radiowaves.left.and.right",
+                    accent: .cyan,
+                    content: { AnyView(RemoteControlView()) }
+                ),
+            ]),
+            SettingsGroup(title: String(localized: "Support"), destinations: [
+                Destination(
+                    pageKey: "sponsors",
+                    title: String(localized: "Sponsors"),
+                    subtitle: String(localized: "Support the project"),
+                    systemImage: "heart.fill",
+                    accent: .pink,
+                    content: { AnyView(SponsorsView()) }
+                ),
+            ]),
+        ]
+    }
+}
+
+private extension SettingsPage {
+    /// The page a destination key names, for the desktop's value links.
+    init?(settingsKey: String) {
+        guard let page = SettingsPage.allSettingsKeys.first(where: { $0.settingsKey == settingsKey }) else {
+            return nil
+        }
+        self = page
+    }
+
+    static var allSettingsKeys: [SettingsPage] {
+        [.app, .core, .packetTunnel, .onDemandRules, .profileOverride, .remoteControl, .sponsors]
+    }
+
+    /// The key `HakoSettingsPush` and the destination list agree on.
+    var settingsKey: String {
+        switch self {
+        case .app: "app"
+        case .core: "core"
+        case .packetTunnel: "packetTunnel"
+        case .onDemandRules: "onDemandRules"
+        case .profileOverride: "profileOverride"
+        case .remoteControl: "remoteControl"
+        case .sponsors: "sponsors"
+        }
+    }
 }

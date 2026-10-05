@@ -73,14 +73,15 @@ struct MainView: View {
     /// (the crash-report notification, the settings notification, the deep links, the
     /// screenshot harness) still selects the same page it always did.
     ///
-    /// The accessory inset, the badge and the first-appearance animation rule moved
-    /// into the shell; the page content builder below is unchanged in what it puts on
-    /// screen.
+    /// The shell no longer takes a bottom accessory. It used to: a floating runtime
+    /// pill with its own start control sat above the tab bar, so the app had two
+    /// stacked global bars and the user could not tell which one was the navigation.
+    /// Runtime state and the start control now live on Home, where the rest of the
+    /// session already is, and remote control is a toolbar chip below.
     private var tabViewContent: some View {
         HakoPrimaryShell(
             selection: $selection,
-            toolsBadge: environments.toolsBadgeCount + sendManager.failedSessionCount,
-            accessory: { accessoryInset }
+            toolsBadge: environments.toolsBadgeCount + sendManager.failedSessionCount
         ) { page in
             tabContent(for: page)
         }
@@ -96,153 +97,63 @@ struct MainView: View {
 
     @ViewBuilder
     private func tabContent(for page: NavigationPage) -> some View {
-        // The accessory inset and the first-appearance animation rule now live in
-        // HakoPrimaryShell, which applies them per primary instead of per page.
-        let content = page.contentView
+        page.contentView
             .navigationTitle(page.title)
-        if page == .logs {
-            content.navigationBarTitleDisplayMode(.inline)
-        } else {
-            content
-        }
+            .modifier(RemoteControlChipModifier())
     }
 
-    @ViewBuilder
-    private var accessoryInset: some View {
-        if environments.remoteServer != nil {
-            remoteStatusBarPill
-        } else if let profile = environments.extensionProfile, !environments.extensionProfileLoading, !environments.emptyProfiles {
-            AccessoryInset(profile: profile) {
-                statusBarPill
-            } fab: {
-                fabInset
-            }
-        }
-    }
+    /// The remote-control chip a page wears while this client drives another device.
+    ///
+    /// The remote session is global - it changes what the whole client is showing - so
+    /// it belongs in the navigation bar every page already has, rather than in a second
+    /// floating bar reserved for the one state most users are never in. The chip is also
+    /// where disconnecting lives, which it has to be: the tab bar has no room for it and
+    /// a modal "you are in remote mode" interstitial is not a thing anyone wants.
+    private struct RemoteControlChipModifier: ViewModifier {
+        @EnvironmentObject private var environments: ExtensionEnvironments
 
-    private var fabInset: some View {
-        HStack {
-            Spacer()
-            FABStartButton()
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
-    }
-
-    private var statusBarPill: some View {
-        bottomAccessoryContent
-            .frame(maxWidth: .infinity)
-            .frame(height: 44)
-            .modifier(AccessoryPillBackgroundModifier(cornerRadius: 22))
-            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
-    }
-
-    private var remoteStatusBarPill: some View {
-        remoteAccessoryContent
-            .frame(maxWidth: .infinity)
-            .frame(height: 44)
-            .modifier(AccessoryPillBackgroundModifier(cornerRadius: 22))
-            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
-    }
-
-    private var remoteAccessoryContent: some View {
-        HStack(spacing: 12) {
-            RemoteStatusText(
-                commandClient: environments.commandClient,
-                serverName: environments.remoteServer?.displayName ?? ""
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            NavigationButtonsView(
-                showGroupsButton: buttonState.showGroupsButton,
-                showConnectionsButton: buttonState.showConnectionsButton,
-                groupsCount: buttonState.groupsCount,
-                connectionsCount: buttonState.connectionsCount,
-                onGroupsTap: { showGroups = true },
-                onConnectionsTap: { showConnections = true }
-            )
-            Divider()
-            RemoteUptimeText(commandClient: environments.commandClient)
-            Button {
-                environments.exitRemoteControl()
-            } label: {
-                Label("Disconnect", systemImage: "antenna.radiowaves.left.and.right.slash")
-                    .labelStyle(.iconOnly)
-            }
-        }
-        .padding(.horizontal)
-        .tint(.primary)
-        .buttonStyle(BarItemButtonStyle())
-    }
-
-    private struct RemoteStatusText: View {
-        @ObservedObject var commandClient: CommandClient
-        let serverName: String
-
-        var body: some View {
-            statusText
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-
-        private var statusText: Text {
-            if commandClient.isConnected {
-                return Text(serverName)
-            } else {
-                return Text("Connecting...")
-            }
-        }
-    }
-
-    private struct AccessoryPillBackgroundModifier: ViewModifier {
-        let cornerRadius: CGFloat
         func body(content: Content) -> some View {
-            if #available(iOS 26.0, *), !Variant.debugNoIOS26 {
-                content.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            } else {
-                content.background(.bar, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            }
+            #if os(iOS)
+                content.toolbar {
+                    if environments.remoteServer != nil {
+                        ToolbarItem(placement: .topBarLeading) {
+                            RemoteControlChip(serverName: environments.remoteServer?.displayName ?? "")
+                        }
+                    }
+                }
+            #else
+                content
+            #endif
         }
     }
 
-    private var bottomAccessoryContent: some View {
-        HStack(spacing: 12) {
-            if let profile = environments.extensionProfile {
-                StatusText(profile: profile)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            }
-            NavigationButtonsView(
-                showGroupsButton: buttonState.showGroupsButton,
-                showConnectionsButton: buttonState.showConnectionsButton,
-                groupsCount: buttonState.groupsCount,
-                connectionsCount: buttonState.connectionsCount,
-                onGroupsTap: { showGroups = true },
-                onConnectionsTap: { showConnections = true }
-            )
-            Divider()
-            StartStopButton(showsRuntimeDuration: true)
-        }
-        .padding(.horizontal)
-        .tint(.primary)
-        .buttonStyle(BarItemButtonStyle())
-    }
+    #if os(iOS)
+        private struct RemoteControlChip: View {
+            @EnvironmentObject private var environments: ExtensionEnvironments
+            let serverName: String
 
-    private struct BarItemButtonStyle: ButtonStyle {
-        func makeBody(configuration: Configuration) -> some View {
-            configuration.label
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .opacity(configuration.isPressed ? 0.5 : 1)
-                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            var body: some View {
+                Menu {
+                    Section(serverName) {
+                        RemoteUptimeText(commandClient: environments.commandClient)
+                    }
+                    Button(role: .destructive) {
+                        environments.exitRemoteControl()
+                    } label: {
+                        Label("Disconnect", systemImage: "antenna.radiowaves.left.and.right.slash")
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                        Text(serverName)
+                            .lineLimit(1)
+                    }
+                    .font(.footnote.weight(.medium))
+                }
+                .accessibilityLabel(Text("Remote control: \(serverName)"))
+            }
         }
-    }
+    #endif
 
     private var mainBody: some View {
         tabViewContent
@@ -395,94 +306,6 @@ struct MainView: View {
         }
         if newState != buttonState {
             buttonState = newState
-        }
-    }
-
-    private struct AccessoryInset<StatusBar: View, FAB: View>: View {
-        @ObservedObject var profile: ExtensionProfile
-        @ViewBuilder let statusBar: () -> StatusBar
-        @ViewBuilder let fab: () -> FAB
-
-        var body: some View {
-            ZStack(alignment: .bottomTrailing) {
-                if profile.status == .disconnected {
-                    fab()
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else {
-                    statusBar()
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: profile.status)
-        }
-    }
-
-    private struct FABStartButton: View {
-        @EnvironmentObject private var environments: ExtensionEnvironments
-        @State private var alert: AlertState?
-
-        var body: some View {
-            Button {
-                guard let profile = environments.extensionProfile else { return }
-                Task {
-                    do {
-                        try await profile.start()
-                    } catch {
-                        alert = AlertState(action: "start service", error: error)
-                    }
-                }
-            } label: {
-                Label("Start", systemImage: "play.fill")
-                    .labelStyle(.iconOnly)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 56, height: 56)
-                    .modifier(FABBackgroundModifier())
-                    .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(environments.extensionProfile == nil || environments.emptyProfiles)
-            .alert($alert)
-        }
-
-        private struct FABBackgroundModifier: ViewModifier {
-            func body(content: Content) -> some View {
-                if #available(iOS 26.0, *), !Variant.debugNoIOS26 {
-                    content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                } else {
-                    content.background(.bar, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-            }
-        }
-    }
-
-    private struct StatusText: View {
-        @ObservedObject var profile: ExtensionProfile
-
-        var body: some View {
-            statusText
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize()
-        }
-
-        private var statusText: Text {
-            switch profile.status {
-            case .disconnected:
-                return Text("Stopped")
-            case .connecting:
-                return Text("Starting")
-            case .connected:
-                return Text("Started")
-            case .reasserting:
-                return Text("Reasserting")
-            case .disconnecting:
-                return Text("Stopping")
-            default:
-                return Text("Unknown")
-                    .foregroundColor(.red)
-            }
         }
     }
 
