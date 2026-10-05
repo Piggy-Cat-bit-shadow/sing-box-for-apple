@@ -267,8 +267,7 @@ public struct ToolsView: View {
 
     private var networkToolsSection: some View {
         HakoPageSection(
-            String(localized: "Network Tools"),
-            footnote: "These measure the connection the device currently has, not the tunnel."
+            String(localized: "Network Tools")
         ) {
             FormNavigationLink {
                 NetworkQualityView()
@@ -285,10 +284,10 @@ public struct ToolsView: View {
                 STUNTestView()
             } label: {
                 HakoToolRow(
-                    title: String(localized: "STUN Test"),
+                    title: String(localized: "STUN & NAT"),
                     systemImage: "arrow.triangle.swap",
                     tint: .purple,
-                    detail: String(localized: "How the network sees this device")
+                    detail: String(localized: "UDP reachability and NAT behaviour")
                 )
             }
         }
@@ -302,8 +301,7 @@ public struct ToolsView: View {
     private var diagnosticsSection: some View {
         if environments.remoteServer == nil {
             HakoPageSection(
-                String(localized: "Diagnostics"),
-                footnote: "Reports are recorded on this device and stay on it until you share them."
+                String(localized: "Runtime & Reports")
             ) {
                 #if os(iOS)
                     NavigationLink(isActive: $showCrashReportList) {
@@ -316,6 +314,7 @@ public struct ToolsView: View {
                             unread: environments.crashReportManager.unreadCount
                         )
                     }
+                    .buttonStyle(HakoPushRowButtonStyle())
                     .onReceive(NotificationCenter.default.publisher(for: .reportReceived)) { notification in
                         Task {
                             try? await Task.sleep(nanoseconds: NSEC_PER_MSEC * 300)
@@ -342,6 +341,7 @@ public struct ToolsView: View {
                             unread: environments.oomReportManager.unreadCount
                         )
                     }
+                    .buttonStyle(HakoPushRowButtonStyle())
                     HakoRowDivider()
                     NavigationLink(isActive: $showPowerReportList) {
                         PowerReportListView()
@@ -353,6 +353,7 @@ public struct ToolsView: View {
                             unread: environments.powerReportManager.unreadCount
                         )
                     }
+                    .buttonStyle(HakoPushRowButtonStyle())
                 #else
                     FormNavigationLink {
                         CrashReportListView()

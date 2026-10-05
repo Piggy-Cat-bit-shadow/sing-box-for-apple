@@ -88,7 +88,7 @@ struct MainView: View {
     }
 
     var body: some View {
-        if Variant.screenshotMode {
+        if Variant.screenshotMode, !Variant.screenshotKeepsSystemAppearance {
             mainBody.preferredColorScheme(.dark)
         } else {
             mainBody

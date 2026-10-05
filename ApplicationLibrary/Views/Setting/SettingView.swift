@@ -180,6 +180,7 @@ public struct SettingView: View {
                     }
                 }
             }
+            .buttonStyle(HakoPushRowButtonStyle())
             // Addressable without matching a localized label, so a UI test can reach a
             // settings page in any language - which is the only way the localization can
             // be tested at all.
@@ -421,7 +422,7 @@ public struct SettingView: View {
 
     private var groups: [SettingsGroup] {
         [
-            SettingsGroup(title: String(localized: "Connection"), destinations: [
+            SettingsGroup(title: String(localized: "Connection Behavior"), destinations: [
                 Destination(
                     pageKey: "onDemandRules",
                     title: String(localized: "On Demand"),
@@ -439,7 +440,7 @@ public struct SettingView: View {
                     content: { AnyView(PacketTunnelView()) }
                 ),
             ]),
-            SettingsGroup(title: String(localized: "Application"), destinations: [
+            SettingsGroup(title: String(localized: "App Settings"), destinations: [
                 Destination(
                     pageKey: "app",
                     title: String(localized: "Client Settings"),
@@ -449,7 +450,7 @@ public struct SettingView: View {
                     content: { AnyView(AppView()) }
                 ),
             ]),
-            SettingsGroup(title: String(localized: "Core and Data"), destinations: [
+            SettingsGroup(title: String(localized: "Core Settings"), destinations: [
                 Destination(
                     pageKey: "core",
                     title: String(localized: "Core"),

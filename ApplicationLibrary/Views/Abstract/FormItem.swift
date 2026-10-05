@@ -187,7 +187,14 @@ public func FormButton(role: ButtonRole?, action: @escaping () -> Void, @ViewBui
 
 public func FormNavigationLink(@ViewBuilder destination: () -> some View, @ViewBuilder label: () -> some View) -> some View {
     #if !os(tvOS)
+        // An explicit style, because a `NavigationLink`'s default style tints its whole
+        // label with the accent colour. The row's own title is set to `.primary` and was
+        // still rendering accent blue: the link's tint applied above it. The reference
+        // passes its own push-row style here, which is why its titles are black.
         return NavigationLink(destination: destination, label: label)
+            #if os(iOS)
+                .buttonStyle(HakoPushRowButtonStyle())
+            #endif
     #else
         return NavigationLink(destination: {
             destination()

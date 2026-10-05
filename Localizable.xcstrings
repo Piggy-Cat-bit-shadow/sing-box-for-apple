@@ -2411,6 +2411,22 @@
         }
       }
     },
+    "Connection Behavior": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接行为"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線行為"
+          }
+        }
+      }
+    },
     "Connection Rule": {
       "localizations": {
         "fa": {
@@ -2648,6 +2664,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "核心"
+          }
+        }
+      }
+    },
+    "Core Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内核设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核心設定"
           }
         }
       }
@@ -11055,6 +11087,22 @@
         }
       }
     },
+    "Runtime & Reports": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行时与报告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行階段與報告"
+          }
+        }
+      }
+    },
     "SSH": {
       "localizations": {
         "fa": {
@@ -11135,6 +11183,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "SSID 匹配"
+          }
+        }
+      }
+    },
+    "STUN & NAT": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "STUN 与 NAT"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "STUN 與 NAT"
           }
         }
       }
@@ -13771,6 +13835,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "類型"
+          }
+        }
+      }
+    },
+    "UDP reachability and NAT behaviour": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 可达性与 NAT 行为"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 可達性與 NAT 行為"
           }
         }
       }

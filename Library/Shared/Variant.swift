@@ -31,6 +31,15 @@ public enum Variant {
 
     public static let screenshotMode = ProcessInfo.processInfo.arguments.contains("-FASTLANE_SNAPSHOT")
 
+    /// Whether the screenshot fixture keeps the system appearance.
+    ///
+    /// The fixture forces dark because the marketing captures are dark. A capture that is
+    /// being compared against another app has to be able to be light, or the comparison is
+    /// of two colour schemes rather than of two layouts.
+    public static var screenshotKeepsSystemAppearance: Bool {
+        ProcessInfo.processInfo.environment["SCREENSHOT_APPEARANCE"] == "light"
+    }
+
     /// The tunnel state the screenshot fixture starts in.
     ///
     /// `SCREENSHOT_STATE=disconnected` makes Home capture the stopped state. Anything

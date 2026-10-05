@@ -58,7 +58,9 @@ public struct GroupListView: View {
                 leading: Self.leadingControl,
                 search: HakoWorkspaceSearch(
                     text: $searchText,
-                    prompt: "Search proxies"
+                    prompt: "Search proxies",
+                    placement: .bottomBar,
+                    accessibilityIdentifier: "hako.proxies.search"
                 ),
                 actions: { workspaceActions },
                 content: { workspaceContent }

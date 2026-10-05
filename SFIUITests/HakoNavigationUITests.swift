@@ -298,11 +298,12 @@ final class HakoNavigationUITests: XCTestCase {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.groups"].tap()
 
-        // A `.searchable` field is the platform's own, which XCUITest reports as a search
-        // field rather than as a text field with an identifier. The reference puts the
-        // system field on this page, so the test addresses the system field.
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 15), "the proxy workspace must offer a search field")
+        // The proxy workspace is presented as a sheet, and a sheet has no bottom bar for a
+        // system search field, so the page draws its own capsule - which is what the
+        // reference shows on its proxy sheet. A drawn field is a text field with an
+        // identifier; the pushed Activity page's is the system's and is a search field.
+        let search = app.textFields["hako.proxies.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 20), "the proxy workspace must offer a search field")
 
         let firstGroup = app.staticTexts["my_group"]
         XCTAssertTrue(firstGroup.waitForExistence(timeout: 5), "the fixture's first group must be on screen")
@@ -323,7 +324,7 @@ final class HakoNavigationUITests: XCTestCase {
         )
 
         // And the filter must not have changed what the core reported.
-        app.searchFields.firstMatch.buttons.firstMatch.tap()
+        app.buttons["hako.search.clear"].tap()
         XCTAssertTrue(
             app.staticTexts["my_group"].waitForExistence(timeout: 3),
             "clearing the search must restore every group, so the filter never mutated the data"

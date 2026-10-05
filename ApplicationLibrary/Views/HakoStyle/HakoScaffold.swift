@@ -207,6 +207,66 @@ public struct HakoActionGroup<Content: View>: View {
     }
 }
 
+/// The fixed search field a workspace wears when it is presented as a sheet.
+///
+/// Not a toolbar item and not a system `.searchable` field: a sheet has no bottom bar, so
+/// the reference draws a capsule and pins it above the safe area - which is also what the
+/// manual asks a workspace for. It clears, it focuses, and the page underneath reserves its
+/// height so the last card is never behind it.
+public struct HakoBottomSearchBar: View {
+    @FocusState private var isFocused: Bool
+    private let search: HakoWorkspaceSearch
+
+    public init(_ search: HakoWorkspaceSearch) {
+        self.search = search
+    }
+
+    public var body: some View {
+        HStack(spacing: HakoTheme.Spacing.compact) {
+            Image(systemName: "magnifyingglass")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            TextField(search.prompt, text: search.text)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.search)
+                #endif
+                .accessibilityIdentifier(search.accessibilityIdentifier ?? "")
+
+            if !search.text.wrappedValue.isEmpty {
+                Button {
+                    search.text.wrappedValue = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(
+                            minWidth: HakoTheme.Control.minimumHitTarget,
+                            minHeight: HakoTheme.Control.minimumHitTarget
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("hako.search.clear")
+                .accessibilityLabel(Text("Clear"))
+            }
+        }
+        .padding(.horizontal, HakoTheme.Spacing.row)
+        .frame(height: HakoTheme.Layout.bottomSearchHeight)
+        .background(
+            RoundedRectangle(cornerRadius: HakoTheme.Radius.searchField, style: .continuous)
+                .fill(HakoProductPalette.system.control)
+        )
+        .padding(.horizontal, HakoTheme.Layout.bottomSearchInset)
+        .padding(.vertical, HakoTheme.Layout.bottomSearchInset)
+        .background(.bar)
+    }
+}
+
 /// The hairline between two actions of a toolbar run.
 public struct HakoActionDivider: View {
     public init() {}
@@ -777,7 +837,11 @@ public extension View {
     /// does not choose; the same call produces the right one on each system.
     @ViewBuilder
     func hakoWorkspaceSearch(_ search: HakoWorkspaceSearch?) -> some View {
-        if let search {
+        if let search, search.placement == .bottomBar {
+            safeAreaInset(edge: .bottom, spacing: 0) {
+                HakoBottomSearchBar(search)
+            }
+        } else if let search {
             #if os(iOS)
                 if #available(iOS 26.0, *) {
                     searchable(text: search.text, placement: .toolbar, prompt: search.prompt)
@@ -823,13 +887,34 @@ public extension View {
 /// A value rather than two loose bindings, because a workspace has to hand the same
 /// thing to the field and to the inset calculation.
 public struct HakoWorkspaceSearch {
+    /// Where the field goes, which follows from how the page is presented.
+    public enum Placement {
+        /// A pushed page: the system's own search, in the bottom bar on the current system
+        /// and in the navigation-bar drawer before it.
+        case system
+        /// A sheet: a drawn capsule pinned above the safe area. The reference shows exactly
+        /// this on its proxy sheet, and a sheet has no bottom bar for a system field.
+        case bottomBar
+    }
+
     public let text: Binding<String>
     public let prompt: LocalizedStringKey
+    public let placement: Placement
 
-    public init(text: Binding<String>, prompt: LocalizedStringKey = "Search") {
+    public init(
+        text: Binding<String>,
+        prompt: LocalizedStringKey = "Search",
+        placement: Placement = .system,
+        accessibilityIdentifier: String? = nil
+    ) {
         self.text = text
         self.prompt = prompt
+        self.placement = placement
+        self.accessibilityIdentifier = accessibilityIdentifier
     }
+
+    /// Kept so a UI test can address a drawn field; a system field is addressed by type.
+    public let accessibilityIdentifier: String?
 }
 
 // MARK: - Modal scaffold
