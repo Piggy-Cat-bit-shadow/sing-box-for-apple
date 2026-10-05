@@ -53,7 +53,7 @@ import SwiftUI
             to new: String?,
             source: StaticString = #function
         ) {
-            logger.debug(
+            logger.notice(
                 "[UI] \(name, privacy: .public) \(old ?? "nil", privacy: .public) -> \(new ?? "nil", privacy: .public) source=\(shortSource(source), privacy: .public)"
             )
         }
@@ -63,11 +63,14 @@ import SwiftUI
             _ event: String,
             source: StaticString = #function
         ) {
-            logger.debug("[UI] \(event, privacy: .public) source=\(shortSource(source), privacy: .public)")
+            logger.notice("[UI] \(event, privacy: .public) source=\(shortSource(source), privacy: .public)")
         }
 
-        /// The subsystem is the running app's own identifier rather than a baked-in one, so a fork or
-        /// a rename does not silently log to somebody else's stream.
+        /// `notice` rather than `debug`, and that is the difference between an instrument and a
+        /// decoration: `log stream` does not deliver debug-level messages from another process, so a
+        /// `debug` call here produces no output an operator can read. Measured on this machine with a
+        /// two-line control program, not assumed. The subsystem is the running app's own identifier
+        /// rather than a baked-in one, so a fork or a rename does not log to somebody else's stream.
         private static let logger = Logger(
             subsystem: Bundle.main.bundleIdentifier ?? "sing-box-ui",
             category: "ui"

@@ -98,6 +98,13 @@ public struct MainView: View {
             }
         })
         .onAppear {
+            // The anchor line: one per launch, before any interaction. It is what makes an empty
+            // trace readable as "nothing happened yet" rather than "the instrument is not running",
+            // and what proves the log level and subsystem reach an operator's terminal.
+            HakoUITrace.event(
+                "root-appear selection=\(String(viewModel.selection.rawValue)) remote=\(environments.remoteServer != nil)",
+                source: "MacLibrary.MainView.onAppear"
+            )
             viewModel.onAppear(environments: environments)
             Task { await reloadRemoteServers() }
         }
