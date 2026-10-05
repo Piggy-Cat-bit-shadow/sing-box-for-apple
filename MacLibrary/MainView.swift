@@ -63,8 +63,14 @@ public struct MainView: View {
                 .navigationSplitViewColumnWidth(150)
         } detail: {
             NavigationStack(path: $settingsNavigationPath) {
-                viewModel.selection.contentView
-                    .navigationTitle(viewModel.selection.title)
+                // The desktop detail column is centred and inset rather than stretched across the
+                // window. The page keeps its own scroll view, form and title; this only supplies
+                // the column's geometry, so a page reached from the sidebar looks the same here as
+                // it does in the touch client's canvas.
+                HakoRegularDetailContainer {
+                    viewModel.selection.contentView
+                        .navigationTitle(viewModel.selection.title)
+                }
             }
             .environment(\.cardConfigurationVersion, cardConfigurationVersion)
             .environment(\.settingsNavigationPath, $settingsNavigationPath)
