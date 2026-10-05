@@ -106,6 +106,58 @@ public extension NavigationPage {
     }
 }
 
+/// Where a page lives in the shell: the primary that owns it, and whether it is that
+/// primary's root or a child pushed on top of it.
+///
+/// This is extracted as a value rather than left inline in the shell because the failure
+/// it guards against is invisible in a view: a child selected before its primary's
+/// navigation stack existed cannot be pushed, and a `NavigationLink` whose binding is
+/// already true when it is added to the hierarchy is not guaranteed to activate. The
+/// mapping is therefore a decision the shell makes twice - what to render as the root, and
+/// what to push onto it - and a decision that can be tested directly.
+public struct HakoPrimaryRoute: Equatable {
+    public let primary: HakoPrimaryTab
+    public let child: NavigationPage?
+
+    public init(_ page: NavigationPage) {
+        primary = page.hakoPrimary
+        child = page.isHakoPrimaryRoot ? nil : page
+    }
+
+    /// What the primary renders as its root. Always a root page, never a child.
+    public var root: NavigationPage {
+        primary.rootPage
+    }
+
+    public var hasChild: Bool {
+        child != nil
+    }
+}
+
+/// The shell's child-route state machine.
+///
+/// Given what each primary currently has pushed and the page the client says is selected,
+/// it answers what each primary should have pushed. Two properties matter and both are
+/// deliberate:
+///
+///   - a primary that is not the selected page keeps whatever it had. SwiftUI keeps a tab's
+///     navigation stack alive, so returning to that tab must return to the same place;
+///     clearing it would silently pop a page the user left open.
+///   - a selected child is armed even when it was already selected before anything was
+///     rendered, which is the launch case. The shell applies the result only once the
+///     primary's root has appeared, which is what makes the push valid.
+public enum HakoPrimaryChildArmer {
+    public static func next(
+        pushed: [HakoPrimaryTab: NavigationPage],
+        selection: NavigationPage
+    ) -> [HakoPrimaryTab: NavigationPage] {
+        let route = HakoPrimaryRoute(selection)
+        var updated = pushed
+        updated[route.primary] = route.child
+        return updated
+    }
+}
+
 /// The touch client's shell.
 ///
 /// The caller supplies the page contents, the badge and the bottom accessory; the
@@ -119,6 +171,12 @@ public struct HakoPrimaryShell<Accessory: View>: View {
     @ViewBuilder private let pageContent: (NavigationPage) -> AnyView
 
     @State private var initializedTabs: Set<HakoPrimaryTab> = []
+    /// The child each primary currently has pushed.
+    ///
+    /// Kept per primary rather than derived from `selection`, because SwiftUI keeps a tab's
+    /// navigation stack alive: a user who opens Logs, switches to Home and comes back must
+    /// find Logs still open, so the state cannot be "whatever is selected right now".
+    @State private var pushedChild: [HakoPrimaryTab: NavigationPage] = [:]
 
     public init(
         selection: Binding<NavigationPage>,
@@ -155,10 +213,18 @@ public struct HakoPrimaryShell<Accessory: View>: View {
                                 }
                         }
                         .onAppear {
+                            // The root has now rendered, so its navigation host exists and a
+                            // child selected before this moment can be pushed onto it. This is
+                            // the ordering the whole arrangement exists for: resolve the
+                            // primary, render its root, then apply the optional child.
+                            applySelectedRoute(for: primary)
                             guard !initializedTabs.contains(primary) else { return }
                             DispatchQueue.main.async {
                                 initializedTabs.insert(primary)
                             }
+                        }
+                        .onChangeCompat(of: selection) { _ in
+                            applySelectedRoute(for: primary)
                         }
                 }
                 .tag(primary)
@@ -184,9 +250,16 @@ public struct HakoPrimaryShell<Accessory: View>: View {
         )
     }
 
-    /// Whether this tab is currently showing one of its child pages.
+    /// Arms the child this primary should push, if any, without touching the others.
+    private func applySelectedRoute(for primary: HakoPrimaryTab) {
+        let updated = HakoPrimaryChildArmer.next(pushed: pushedChild, selection: selection)
+        guard updated != pushedChild else { return }
+        pushedChild = updated
+    }
+
+    /// Whether this tab currently has a child page pushed.
     private func childIsPresented(in primary: HakoPrimaryTab) -> Bool {
-        selection.hakoPrimary == primary && !selection.isHakoPrimaryRoot
+        pushedChild[primary] != nil
     }
 
     /// The child page of this tab, presented as a push when one is selected.
@@ -200,13 +273,17 @@ public struct HakoPrimaryShell<Accessory: View>: View {
             isPresented: Binding(
                 get: { childIsPresented(in: primary) },
                 set: { presented in
+                    // A pop - by the back button or an interactive dismissal - leaves the
+                    // selection on the primary's root rather than on a page that is no longer
+                    // on screen, and forgets the push so the next selection can arm it again.
                     guard !presented, childIsPresented(in: primary) else { return }
-                    selection = primary.rootPage
+                    pushedChild[primary] = nil
+                    selection = HakoPrimaryRoute(selection).root
                 }
             )
         ) {
-            if childIsPresented(in: primary) {
-                pageContent(selection)
+            if let child = pushedChild[primary] {
+                pageContent(child)
             }
         }
     }
