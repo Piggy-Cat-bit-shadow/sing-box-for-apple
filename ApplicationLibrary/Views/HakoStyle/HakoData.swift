@@ -365,6 +365,8 @@ public struct HakoSummaryMetric: View {
                 Text(label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             Text(value)
                 .font(.subheadline.monospacedDigit().weight(.semibold))
@@ -373,6 +375,33 @@ public struct HakoSummaryMetric: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A row of summary figures that becomes a column when the text is large.
+///
+/// The figures were laid out by each page in a plain `HStack`, so at the accessibility sizes
+/// each cell took a third of the card and a single-word label - "Groups" - wrapped inside
+/// itself, breaking after the "p". Three columns cannot hold accessibility-sized text in the
+/// width of a phone.
+public struct HakoSummaryMetrics<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private let content: Content
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: HakoTheme.Spacing.standard) {
+                content
+            }
+        } else {
+            HStack(alignment: .top, spacing: HakoTheme.Spacing.standard) {
+                content
+            }
+        }
     }
 }
 
@@ -388,6 +417,7 @@ public struct HakoSummaryMetric: View {
 /// the test glyph measures every member. A single tap target for both is how a group gets
 /// folded when the user meant to test it, which the manual names as a defect.
 public struct HakoExpandableGroupRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let name: String
     private let strategy: String
     private let selectedMember: String?
@@ -435,7 +465,7 @@ public struct HakoExpandableGroupRow: View {
             .accessibilityValue(isExpanded ? Text("Expanded") : Text("Collapsed"))
             .accessibilityIdentifier("proxies.group.\(name)")
 
-            if let onTest {
+            if let onTest, !dynamicTypeSize.isAccessibilitySize {
                 HakoActionItem(
                     systemImage: "bolt.fill",
                     label: String(localized: "Test latency"),
@@ -471,7 +501,9 @@ public struct HakoExpandableGroupRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                // Tail, not middle: a middle truncation of `SELECTOR · SERVER` renders as
+                // `SEL...VER`, which is neither word. The beginning identifies the strategy.
+                .truncationMode(.tail)
         }
     }
 
@@ -499,6 +531,7 @@ public struct HakoExpandableGroupRow: View {
 /// members is scanned left to right, and a mark that changes the row's leading inset as it
 /// moves makes every row in the column shift.
 public struct HakoProxyMemberRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let name: String
     private let protocolName: String
     private let latency: String?
@@ -539,7 +572,7 @@ public struct HakoProxyMemberRow: View {
                         Text(name)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
-                            .lineLimit(1)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                             .truncationMode(.middle)
                         Text(protocolName)
                             .font(.caption)
@@ -585,7 +618,11 @@ public struct HakoProxyMemberRow: View {
                     .frame(minWidth: 44, alignment: .trailing)
             }
 
-            if let onTest {
+            // The per-member test control is the first thing to go when the text is large: the
+            // row's purpose is to name the member and be chosen, the group's own test action
+            // measures every member anyway, and at accessibility sizes this control was eating
+            // the width the name needed - `server2` rendered as `se...er2`.
+            if let onTest, !dynamicTypeSize.isAccessibilitySize {
                 HakoActionItem(
                     systemImage: "bolt.fill",
                     label: String(localized: "Test latency"),

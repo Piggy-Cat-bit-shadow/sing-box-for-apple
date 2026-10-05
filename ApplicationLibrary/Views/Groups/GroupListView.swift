@@ -146,7 +146,7 @@ public struct GroupListView: View {
             symbol: "rectangle.3.group.fill",
             tint: .indigo
         ) {
-            HStack(alignment: .top, spacing: HakoTheme.Spacing.standard) {
+            HakoSummaryMetrics {
                 HakoSummaryMetric(
                     String(localized: "Groups"),
                     value: "\(filteredGroups.count)",

@@ -140,7 +140,7 @@ public struct ConnectionListView: View {
                 symbol: "arrow.left.arrow.right",
                 tint: .green
             ) {
-                HStack(alignment: .top, spacing: HakoTheme.Spacing.standard) {
+                HakoSummaryMetrics {
                     HakoSummaryMetric(
                         String(localized: "Shown"),
                         value: "\(viewModel.dataModel.filteredConnections.count)",
