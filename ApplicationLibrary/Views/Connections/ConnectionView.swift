@@ -103,10 +103,12 @@ public struct ConnectionView: View {
                 badgeRole: .category,
                 titleIsMonospaced: connection.ipVersion == 6
             ) {
-                HakoIconWell(tint: connectionAccent.color) {
-                    Image(systemName: connectionSymbol)
-                        .font(.caption.weight(.semibold))
-                }
+                HakoIconWell(
+                    tint: connectionAccent.color,
+                    systemImage: connectionSymbol,
+                    size: HakoTheme.Layout.proxyGroupIconSize,
+                    cornerRadius: HakoTheme.Layout.proxyGroupIconCornerRadius
+                )
             } trailing: {
                 HakoMetricStack(metrics, tint: connection.closedAt == nil ? .primary : .secondary)
             }

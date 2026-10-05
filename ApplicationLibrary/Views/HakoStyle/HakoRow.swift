@@ -16,6 +16,19 @@
 import SwiftUI
 
 /// A tinted rounded square holding a white glyph.
+///
+/// # Why the glyph is sized from the tile
+///
+/// The tile is a fixed measurement - 29pt on the touch platforms, 26 on the desktop - and
+/// the glyph inside it used to inherit the row's Dynamic Type body font. At the
+/// accessibility sizes that font is larger than the tile, so the symbol overflowed it and
+/// painted over the row's own title: the screenshot pass at
+/// `accessibility-extra-extra-extra-large` showed the proxy, network-tool and report rows
+/// with their labels half-covered by their own icons.
+///
+/// A fixed-size mark cannot scale with the text around it. The `systemImage` initializer
+/// derives the glyph from the tile; the generic one clamps Dynamic Type and clips, so a
+/// caller that supplies its own icon cannot break out of the square either.
 public struct HakoIconWell<Icon: View>: View {
     public let tint: Color
     public let size: CGFloat
@@ -36,13 +49,32 @@ public struct HakoIconWell<Icon: View>: View {
 
     public var body: some View {
         icon
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(tint)
             )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .accessibilityHidden(true)
+    }
+}
+
+public extension HakoIconWell where Icon == AnyView {
+    /// A well whose glyph is sized from the tile rather than from the row's text.
+    init(
+        tint: Color,
+        systemImage: String,
+        size: CGFloat = HakoTheme.Layout.resolvedDestinationRowIconSize,
+        cornerRadius: CGFloat = HakoTheme.Radius.icon
+    ) {
+        self.init(tint: tint, size: size, cornerRadius: cornerRadius) {
+            AnyView(
+                Image(systemName: systemImage)
+                    .font(.system(size: size * 0.46, weight: .semibold))
+            )
+        }
     }
 }
 
@@ -134,10 +166,7 @@ public struct HakoDestinationRow: View {
     }
 
     private var leadingIcon: some View {
-        HakoIconWell(tint: tint) {
-            Image(systemName: systemImage)
-                .font(.body.weight(.semibold))
-        }
+        HakoIconWell(tint: tint, systemImage: systemImage)
     }
 
     private var destinationCopy: some View {
@@ -467,10 +496,7 @@ struct HakoRowBody<Trailing: View>: View {
             spacing: HakoTheme.Spacing.row
         ) {
             if let systemImage, let tint {
-                HakoIconWell(tint: tint) {
-                    Image(systemName: systemImage)
-                        .font(.body.weight(.semibold))
-                }
+                HakoIconWell(tint: tint, systemImage: systemImage)
             }
 
             copy

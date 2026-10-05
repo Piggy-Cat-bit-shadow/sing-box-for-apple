@@ -654,10 +654,7 @@ public struct HakoActionTileLabel: View {
 
     public var body: some View {
         VStack(spacing: HakoTheme.Spacing.compact) {
-            HakoIconWell(tint: tint.color) {
-                Image(systemName: systemImage)
-                    .font(.body.weight(.semibold))
-            }
+            HakoIconWell(tint: tint.color, systemImage: systemImage)
             Text(title)
                 .font(.footnote)
                 .foregroundStyle(.primary)
