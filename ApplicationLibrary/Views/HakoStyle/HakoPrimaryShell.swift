@@ -147,6 +147,24 @@ public struct HakoPrimaryRoute: Equatable {
 ///     rendered, which is the launch case. The shell applies the result only once the
 ///     primary's root has appeared, which is what makes the push valid.
 public enum HakoPrimaryChildArmer {
+    /// The whole rule, as one value-producing function so the shell and its harness exercise the
+    /// same decision instead of the harness restating it.
+    ///
+    /// `arming` is the primary whose column is applying the route - each tab has its own
+    /// `onChangeCompat`, and all of them see the same `selection`. Only the one that owns the
+    /// selection may write: every other primary returns the map unchanged, which is what keeps its
+    /// stack alive while the user is elsewhere.
+    public static func applying(
+        arming primary: HakoPrimaryTab,
+        pushed: [HakoPrimaryTab: NavigationPage],
+        selection: NavigationPage
+    ) -> [HakoPrimaryTab: NavigationPage] {
+        guard primary == selection.hakoPrimary else {
+            return pushed
+        }
+        return next(pushed: pushed, selection: selection)
+    }
+
     public static func next(
         pushed: [HakoPrimaryTab: NavigationPage],
         selection: NavigationPage
@@ -248,24 +266,43 @@ public struct HakoPrimaryShell<Accessory: View>: View {
                 // every set would reset a child page (Logs, for example) back to its
                 // primary's root whenever SwiftUI re-evaluated the binding.
                 guard newPrimary != selection.hakoPrimary else { return }
+                // A tab keeps its stack while the user is elsewhere, so returning to it has to
+                // return to where it was left - not to its root. Without this the child was
+                // restored in `pushedChild` and then immediately popped by this very write, which is
+                // why "open Logs, go to Home, come back" landed on the Tools root.
+                let destination = pushedChild[newPrimary] ?? newPrimary.rootPage
                 HakoUITrace.transition(
                     "primary",
                     from: selection.hakoPrimary.rawValue,
                     to: newPrimary.rawValue,
                     source: "HakoPrimaryShell.primarySelection"
                 )
-                selection = newPrimary.rootPage
+                HakoUITrace.transition(
+                    "primary-page \(newPrimary.rawValue)",
+                    from: String(selection.rawValue),
+                    to: String(destination.rawValue),
+                    source: "HakoPrimaryShell.primarySelection"
+                )
+                selection = destination
             }
         )
     }
 
     /// Arms the child this primary should push, if any, without touching the others.
+    ///
+    /// The decision - whether this column may arm at all - lives in
+    /// `HakoPrimaryChildArmer.applying`, so the harness exercises the same rule rather than a
+    /// restatement of it. This method only records what the rule decided.
     private func applySelectedRoute(for primary: HakoPrimaryTab) {
-        let updated = HakoPrimaryChildArmer.next(pushed: pushedChild, selection: selection)
+        let updated = HakoPrimaryChildArmer.applying(
+            arming: primary,
+            pushed: pushedChild,
+            selection: selection
+        )
         guard updated != pushedChild else {
-            // The re-arm that changes nothing is the evidence for "a page is pushed once": if a
-            // second selection of the same child produced a transition line instead, it would be
-            // pushing onto what is already on screen.
+            // Nothing changed for this column. That is either "the selection belongs to another
+            // primary, so this stack is left alone" or "the same child was selected again"; both are
+            // the evidence for a page being pushed at most once, so neither writes state.
             HakoUITrace.event(
                 "child-unchanged \(primary.rawValue)/\(pushedChild[primary].map { String($0.rawValue) } ?? "nil")",
                 source: "HakoPrimaryShell.applySelectedRoute"

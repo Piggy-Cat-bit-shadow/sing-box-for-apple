@@ -75,9 +75,72 @@ enum HakoPrimaryRouteCheck {
 
     // A primary that is not selected keeps what it had: SwiftUI keeps the tab's stack alive, so
     // leaving Logs and returning to Tools must return to Logs.
-    let kept = HakoPrimaryChildArmer.next(pushed: [.tools: .logs], selection: .dashboard)
-    check(kept[.tools] == .logs, "leaving a primary keeps its pushed child")
+    //
+    // Applied as `applying(arming:selection:)` rather than `next(...)`, because that is the rule the
+    // shell uses: a column only arms when it owns the selection. Asserting `next(...)` here is what
+    // previously let this pass while the shell popped the page - the broken implementation and the
+    // assertion shared the same wrong assumption, so the check could not see the defect.
+    let kept = HakoPrimaryChildArmer.applying(arming: .home, pushed: [.tools: .logs], selection: .dashboard)
+    check(kept[.tools] == .some(.logs), "leaving a primary keeps its pushed child")
     check(kept[.home] == nil, "and the newly selected primary stays on its root")
+
+    // The regression itself, in the smallest form: Tools holds Logs and the selection moves to the
+    // Tools root, so Tools must drop its child - but the Home column observing the same change must
+    // not be the one that does it. Before the fix the armer wrote the entry keyed on the *new*
+    // selection's primary, so a column being left drove its own page to nil and "return to Tools"
+    // showed the root instead of Logs.
+    let leftTools = HakoPrimaryChildArmer.applying(arming: .home, pushed: [.tools: .logs], selection: .tools)
+    check(leftTools[.tools] == .some(.logs),
+          "a column that does not own the selection cannot clear another primary's child")
+
+    // The tap itself is modelled, because it is half the rule and the half that was wrong:
+    // `primarySelection`'s setter returns early when the tapped primary already owns the selection,
+    // and otherwise moves to the page that primary was last left on - its pushed child if it has
+    // one, its root if not. Tapping a tab must not discard a stack the tab still holds.
+    //
+    // Each column then arms only if the selection actually changed, because that is what
+    // `onChangeCompat(of: selection)` does - running the armer on an unchanged selection would be a
+    // stricter test than the shell, and would report a bug the shell cannot have.
+    func tabTap(_ primary: HakoPrimaryTab, selection previous: NavigationPage, pushed: [HakoPrimaryTab: NavigationPage])
+        -> (selection: NavigationPage, pushed: [HakoPrimaryTab: NavigationPage])
+    {
+        guard primary != previous.hakoPrimary else {
+            return (previous, pushed)
+        }
+        var selection = pushed[primary] ?? primary.rootPage
+        var pushed = pushed
+        for column in HakoPrimaryTab.allCases {
+            let before = pushed[column]
+            pushed = HakoPrimaryChildArmer.applying(arming: column, pushed: pushed, selection: selection)
+            if column != selection.hakoPrimary {
+                check(pushed[column] == before, "\(column) is untouched while \(selection) is selected")
+            }
+        }
+        selection = pushed[selection.hakoPrimary] ?? selection.hakoPrimary.rootPage
+        return (selection, pushed)
+    }
+
+    // Logs open on Tools; tap Home; tap Tools again. The push must still be there.
+    var replay: [HakoPrimaryTab: NavigationPage] = [:]
+    var replaySelection: NavigationPage = .dashboard
+    replay = HakoPrimaryChildArmer.applying(arming: .tools, pushed: replay, selection: .logs)
+    replaySelection = .logs
+    print("     replay: open logs        -> \(replay.sorted { $0.key.rawValue < $1.key.rawValue })")
+
+    (replaySelection, replay) = tabTap(.home, selection: replaySelection, pushed: replay)
+    check(replay[.tools] == .some(.logs), "leaving Tools for Home keeps the push")
+    print("     replay: tap Home         -> \(replay.sorted { $0.key.rawValue < $1.key.rawValue })")
+
+    (replaySelection, replay) = tabTap(.tools, selection: replaySelection, pushed: replay)
+    check(replaySelection == .logs, "tapping Tools while viewing its child does not reset to the root")
+    check(replay[.tools] == .some(.logs), "a push survives tab switches")
+
+    (replaySelection, replay) = tabTap(.home, selection: replaySelection, pushed: replay)
+    (replaySelection, replay) = tabTap(.more, selection: replaySelection, pushed: replay)
+    check(replay[.tools] == .some(.logs), "and survives a longer detour through More")
+    print("     replay: Home then More   -> \(replay.sorted { $0.key.rawValue < $1.key.rawValue })")
+
+    check(replay[.home] == nil, "and Home is still untouched")
 
     // Selecting a different child of the same primary replaces the push rather than stacking.
     let replaced = HakoPrimaryChildArmer.next(pushed: [.tools: .logs], selection: .tools)
