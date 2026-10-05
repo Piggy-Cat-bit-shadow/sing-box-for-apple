@@ -66,11 +66,11 @@ public struct ConnectionView: View {
                     }
 
                     HStack(alignment: .top, spacing: HakoTheme.Spacing.compact) {
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
                             Text(verbatim: "\u{2191} \(LibboxFormatBytes(connection.uploadTotal))")
                             Text(verbatim: "\u{2193} \(LibboxFormatBytes(connection.downloadTotal))")
                         }
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
                             Text(format(connection.createdAt))
                             if let closedAt = connection.closedAt {
                                 Text(formatInterval(connection.createdAt, closedAt))
@@ -79,7 +79,7 @@ public struct ConnectionView: View {
                             }
                         }
                         Spacer(minLength: HakoTheme.Spacing.compact)
-                        VStack(alignment: .trailing, spacing: 2) {
+                        VStack(alignment: .trailing, spacing: HakoTheme.Spacing.tight) {
                             Text(connection.inboundType + "/" + connection.inbound)
                             Text(connection.chain.reversed().joined(separator: "/"))
                         }
