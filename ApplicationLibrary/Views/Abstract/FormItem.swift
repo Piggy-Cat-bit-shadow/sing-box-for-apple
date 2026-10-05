@@ -11,51 +11,76 @@ public func FormView(@ViewBuilder content: () -> some View) -> some View {
 }
 
 public func FormTextItem(_ name: LocalizedStringKey, _ value: String) -> some View {
-    #if os(tvOS)
-        Button {} label: {
-            HStack {
-                Text(name)
-                Spacer()
-                Text(value)
-                    .multilineTextAlignment(.trailing)
-                    .font(Font.system(.caption, design: .monospaced))
-            }
-        }
-    #else
-        HStack(alignment: .firstTextBaseline) {
-            Text(name)
-            Text(value)
-                .multilineTextAlignment(.trailing)
-                .font(Font.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    #endif
+    HakoValueLine(name, value: value)
 }
 
 public func FormTextItem(_ name: LocalizedStringKey, _ systemImage: String, @ViewBuilder _ value: () -> some View) -> some View {
-    #if os(tvOS)
-        Button {} label: {
-            HStack {
-                Label(name, systemImage: systemImage)
-                Spacer()
-                value()
-                    .multilineTextAlignment(.trailing)
-                    .font(Font.system(.caption, design: .monospaced))
-            }
-        }
-    #else
-        HStack(alignment: .firstTextBaseline) {
-            Label(name, systemImage: systemImage)
-            value()
+    HakoValueLine(name, systemImage: systemImage, value: value)
+}
+
+/// A key/value line in the shared design language.
+///
+/// Every detail page in the client is a stack of these, so it is the one place that decides
+/// what a detail row looks like: the label secondary, the value primary and monospaced, both at
+/// the same size so the eye can run down either column. It replaced a caption-sized monospaced
+/// value under a plain label, which made the value the quietest thing on a page whose whole
+/// content is the value.
+///
+/// The tvOS variant keeps its Button wrapper: the focus engine needs a focusable element, and
+/// removing it would break navigation on that platform rather than restyle it.
+public struct HakoValueLine<Value: View>: View {
+    private let name: LocalizedStringKey
+    private let systemImage: String?
+    private let value: Value
+
+    public init(_ name: LocalizedStringKey, value: String) where Value == Text {
+        self.name = name
+        self.systemImage = nil
+        self.value = Text(value)
+    }
+
+    public init(_ name: LocalizedStringKey, systemImage: String, @ViewBuilder value: () -> Value) {
+        self.name = name
+        self.systemImage = systemImage
+        self.value = value()
+    }
+
+    @ViewBuilder
+    public var body: some View {
+        #if os(tvOS)
+            Button {} label: { line }
+        #else
+            line
+        #endif
+    }
+
+    private var line: some View {
+        HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
+            label
+            value
                 .multilineTextAlignment(.trailing)
-                .font(Font.system(.caption, design: .monospaced))
+                .font(.subheadline.monospacedDigit())
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    #endif
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        let text = Text(name)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        if let systemImage {
+            Label {
+                text
+            } icon: {
+                Image(systemName: systemImage)
+            }
+        } else {
+            text
+        }
+    }
 }
 
 public func FormItem(_ title: String, @ViewBuilder content: () -> some View) -> some View {
