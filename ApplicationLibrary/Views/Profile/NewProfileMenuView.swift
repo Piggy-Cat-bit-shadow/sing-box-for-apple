@@ -116,32 +116,6 @@ public struct NewProfileMenuView: View {
                     menuContent
                 }
             }
-            // The hidden destination belongs outside the form, which is where the rest of this
-            // client puts one: inside a form it is a row, and a row is laid out as one.
-            //
-            // Note for whoever picks this up: a stray disclosure indicator still draws at the
-            // trailing edge of the tile row in this modal, and it is *not* from here. Replacing
-            // the third tile's `NavigationLink` with a `Button` and moving this destination out
-            // of the form both left it in place, so the cause is something else - most likely
-            // the grouped `Form` giving an accessory to a section whose row holds interactive
-            // content. It is cosmetic and it is written down rather than guessed at again.
-            .background {
-                #if !os(tvOS)
-                    NavigationDestinationCompat(isPresented: $showManualCreate) {
-                        // Capturing anything that holds the sheet's DismissAction here makes
-                        // SwiftUI on iOS 17 loop forever laying the pushed view out.
-                        NewProfileView(onSuccess: { [$manualCreateSucceeded] profile in
-                            await SharedPreferences.selectedProfileID.set(profile.mustID)
-                            $manualCreateSucceeded.wrappedValue = true
-                        })
-                        .environmentObject(environments)
-                        // The push supplies the chrome, as every other pushed page's
-                        // presenter does. Without it the editor wore the platform's own
-                        // back control and the platform's title.
-                        .hakoNavigationChrome(title: String(localized: "New Configuration"))
-                    }
-                #endif
-            }
             .onChangeCompat(of: manualCreateSucceeded) { newValue in
                 if newValue {
                     complete()
@@ -160,6 +134,31 @@ public struct NewProfileMenuView: View {
                     QRScannerView { result in
                         handleQRScanResult(result)
                     }
+                }
+            #endif
+        }
+        // Outside the scaffold, not inside its content.
+        //
+        // `HakoModalScaffold` wraps its content in a `Form`, so a hidden `NavigationLink`
+        // attached to that content is a *row* - and the platform gives a row that navigates a
+        // disclosure indicator, which is where the stray chevron at the trailing edge of the
+        // tile row came from. Attaching it to the scaffold's own result is what puts it outside
+        // the form. Two earlier attempts missed this by attaching it to the content and
+        // assuming "inside the modal" and "outside the form" were the same thing.
+        .background {
+            #if !os(tvOS)
+                NavigationDestinationCompat(isPresented: $showManualCreate) {
+                    // Capturing anything that holds the sheet's DismissAction here makes
+                    // SwiftUI on iOS 17 loop forever laying the pushed view out.
+                    NewProfileView(onSuccess: { [$manualCreateSucceeded] profile in
+                        await SharedPreferences.selectedProfileID.set(profile.mustID)
+                        $manualCreateSucceeded.wrappedValue = true
+                    })
+                    .environmentObject(environments)
+                    // The push supplies the chrome, as every other pushed page's presenter
+                    // does. Without it the editor wore the platform's own back control and the
+                    // platform's title.
+                    .hakoNavigationChrome(title: String(localized: "New Configuration"))
                 }
             #endif
         }
