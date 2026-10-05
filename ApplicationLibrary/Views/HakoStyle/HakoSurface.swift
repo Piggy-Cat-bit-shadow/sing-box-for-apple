@@ -168,3 +168,28 @@ public struct HakoProductPalette: Equatable {
         }
     #endif
 }
+
+/// The desktop detail column's geometry.
+///
+/// Frame, padding, alignment and background, and nothing else - see `HakoTheme.Regular.Detail`.
+/// The pages that fill it keep their own scroll view or form and their own title, which is what
+/// makes this a column rather than a page.
+public struct HakoRegularDetailContainer<Content: View>: View {
+    private let content: Content
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: some View {
+        content
+            .frame(
+                maxWidth: HakoTheme.Regular.Detail.maximumContentWidth,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, HakoTheme.Regular.Detail.horizontalInset)
+            .background(HakoProductPalette.system.canvas)
+    }
+}

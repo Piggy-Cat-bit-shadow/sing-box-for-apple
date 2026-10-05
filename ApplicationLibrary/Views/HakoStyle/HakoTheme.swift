@@ -142,6 +142,27 @@ public enum HakoTheme {
         /// is the sum of the reference implementation's parts, and rounding it moves
         /// every row on the page.
         public static let destinationRowTargetHeight: CGFloat = 62.7
+        /// The icon tile of a list row that is not a primary destination: a profile, a proxy
+        /// group, a member inside one.
+        ///
+        /// Smaller than `destinationRowIconSize` because these rows appear inside a grouped
+        /// card rather than as the card's own entries, and the reference implementation sizes
+        /// them separately for that reason.
+        public static let proxyGroupIconSize: CGFloat = 24
+        public static let proxyGroupIconCornerRadius: CGFloat = 6
+
+        /// The desktop detail column.
+        ///
+        /// The regular layout centres a content column and insets it, rather than letting a page
+        /// stretch across a wide window. It only ever applies frame, padding, alignment and
+        /// background: a container that created a scroll view, list or form of its own would sit
+        /// around pages that already own one, and nesting two is how a desktop page ends up with
+        /// two scroll indicators.
+        public enum Detail {
+            public static let maximumContentWidth: CGFloat = 1_120
+            public static let horizontalInset: CGFloat = 56
+        }
+
         /// Horizontal inset of the primary pages' content column.
         public static let cardHorizontalInset: CGFloat = 20
         /// The divider starts where the row's text does, which is the icon plus the
