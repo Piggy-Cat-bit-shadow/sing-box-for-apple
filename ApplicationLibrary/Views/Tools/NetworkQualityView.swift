@@ -124,7 +124,7 @@ public struct NetworkQualityView: View {
                 }
             }
         }
-        .navigationTitle("Network Quality")
+        .hakoNavigationChrome(title: String(localized: "Network Quality"))
         .task {
             await viewModel.loadPreferences()
         }

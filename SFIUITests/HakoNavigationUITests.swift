@@ -381,6 +381,96 @@ final class HakoNavigationUITests: XCTestCase {
         }
     }
 
+    /// Every row that offers to go somewhere goes somewhere, and there is a way back.
+    ///
+    /// This is the automatable core of the manual's "every button works" gate item, and it is
+    /// aimed at the failure the manual names first: a hierarchy where a row looks navigable
+    /// and is not, or opens something and strands the reader. The list is written out rather
+    /// than discovered, so it also documents the client's navigation surface in one place -
+    /// a row added to a root without being added here is a row nobody has walked.
+    func testEveryNavigableRowOpensSomething() {
+        // Home's destinations: two sheets and a push into the Tools primary.
+        tab("hako.tab.home").tap()
+        for identifier in ["hako.home.groups", "hako.home.connections"] {
+            let row = app.buttons[identifier]
+            XCTAssertTrue(row.waitForExistence(timeout: 15), "\(identifier) must be on Home")
+            row.tap()
+            XCTAssertTrue(
+                app.buttons["hako.nav.close"].waitForExistence(timeout: 20),
+                "\(identifier) must open a sheet with a close control"
+            )
+            app.buttons["hako.nav.close"].tap()
+            XCTAssertTrue(
+                waitForCloseDismissed(),
+                "\(identifier) must close again"
+            )
+            tab("hako.tab.home").tap()
+        }
+
+        // Tools' destinations: six pushes.
+        tab("hako.tab.tools").tap()
+        for identifier in [
+            "hako.tools.logs",
+            "hako.tools.networkQuality",
+            "hako.tools.stun",
+            "hako.tools.crashReports",
+            "hako.tools.oomReports",
+            "hako.tools.powerReports",
+        ] {
+            let row = app.buttons[identifier]
+            XCTAssertTrue(row.waitForExistence(timeout: 15), "\(identifier) must be on Tools")
+            row.tap()
+            XCTAssertTrue(waitForChildPushed(), "\(identifier) must open a page")
+            goBack()
+            XCTAssertTrue(waitForChildDismissed(), "\(identifier) must come back")
+        }
+
+        // More's destinations, each of which already had its own case: this asserts the part
+        // that case does not - that the row is enabled and hittable, not merely present.
+        tab("hako.tab.more").tap()
+        for key in ["onDemandRules", "packetTunnel", "profileOverride", "app", "core", "remoteControl", "sponsors"] {
+            let row = app.buttons["hako.more.\(key)"]
+            XCTAssertTrue(row.waitForExistence(timeout: 15), "hako.more.\(key) must be on More")
+            XCTAssertTrue(row.isEnabled, "hako.more.\(key) must be enabled")
+            // Reachable, which for the last rows means scrolling to them first. Asserting
+            // `isHittable` straight away failed on the sponsorship row for the honest reason
+            // that it is below the fold - the assertion had not controlled its precondition.
+            XCTAssertTrue(
+                scrollIntoView(row),
+                "hako.more.\(key) must be reachable"
+            )
+            // Back to the top, so the next row is looked for from where it starts.
+            for _ in 0 ..< 8 {
+                app.swipeDown()
+            }
+        }
+    }
+
+    /// Bring an element into view, as a reader would, and say whether it got there.
+    @discardableResult
+    private func scrollIntoView(_ element: XCUIElement, swipes: Int = 8) -> Bool {
+        for _ in 0 ..< swipes {
+            if element.isHittable {
+                return true
+            }
+            app.swipeUp()
+        }
+        return element.isHittable
+    }
+
+    /// The sheet's close control has been tapped, and the sheet is gone.
+    @discardableResult
+    private func waitForCloseDismissed(_ timeout: TimeInterval = 15) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !app.buttons["hako.nav.close"].exists {
+                return true
+            }
+            usleep(150_000)
+        }
+        return false
+    }
+
     /// No page shows an internal identifier to the user.
     ///
     /// The manual's completion gate lists "no raw internal keys" and "no unrelated brand

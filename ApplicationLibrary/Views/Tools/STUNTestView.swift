@@ -111,7 +111,7 @@ public struct STUNTestView: View {
                 }
             }
         }
-        .navigationTitle("STUN Test")
+        .hakoNavigationChrome(title: String(localized: "STUN & NAT"))
         .task {
             await viewModel.loadPreferences()
         }

@@ -279,6 +279,7 @@ public struct ToolsView: View {
                     detail: String(localized: "Throughput and responsiveness")
                 )
             }
+            .accessibilityIdentifier("hako.tools.networkQuality")
             HakoRowDivider()
             FormNavigationLink {
                 STUNTestView()
@@ -290,6 +291,7 @@ public struct ToolsView: View {
                     detail: String(localized: "UDP reachability and NAT behaviour")
                 )
             }
+            .accessibilityIdentifier("hako.tools.stun")
         }
     }
 
