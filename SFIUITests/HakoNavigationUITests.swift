@@ -40,6 +40,11 @@ final class HakoNavigationUITests: XCTestCase {
         // asks for a fixed screenshot fixture for exactly this reason - a suite whose data
         // depends on what the device happens to have installed is not a suite.
         app.launchArguments += ["-FASTLANE_SNAPSHOT", "YES"]
+        // And a fixed language. The simulator's locale on this host is Chinese, so the one
+        // assertion that reads a row's label was comparing an English expectation against
+        // a Chinese label. Identifiers are language-independent; labels are not, and any
+        // test that reads one has to pin the language it is reading.
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
     }
 
@@ -84,6 +89,29 @@ final class HakoNavigationUITests: XCTestCase {
         app.navigationBars.buttons["hako.nav.back"].exists
     }
 
+    /// The same question, waited for.
+    ///
+    /// A push animates, so asking immediately after a tap is a race - and a race that
+    /// shows up as an arbitrary iteration of a loop failing rather than as the page that
+    /// is actually slow. Every assertion about a page having appeared goes through here.
+    @discardableResult
+    private func waitForChildPushed(_ timeout: TimeInterval = 15) -> Bool {
+        app.navigationBars.buttons["hako.nav.back"].waitForExistence(timeout: timeout)
+    }
+
+    /// The same question in the other direction, also waited for.
+    @discardableResult
+    private func waitForChildDismissed(_ timeout: TimeInterval = 15) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !app.navigationBars.buttons["hako.nav.back"].exists {
+                return true
+            }
+            usleep(150_000)
+        }
+        return false
+    }
+
     private func goBack() {
         app.navigationBars.buttons["hako.nav.back"].tap()
     }
@@ -96,14 +124,14 @@ final class HakoNavigationUITests: XCTestCase {
 
     func testColdLaunchLandsOnHomeWithoutAChild() {
         XCTAssertTrue(tab("hako.tab.home").isSelected, "a cold launch must land on Home")
-        XCTAssertFalse(isChildPushed, "Home must not launch with a pushed child")
+        XCTAssertTrue(waitForChildDismissed(), "Home must not launch with a pushed child")
     }
 
     func testHomeToLogsPushesAndBackReturnsToTools() {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.logs"].tap()
 
-        XCTAssertTrue(isChildPushed, "Logs must be pushed, so the stack must have a back button")
+        XCTAssertTrue(waitForChildPushed(), "Logs must be pushed, so the stack must have a back button")
         XCTAssertFalse(
             tab("hako.tab.home").isHittable,
             "and the root tab bar must not be on screen while it is"
@@ -112,7 +140,7 @@ final class HakoNavigationUITests: XCTestCase {
         goBack()
 
         XCTAssertTrue(tab("hako.tab.tools").isSelected, "a pop must leave the selection on Tools")
-        XCTAssertFalse(isChildPushed, "and must leave nothing pushed")
+        XCTAssertTrue(waitForChildDismissed(), "and must leave nothing pushed")
     }
 
     // MARK: - Row 4: a tab keeps its stack
@@ -128,15 +156,15 @@ final class HakoNavigationUITests: XCTestCase {
     func testAPoppedPageDoesNotComeBack() {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.logs"].tap()
-        XCTAssertTrue(isChildPushed)
+        XCTAssertTrue(waitForChildPushed())
 
         goBack()
-        XCTAssertFalse(isChildPushed)
+        XCTAssertTrue(waitForChildDismissed())
 
         tab("hako.tab.home").tap()
         tab("hako.tab.tools").tap()
 
-        XCTAssertFalse(isChildPushed, "a popped page must not be restored by a tab switch")
+        XCTAssertTrue(waitForChildDismissed(), "a popped page must not be restored by a tab switch")
         XCTAssertTrue(isRootTabReachable, "and the Tools root must be reachable")
     }
 
@@ -145,24 +173,28 @@ final class HakoNavigationUITests: XCTestCase {
     func testSelectingAChildTwicePushesOnce() {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.logs"].tap()
-        XCTAssertTrue(isChildPushed)
+        XCTAssertTrue(waitForChildPushed())
         goBack()
-        XCTAssertFalse(isChildPushed)
+        XCTAssertTrue(waitForChildDismissed())
 
         // Open it again and take one step back. A single push returns to the Tools root; a second,
         // unrequested push would leave the child on screen and this is what catches it - counting
         // back buttons does not, because a stack shows only its top bar either way.
+        //
+        // Back on Home first: popping Logs leaves the app on the Tools root, where the Home
+        // page's own shortcut does not exist. The test used to tap it from there.
+        tab("hako.tab.home").tap()
         app.buttons["hako.home.logs"].tap()
-        XCTAssertTrue(isChildPushed)
+        XCTAssertTrue(waitForChildPushed())
         goBack()
-        XCTAssertFalse(isChildPushed, "one back must reach the root, so exactly one push happened")
+        XCTAssertTrue(waitForChildDismissed(), "one back must reach the root, so exactly one push happened")
     }
 
     func testTappingTheCurrentTabPushesNothing() {
         tab("hako.tab.tools").tap()
         tab("hako.tab.tools").tap()
 
-        XCTAssertFalse(isChildPushed, "tapping the root's own tab must not push a page")
+        XCTAssertTrue(waitForChildDismissed(), "tapping the root's own tab must not push a page")
         XCTAssertTrue(isRootTabReachable, "and must leave the root tab bar reachable")
     }
 
@@ -184,7 +216,7 @@ final class HakoNavigationUITests: XCTestCase {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.logs"].tap()
 
-        XCTAssertTrue(isChildPushed, "the child must be pushed onto a primary that had never appeared")
+        XCTAssertTrue(waitForChildPushed(), "the child must be pushed onto a primary that had never appeared")
         XCTAssertFalse(
             tab("hako.tab.tools").isHittable,
             "and it must belong to Tools, whose tab bar is hidden while the child is up"
@@ -196,10 +228,20 @@ final class HakoNavigationUITests: XCTestCase {
     func testGroupsAndConnectionsSheetsOpenAndClose() {
         tab("hako.tab.home").tap()
 
-        app.buttons["hako.home.connections"].tap()
-        XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 5), "the Connections sheet must appear")
-        app.sheets.firstMatch.swipeDown()
-        XCTAssertFalse(app.sheets.firstMatch.waitForExistence(timeout: 2), "and must dismiss")
+        let open = app.buttons["hako.home.connections"]
+        XCTAssertTrue(open.waitForExistence(timeout: 15), "Home must offer the Connections workspace")
+
+        // Asserted through the workspace's own search field rather than through
+        // `app.sheets`: on this release a SwiftUI sheet is not reported as a `Sheet`
+        // element at all, so `app.sheets.firstMatch` never exists and the old form of this
+        // test could only ever fail. The page's content is the observable consequence
+        // anyway, and it is what a user sees.
+        let search = app.textFields["hako.activity.search"]
+        open.tap()
+        XCTAssertTrue(search.waitForExistence(timeout: 30), "the Connections workspace must appear")
+
+        app.navigationBars.buttons["hako.nav.close"].tap()
+        XCTAssertFalse(search.waitForExistence(timeout: 10), "and must dismiss")
     }
 
     // MARK: - The root tab belongs to the roots
@@ -228,7 +270,7 @@ final class HakoNavigationUITests: XCTestCase {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.logs"].tap()
 
-        XCTAssertTrue(isChildPushed, "Logs must be pushed")
+        XCTAssertTrue(waitForChildPushed(), "Logs must be pushed")
         XCTAssertFalse(
             tab("hako.tab.home").isHittable,
             "a pushed page must not leave the root tab bar reachable"
@@ -236,7 +278,7 @@ final class HakoNavigationUITests: XCTestCase {
 
         goBack()
 
-        XCTAssertFalse(isChildPushed, "the pop must reach the Tools root")
+        XCTAssertTrue(waitForChildDismissed(), "the pop must reach the Tools root")
         XCTAssertTrue(
             tab("hako.tab.home").isHittable,
             "popping must restore the root tab bar"
@@ -343,8 +385,13 @@ final class HakoNavigationUITests: XCTestCase {
             let row = app.buttons["hako.more.\(key)"]
             XCTAssertTrue(row.waitForExistence(timeout: 5), "\(key) must be listed on the More page")
             row.tap()
+            // Waited for, not sampled. This is the slowest page in the loop - it loads
+            // settings, checks the helper service and sizes a cache before it renders - so
+            // an immediate check failed here and nowhere else, which looked like "the App
+            // page has no back control" and was in fact "the App page had not been pushed
+            // yet when it was asked".
             XCTAssertTrue(
-                isChildPushed,
+                waitForChildPushed(),
                 "\(key) must open as a pushed page with a way back"
             )
             XCTAssertFalse(
@@ -352,6 +399,13 @@ final class HakoNavigationUITests: XCTestCase {
                 "\(key) is a detail page, so the root tab bar must not be reachable on it"
             )
             goBack()
+            // Back on the More root before the next destination is tapped. Without this the
+            // next tap can land while the pop is still animating, and the loop then fails on
+            // an arbitrary row rather than on the one that is actually wrong.
+            XCTAssertTrue(
+                app.buttons["hako.more.core"].waitForExistence(timeout: 15),
+                "the More root must be back before the next destination is opened"
+            )
         }
     }
 

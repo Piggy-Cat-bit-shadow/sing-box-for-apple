@@ -28,6 +28,8 @@ final class HakoSnapshotUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         setupSnapshot(app)
+        // A fixed language, so a captured screen is comparable run to run.
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
     }
 
