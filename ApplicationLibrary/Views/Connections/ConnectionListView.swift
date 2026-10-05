@@ -53,9 +53,7 @@ public struct ConnectionListView: View {
                 viewModel.disconnect()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        #if os(iOS)
-            .background(Color(uiColor: .systemGroupedBackground))
-        #endif
+        .background(HakoProductPalette.system.canvas)
     }
 }
 
@@ -65,16 +63,47 @@ private struct ConnectionListContentView: View {
     var body: some View {
         VStack {
             if dataModel.isLoading {
-                Text("Loading...")
+                HakoEmptyState(symbol: "arrow.left.arrow.right", title: "Loading...", isBusy: true)
+            } else if dataModel.filteredConnections.isEmpty {
+                HakoEmptyState(
+                    symbol: "arrow.left.arrow.right",
+                    title: "No connections",
+                    message: "Connections appear here while the service routes traffic."
+                )
             } else {
                 ScrollView {
-                    LazyVStack {
-                        ForEach(dataModel.filteredConnections, id: \.id) { it in
-                            ConnectionView(it)
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(dataModel.filteredConnections.enumerated()), id: \.element.id) { index, connection in
+                            // One card for the list rather than one per row on the touch
+                            // platforms: a connection list holds hundreds of rows, and the
+                            // design notes call out per-row material as the cost to avoid. The
+                            // desktop keeps its independent cards, which is what a window list
+                            // of this kind looks like there.
+                            #if os(iOS)
+                                ConnectionView(connection, style: .groupedRow)
+                                    .padding(.horizontal, HakoTheme.Spacing.standard)
+                                if index != dataModel.filteredConnections.count - 1 {
+                                    HakoRowDivider(leadingInset: HakoTheme.Spacing.standard + HakoTheme.Layout.proxyGroupIconSize + HakoTheme.Spacing.row)
+                                }
+                            #else
+                                ConnectionView(connection)
+                            #endif
                         }
                     }
-                    .padding()
+                    .padding(.vertical, HakoTheme.Spacing.cardGap)
+                    #if os(iOS)
+                        .background(
+                            HakoCardSurface(
+                                fill: HakoProductPalette.system.card,
+                                separator: HakoProductPalette.system.separator,
+                                cornerRadius: HakoTheme.Radius.groupedSection
+                            ) {
+                                Color.clear
+                            }
+                        )
+                    #endif
                 }
+                .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
             }
         }
     }

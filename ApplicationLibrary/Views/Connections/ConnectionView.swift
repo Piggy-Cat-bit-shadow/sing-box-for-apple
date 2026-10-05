@@ -2,11 +2,26 @@ import Libbox
 import Library
 import SwiftUI
 
+/// How a connection row is presented.
+public enum ConnectionRowStyle {
+    /// The row draws its own card. Used where the list is a scroll of independent cards.
+    case standalone
+    /// The row draws nothing around itself, because the list groups rows into one card.
+    ///
+    /// This is the shape a connection list wants: it can hold hundreds of rows, and a card per
+    /// row means a material, a corner radius and a stroke per row - the per-row cost the design
+    /// notes warn about - as well as a list of cards rather than a grouped list.
+    case groupedRow
+}
+
 @MainActor
 public struct ConnectionView: View {
     private let connection: Connection
-    public init(_ connection: Connection) {
+    private let style: ConnectionRowStyle
+
+    public init(_ connection: Connection, style: ConnectionRowStyle = .standalone) {
         self.connection = connection
+        self.style = style
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -30,65 +45,62 @@ public struct ConnectionView: View {
         Button {
             showDetails = true
         } label: {
-            HStack {
-                VStack(alignment: .leading) {
-                    HStack(alignment: .center) {
+            HStack(alignment: .top, spacing: HakoTheme.Spacing.row) {
+                HakoIconWell(tint: connectionAccent.color) {
+                    Image(systemName: connectionSymbol)
+                        .font(.caption.weight(.semibold))
+                }
+
+                VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+                    HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
                         Text(verbatim: "\(connection.network.uppercased()) \(connection.displayDestination)")
-                        Spacer()
-                        if connection.closedAt == nil {
-                            Text("Active").foregroundStyle(.green)
-                        } else {
-                            Text("Closed").foregroundStyle(.red)
-                        }
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: HakoTheme.Spacing.compact)
+                        HakoStatusBadge(
+                            connection.closedAt == nil ? String(localized: "Active") : String(localized: "Closed"),
+                            emphasis: connection.closedAt == nil ? .success : .failure
+                        )
                     }
-                    .font(.caption2.monospaced().bold())
-                    .padding([.bottom], 4)
-                    HStack {
-                        if let closedAt = connection.closedAt {
-                            VStack(alignment: .leading) {
-                                Text(verbatim: "↑ \(LibboxFormatBytes(connection.uploadTotal))")
-                                Text(verbatim: "↓ \(LibboxFormatBytes(connection.downloadTotal))")
-                            }
-                            .font(.caption2)
-                            VStack(alignment: .leading) {
-                                Text(format(connection.createdAt))
+
+                    HStack(alignment: .top, spacing: HakoTheme.Spacing.compact) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: "\u{2191} \(LibboxFormatBytes(connection.uploadTotal))")
+                            Text(verbatim: "\u{2193} \(LibboxFormatBytes(connection.downloadTotal))")
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(format(connection.createdAt))
+                            if let closedAt = connection.closedAt {
                                 Text(formatInterval(connection.createdAt, closedAt))
+                            } else {
+                                Text(verbatim: "\(LibboxFormatBytes(connection.upload))/s")
                             }
-                            Spacer()
-                            VStack(alignment: .trailing) {
-                                Text(connection.inboundType + "/" + connection.inbound)
-                                Text(connection.chain.reversed().joined(separator: "/"))
-                            }
-                        } else {
-                            VStack(alignment: .leading) {
-                                Text(verbatim: "↑ \(LibboxFormatBytes(connection.upload))/s")
-                                Text(verbatim: "↓ \(LibboxFormatBytes(connection.download))/s")
-                            }
-                            .font(.caption2)
-                            VStack(alignment: .leading) {
-                                Text(LibboxFormatBytes(connection.uploadTotal))
-                                Text(LibboxFormatBytes(connection.downloadTotal))
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing) {
-                                Text(connection.inboundType + "/" + connection.inbound)
-                                Text(connection.chain[0])
-                            }
+                        }
+                        Spacer(minLength: HakoTheme.Spacing.compact)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(connection.inboundType + "/" + connection.inbound)
+                            Text(connection.chain.reversed().joined(separator: "/"))
                         }
                     }
                     .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 }
             }
             .foregroundColor(.textColor)
             #if !os(tvOS)
-                .padding(16)
+                .padding(.vertical, style == .standalone ? HakoTheme.Spacing.standard : HakoTheme.Spacing.row)
+                .padding(.horizontal, style == .standalone ? HakoTheme.Spacing.standard : 0)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             #endif
         }
         #if !os(tvOS)
         .buttonStyle(.plain)
-        .cardStyle()
+        .modifier(ConnectionRowCard(style: style))
         #endif
         .alert($alert)
         .contextMenu {
@@ -118,6 +130,20 @@ public struct ConnectionView: View {
         }
     }
 
+    /// The icon a row leads with: what kind of traffic this connection is.
+    private var connectionSymbol: String {
+        switch connection.network {
+        case "udp":
+            return "arrow.up.arrow.down"
+        default:
+            return "arrow.left.arrow.right"
+        }
+    }
+
+    private var connectionAccent: HakoAccentRole {
+        connection.closedAt == nil ? .green : .blue
+    }
+
     private nonisolated func closeConnection() async {
         do {
             try await CommandTarget.standaloneClient().closeConnection(connection.id)
@@ -125,6 +151,21 @@ public struct ConnectionView: View {
             await MainActor.run {
                 alert = AlertState(action: "close connection", error: error)
             }
+        }
+    }
+}
+
+/// Draws a connection row's card, or nothing when the list owns the card.
+private struct ConnectionRowCard: ViewModifier {
+    let style: ConnectionRowStyle
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch style {
+        case .standalone:
+            content.cardStyle()
+        case .groupedRow:
+            content
         }
     }
 }
