@@ -167,6 +167,46 @@ final class HakoSnapshotUITests: XCTestCase {
         )
     }
 
+    /// Home while this client is driving another instance.
+    ///
+    /// That mode renders a different page entirely - the legacy card grid - so it is the one
+    /// place where this client is still two products in one, and nothing could reach it until
+    /// the fixture learned to start in remote control.
+    func test16RemoteHome() {
+        launch(state: "remote")
+        tab("hako.tab.home").tap()
+        sleep(3)
+
+        // The fixture's remote server is unreachable, so entering remote control raises a
+        // connection alert. Its *text* is what this asserts: the message used to carry the
+        // transport's own account of the failure, which is not something a reader can act on.
+        if app.buttons["Ok"].waitForExistence(timeout: 15) {
+            let message = app.alerts.firstMatch.staticTexts.allElementsBoundByIndex
+                .map(\.label)
+                .joined(separator: " ")
+            XCTAssertTrue(
+                message.contains("remote server"),
+                "the alert must say what happened; it said: \(message)"
+            )
+            for rawDetail in ["rpc error", "tcp", "desc =", "connection reset"] {
+                XCTAssertFalse(
+                    message.contains(rawDetail),
+                    "the transport's own account (\(rawDetail)) belongs in the log, not the alert: \(message)"
+                )
+            }
+            app.buttons["Ok"].tap()
+            sleep(2)
+        }
+        snapshot("16_RemoteHome")
+
+        // Whichever page this is, it is still a page of this client: the root tab is there and
+        // the destination rows lead somewhere.
+        XCTAssertTrue(
+            tab("hako.tab.tools").waitForExistence(timeout: 15),
+            "the remote dashboard must still be inside this client's shell"
+        )
+    }
+
     // MARK: - Secondary pages
 
     func test20Logs() {

@@ -59,4 +59,13 @@ public enum Variant {
     public static var screenshotProfileLoadFailure: Bool {
         screenshotMode && screenshotState == "profileError"
     }
+
+    /// `SCREENSHOT_STATE=remote` makes the app start in remote control of another instance.
+    ///
+    /// That mode replaces the whole Home page with `RemoteDashboardView`, the legacy card grid,
+    /// and nothing could reach it in the fixture - so the one place where this client is still
+    /// two products in one had never been looked at.
+    public static var screenshotRemoteControl: Bool {
+        screenshotMode && screenshotState == "remote"
+    }
 }

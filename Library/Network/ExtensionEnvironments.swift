@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import OSLog
 import SwiftUI
 #if canImport(UIKit)
     import UIKit
@@ -301,6 +302,14 @@ public class ExtensionEnvironments: ObservableObject {
         // Remote control is not available on tvOS.
         #if !os(tvOS)
             if Variant.screenshotMode {
+                if Variant.screenshotRemoteControl {
+                    enterRemoteControl(RemoteServer(
+                        id: 1,
+                        name: "Studio Mac",
+                        url: "http://192.168.1.20:9090",
+                        secret: "fixture"
+                    ))
+                }
                 return
             }
             guard !remoteControlRestored else { return }
@@ -417,6 +426,8 @@ public class ExtensionEnvironments: ObservableObject {
     /// (app suspension, network change, server restart) is recoverable instead,
     /// so it reconnects silently and only surfaces the error once reconnecting
     /// fails too.
+    private static let logger = Logger(subsystem: "io.nekohasekai.sfa", category: "RemoteControl")
+
     private func handleRemoteControlError(_ error: CommandClient.ConnectionError) {
         guard let server = remoteServer, commandClient.lastError == error else {
             return
@@ -454,7 +465,16 @@ public class ExtensionEnvironments: ObservableObject {
         let description = remoteSessionHadConnected
             ? "Disconnected from remote server \(server.displayName)"
             : "Failed to connect to remote server \(server.displayName)"
+        // The technical half goes to the log, not to the reader.
+        //
+        // `error.message` is the transport's own account of the failure - `rpc error:
+        // code = Unavailable desc = "error reading server prefix: read tcp
+        // 172.19.0.1:63956->192.168.1.20:9090: read: connection reset by peer"` - and none of
+        // that helps someone decide what to do next. The sentence above says what happened and
+        // to which server, the app has already fallen back to the local device, and the detail
+        // is in the log for anyone who needs it.
+        Self.logger.error("\(description, privacy: .public): \(error.message, privacy: .public)")
         exitRemoteControl()
-        remoteControlAlert = AlertState(errorMessage: "\(description)\n\(error.message)")
+        remoteControlAlert = AlertState(errorMessage: description)
     }
 }
