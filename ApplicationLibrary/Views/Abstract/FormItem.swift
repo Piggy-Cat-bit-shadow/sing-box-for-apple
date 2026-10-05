@@ -89,17 +89,43 @@ public struct HakoValueLine<Value: View>: View {
     }
 }
 
-public func FormItem(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-    #if os(iOS)
-        HStack {
-            Text(title)
-                .lineLimit(1)
-                .layoutPriority(1)
-            Spacer()
-            Spacer()
-            content()
-        }
-    #elseif os(tvOS)
+/// A labelled field: a title and the control it names.
+///
+/// A view rather than a function so that it can read the text size, which is the whole point:
+/// the labels here are `lineLimit(1)` because they share a line with the control, and at the
+/// accessibility sizes "Required" and the field beside it left the label nowhere to go. The row
+/// stacks then - title above control - which is what `FormPicker` already did, so the two were
+/// laying the same kind of row out two different ways.
+public struct FormItem<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private let title: String
+    private let content: Content
+
+    public init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    public var body: some View {
+        #if os(iOS)
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+                    Text(title)
+                        .foregroundStyle(.secondary)
+                    content
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                HStack {
+                    Text(title)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    Spacer()
+                    Spacer()
+                    content
+                }
+            }
+        #elseif os(tvOS)
         HStack {
             Text(title)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -107,17 +133,18 @@ public func FormItem(_ title: String, @ViewBuilder content: () -> some View) -> 
                 .layoutPriority(1)
             Spacer()
             Spacer()
-            content()
+            content
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(1)
                 .layoutPriority(1)
         }
     #elseif os(macOS)
         LabeledContent(title) {
-            content()
+            content
                 .labelsHidden()
         }
     #endif
+    }
 }
 
 public func FormToggle(_ titleKey: LocalizedStringKey, _ subtitleKey: LocalizedStringKey, _ isOn: Binding<Bool>, header: LocalizedStringKey? = nil, _ action: @escaping (_ newValue: Bool) async -> Void) -> some View {
