@@ -336,6 +336,12 @@ private struct LogContentInnerView: View {
     private let logFont = Font.system(.caption2, design: .monospaced)
 
     var body: some View {
+        content
+            .background(HakoProductPalette.system.canvas)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if Variant.screenshotMode {
             previewContent
         } else if dataModel.isEmpty {
@@ -381,20 +387,41 @@ private struct LogContentInnerView: View {
         #endif
     }
 
+    /// What the page says when there is nothing to show.
+    ///
+    /// The four states stay distinct - no logs yet, logs arrived but none match, connecting to a
+    /// remote, and a service that is not running - because they need different things from the
+    /// user. The two that are not connected keep connecting the service when they appear, which is
+    /// the behaviour they had before; only their presentation changed.
     private var emptyContent: some View {
         Group {
             if dataModel.isConnected {
                 if dataModel.initialLogsReceived {
-                    Text("Empty logs")
+                    HakoEmptyState(
+                        symbol: "text.alignleft",
+                        title: "Empty logs",
+                        message: "Logs will appear here as the service writes them."
+                    )
                 } else {
-                    ProgressView()
+                    HakoEmptyState(symbol: "ellipsis", title: "Loading...", isBusy: true)
                 }
             } else if environments.remoteServer != nil {
-                Text("Connecting...").onAppear {
+                HakoEmptyState(
+                    symbol: "antenna.radiowaves.left.and.right",
+                    title: "Connecting...",
+                    accent: .cyan
+                )
+                .onAppear {
                     environments.connect()
                 }
             } else {
-                Text("Service not started").onAppear {
+                HakoEmptyState(
+                    symbol: "bolt.slash",
+                    title: "Service not started",
+                    message: "Start sing-box to see its logs.",
+                    accent: .orange
+                )
+                .onAppear {
                     environments.connect()
                 }
             }
@@ -428,12 +455,23 @@ private struct LogContentInnerView: View {
                 }
             }
         #else
-            LogTextView(
-                logs: dataModel.visibleLogs,
-                font: logFont,
-                shouldAutoScroll: !viewModel.isPaused,
-                searchText: viewModel.searchText
-            )
+            // The log surface. Not a row per line - the text view is what makes a long log
+            // cheap to scroll and cheap to select - but the surface it sits on is the client's,
+            // so a log page is a page with a log on it rather than text floating in the canvas.
+            HakoCardSurface(
+                fill: HakoProductPalette.system.card,
+                separator: HakoProductPalette.system.separator,
+                cornerRadius: HakoTheme.Radius.groupedSection
+            ) {
+                LogTextView(
+                    logs: dataModel.visibleLogs,
+                    font: logFont,
+                    shouldAutoScroll: !viewModel.isPaused,
+                    searchText: viewModel.searchText
+                )
+            }
+            .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
+            .padding(.vertical, HakoTheme.Spacing.cardGap)
         #endif
     }
 
