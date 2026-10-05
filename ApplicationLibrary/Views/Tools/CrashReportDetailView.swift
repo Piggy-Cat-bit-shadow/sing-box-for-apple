@@ -71,7 +71,11 @@ public struct CrashReportDetailView: View {
     #endif
 
     public var body: some View {
-        FormView {
+        // The report read views were a `FormView` plus a separate chrome call. The
+        // report scaffold is the same page - the system grouped form and the shared
+        // chrome - with the page canvas, the empty and loading conventions and one
+        // place that decides all of it.
+        HakoReportScaffold(title: report.date.formatted(date: .abbreviated, time: .shortened)) {
             if !isLoading, !files.isEmpty {
                 Section("Files") {
                     ForEach(files) { file in
@@ -201,6 +205,5 @@ public struct CrashReportDetailView: View {
                 #endif
             }
         }
-        .hakoNavigationChrome(title: report.date.formatted(date: .abbreviated, time: .shortened))
     }
 }
