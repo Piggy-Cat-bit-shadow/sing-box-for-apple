@@ -48,4 +48,15 @@ public enum Variant {
     public static var screenshotDisconnectedTunnel: Bool {
         ProcessInfo.processInfo.environment["SCREENSHOT_STATE"] == "disconnected"
     }
+
+    /// The raw `SCREENSHOT_STATE` value, for fixture states other than the tunnel's.
+    public static var screenshotState: String {
+        ProcessInfo.processInfo.environment["SCREENSHOT_STATE"] ?? ""
+    }
+
+    /// `SCREENSHOT_STATE=profileError` makes Home report an unreadable configuration, which
+    /// is a condition no fixture could otherwise produce and which the page has to survive.
+    public static var screenshotProfileLoadFailure: Bool {
+        screenshotMode && screenshotState == "profileError"
+    }
 }

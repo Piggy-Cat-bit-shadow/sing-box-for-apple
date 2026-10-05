@@ -46,6 +46,17 @@ final class HakoSnapshotUITests: XCTestCase {
         return app.tabBars.firstMatch.buttons.element(boundBy: index)
     }
 
+    /// Relaunch the app in one of the fixture's states.
+    ///
+    /// The suite launches once in `setUp` with no state, and the fixture reads its state from
+    /// the environment at launch, so a case that needs another state has to start the app
+    /// again rather than navigate to it.
+    private func launch(state: String) {
+        app.terminate()
+        app.launchEnvironment["SCREENSHOT_STATE"] = state
+        app.launch()
+    }
+
     private func tap(_ identifier: String, timeout: TimeInterval = 15) {
         let element = app.buttons[identifier]
         XCTAssertTrue(element.waitForExistence(timeout: timeout), "\(identifier) must be reachable")
@@ -121,6 +132,32 @@ final class HakoSnapshotUITests: XCTestCase {
         app.buttons["hako.home.mode.rule"].tap()
         sleep(1)
         XCTAssertTrue(app.buttons["hako.home.mode.rule"].isSelected, "the mode must switch back")
+    }
+
+    /// Home when the configuration cannot be read.
+    ///
+    /// The condition is reported where it stands and the page still draws behind it. That is
+    /// the whole point of the notice: this used to be an alert, which took the screen, hid
+    /// every card, and could not be read without dismissing it first. The test therefore
+    /// asserts both halves - that the notice is there, and that the page it sits on is still
+    /// there with it.
+    func test15ProfileLoadFailure() {
+        launch(state: "profileError")
+        tab("hako.tab.home").tap()
+
+        let notice = app.otherElements["hako.notice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 15), "an unreadable configuration must be reported")
+        XCTAssertTrue(
+            app.buttons["hako.notice.action"].exists,
+            "the notice must offer a way to try again"
+        )
+        snapshot("15_ProfileLoadFailure")
+
+        // The page behind the notice is still a page.
+        XCTAssertTrue(
+            app.buttons["hako.profile.add"].exists,
+            "the notice must not take the place of the page's own content"
+        )
     }
 
     // MARK: - Secondary pages

@@ -15,6 +15,11 @@ private let logger = Logger(category: "DashboardViewModel")
 public final class DashboardViewModel: BaseViewModel {
     @Published public var profileList: [ProfilePreview] = []
     @Published public var selectedProfileID: Int64 = 0
+    /// Why the configuration list could not be read, if it could not be.
+    ///
+    /// A passive condition, so the page reports it where it stands rather than in an alert:
+    /// see `HakoInlineNotice`. This used to be an alert, which hid the page entirely.
+    @Published public var profileLoadError: String?
     @Published public var systemProxyAvailable = false
     @Published public var systemProxyEnabled = false
 
@@ -47,6 +52,16 @@ public final class DashboardViewModel: BaseViewModel {
 
         defer { isLoading = false }
 
+        if let failure = Self.fixtureProfileLoadError {
+            // The fixture's unreadable-configuration state, so the notice can be photographed
+            // and asserted rather than taken on trust. It is decided before the ordinary
+            // fixture, which is also `screenshotMode` and would otherwise win.
+            profileLoadError = failure
+            profileList = []
+            isLoading = false
+            return
+        }
+        profileLoadError = nil
         if Variant.screenshotMode {
             profileList = [
                 ProfilePreview(Profile(id: 0, name: "profile local", type: .local, path: "")),
@@ -67,6 +82,7 @@ public final class DashboardViewModel: BaseViewModel {
         } else {
             do {
                 profileList = try await ProfileManager.list().map { ProfilePreview($0) }
+                profileLoadError = nil
                 guard !profileList.isEmpty else {
                     environments?.emptyProfiles = true
                     return
@@ -78,11 +94,19 @@ public final class DashboardViewModel: BaseViewModel {
                     await SharedPreferences.selectedProfileID.set(selectedProfileID)
                 }
             } catch {
-                alert = AlertState(action: "load profile list", error: error)
+                profileLoadError = error.localizedDescription
                 return
             }
         }
         environments?.emptyProfiles = profileList.isEmpty
+    }
+
+    /// The fixture's unreadable-configuration state.
+    private static var fixtureProfileLoadError: String? {
+        guard Variant.screenshotProfileLoadFailure else {
+            return nil
+        }
+        return String(localized: "The VPN configuration could not be read or saved.")
     }
 
     public func reloadSystemProxy() async {

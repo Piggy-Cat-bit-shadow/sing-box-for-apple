@@ -80,6 +80,9 @@ public struct HakoHomeView: View {
     /// The chosen outbound mode, held here until the core confirms it. See `selectClashMode`.
     @State private var localMode: String = ""
 
+    /// Why the configuration list could not be read, if it could not be.
+    private let profileLoadFailure: String?
+    private let retryProfileLoad: () async -> Void
     @Binding private var profileList: [ProfilePreview]
     @Binding private var selectedProfileID: Int64
     @Binding private var systemProxyAvailable: Bool
@@ -92,8 +95,12 @@ public struct HakoHomeView: View {
         selectedProfileID: Binding<Int64>,
         systemProxyAvailable: Binding<Bool>,
         systemProxyEnabled: Binding<Bool>,
+        profileLoadFailure: String? = nil,
+        retryProfileLoad: @escaping () async -> Void = {},
         cardConfiguration: DashboardCardConfiguration
     ) {
+        self.profileLoadFailure = profileLoadFailure
+        self.retryProfileLoad = retryProfileLoad
         _profileList = profileList
         _selectedProfileID = selectedProfileID
         _systemProxyAvailable = systemProxyAvailable
@@ -103,6 +110,20 @@ public struct HakoHomeView: View {
 
     public var body: some View {
         HakoRootScaffold {
+            // A condition the page found rather than one the user caused. It is reported
+            // where it stands, above everything, and the rest of the page still draws: the
+            // reference does exactly this when its configuration cannot be read.
+            if let profileLoadFailure {
+                HakoInlineNotice(
+                    title: String(localized: "Profiles"),
+                    message: profileLoadFailure,
+                    actionTitle: String(localized: "Retry")
+                ) {
+                    Task {
+                        await retryProfileLoad()
+                    }
+                }
+            }
             sessionCard
             profileCard
             if showsConnectedCards, enabledCards.contains(.clashMode) {

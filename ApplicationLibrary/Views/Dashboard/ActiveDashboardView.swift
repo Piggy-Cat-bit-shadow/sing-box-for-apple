@@ -165,6 +165,10 @@ import SwiftUI
                 selectedProfileID: $coordinator.selectedProfileID,
                 systemProxyAvailable: $coordinator.systemProxyAvailable,
                 systemProxyEnabled: $coordinator.systemProxyEnabled,
+                profileLoadFailure: coordinator.profileLoadError,
+                retryProfileLoad: {
+                    await coordinator.reload()
+                },
                 cardConfiguration: cardConfiguration
             )
         #endif

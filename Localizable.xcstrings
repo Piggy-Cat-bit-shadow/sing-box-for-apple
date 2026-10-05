@@ -11044,6 +11044,22 @@
         }
       }
     },
+    "Retry": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試"
+          }
+        }
+      }
+    },
     "Returns every option on this page to its default.": {
       "localizations": {
         "zh-Hans": {
@@ -13407,6 +13423,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "該二維碼不包含有效的配置導入鏈接。"
+          }
+        }
+      }
+    },
+    "The VPN configuration could not be read or saved.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取或保存 VPN 配置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取或儲存 VPN 設定。"
           }
         }
       }

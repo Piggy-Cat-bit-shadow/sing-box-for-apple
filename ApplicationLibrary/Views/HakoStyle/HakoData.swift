@@ -721,3 +721,67 @@ private extension HakoStatusBadge.Emphasis {
         }
     }
 }
+
+/// A condition the page has to report but cannot resolve on its own.
+///
+/// Composed from the reference's Home at commit 62aa2f2f, which reports an unreadable VPN
+/// configuration this way: the page's name, a prominent action to try again, and the reason
+/// beneath it in the warning colour. The rest of the page still renders - the cards are
+/// drawn from whatever is known, and the notice sits above them.
+///
+/// # Why this is not an alert
+///
+/// A passive condition - something the client found when it looked, rather than something the
+/// user just asked for - must not take the screen. An alert for it blocks the page, hides the
+/// cards that did load, and demands a tap before the user can do anything else, including
+/// reading the error. A failure the user *caused* by an action is a different thing and still
+/// belongs in an alert.
+public struct HakoInlineNotice: View {
+    private let title: String
+    private let message: String
+    private let actionTitle: String?
+    private let action: (() -> Void)?
+
+    public init(
+        title: String,
+        message: String,
+        actionTitle: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.message = message
+        self.actionTitle = actionTitle
+        self.action = action
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+            HStack(spacing: HakoTheme.Spacing.compact) {
+                Text(title)
+                    .font(HakoTheme.FontRole.cardTitle)
+                    .foregroundStyle(.primary)
+
+                Spacer(minLength: HakoTheme.Spacing.compact)
+
+                if let actionTitle, let action {
+                    Button(action: action) {
+                        Text(actionTitle)
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("hako.notice.action")
+                }
+            }
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(HakoAccentRole.orange.color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
+        .padding(.vertical, HakoTheme.Spacing.standard)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("hako.notice")
+    }
+}
