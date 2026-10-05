@@ -27,7 +27,9 @@ public enum DashboardCard: String, CaseIterable, Identifiable, Codable, Hashable
         case .httpProxy:
             return "System HTTP Proxy"
         case .clashMode:
-            return "Clash Mode"
+            // The card grid still called this by the reference client's name. The page it
+            // opens has said "Outbound Mode" since the migration, so the two disagreed.
+            return "Outbound Mode"
         case .profile:
             return "Profile"
         }

@@ -136,7 +136,7 @@ extension ExtensionProfile {
                 if nsError.domain == "Library.FullDiskAccessPermissionRequired" {
                     return AlertState(
                         title: String(localized: "Full Disk Access permission is required"),
-                        message: String(localized: "Please grant the permission for **SFMExtension**, then we can continue."),
+                        message: String(localized: "Grant Full Disk Access to the app\u{2019}s system extension, then continue."),
                         primaryButton: .default(String(localized: "Authorize"), action: Self.openFDASettings),
                         secondaryButton: .cancel()
                     )

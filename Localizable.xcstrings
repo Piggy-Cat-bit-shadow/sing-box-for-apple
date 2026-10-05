@@ -1714,34 +1714,6 @@
         }
       }
     },
-    "Clash Mode": {
-      "localizations": {
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حالت Clash"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Режим Clash"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clash 模式"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clash 模式"
-          }
-        }
-      }
-    },
     "Class & Interfaces": {
       "localizations": {
         "fa": {
@@ -5786,34 +5758,6 @@
         }
       }
     },
-    "Ghostty Configuration": {
-      "localizations": {
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "پیکربندی Ghostty"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Конфигурация Ghostty"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty 配置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty 配置"
-          }
-        }
-      }
-    },
     "GitHub Sponsors (recommended)": {
       "localizations": {
         "fa": {
@@ -5911,6 +5855,22 @@
         }
       },
       "shouldTranslate": false
+    },
+    "Grant Full Disk Access to the app’s system extension, then continue.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请授予该系统扩展“完全磁盘访问权限”，然后继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請授予該系統擴充功能「完整磁碟存取權」，然後繼續。"
+          }
+        }
+      }
     },
     "Group": {
       "localizations": {
@@ -6712,34 +6672,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "分鐘"
-          }
-        }
-      }
-    },
-    "In the standalone version of SFM, reading WiFi state requires this app to be running. After you quit the SFM app, the sing-box service cannot continue to provide `wifi_ssid` and `wifi_bssid` routing rules.": {
-      "localizations": {
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "در نسخه مستقل SFM، برای خواندن وضعیت WiFi برنامه باید در حال اجرا بماند. پس از خروج از SFM، سرویس sing-box دیگر نمی‌تواند قوانین مسیریابی `wifi_ssid` و `wifi_bssid` را ارائه دهد."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В самостоятельной версии SFM для чтения состояния Wi-Fi приложение должно оставаться запущенным. После выхода из SFM служба sing-box больше не сможет предоставлять правила маршрутизации `wifi_ssid` и `wifi_bssid`."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 SFM 独立版本中，读取 WiFi 状态需要应用保持运行。退出 SFM 应用后，sing-box 服务将无法继续提供 `wifi_ssid` 和 `wifi_bssid` 路由规则。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 SFM 獨立版本中，讀取 WiFi 狀態需要應用保持運行。退出 SFM 應用後，sing-box 服務將無法繼續提供 `wifi_ssid` 和 `wifi_bssid` 路由規則。"
           }
         }
       }
@@ -9901,34 +9833,6 @@
         }
       }
     },
-    "Please grant the permission for **SFMExtension**, then we can continue.": {
-      "localizations": {
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لطفاً به **SFMExtension** مجوز بدهید، سپس می‌توانیم ادامه دهیم."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Предоставьте разрешение для **SFMExtension**, после этого можно продолжить."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请为 **SFMExtension** 授予权限，然后我们可以继续。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請爲 **SFMExtension** 授予權限，然後我們可以繼續。"
-          }
-        }
-      }
-    },
     "Power Report": {
       "localizations": {
         "fa": {
@@ -10428,6 +10332,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "讀取連線：%@"
+          }
+        }
+      }
+    },
+    "Reading the WiFi state requires this app to be running. After you quit it, the sing-box service can no longer evaluate the `wifi_ssid` and `wifi_bssid` routing rules.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取 WiFi 状态需要本应用保持运行。退出后，sing-box 服务将无法再根据 `wifi_ssid` 和 `wifi_bssid` 规则进行路由。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取 WiFi 狀態需要本應用程式保持執行。結束後，sing-box 服務將無法再依 `wifi_ssid` 與 `wifi_bssid` 規則路由。"
           }
         }
       }
@@ -15392,21 +15312,6 @@
         }
       }
     },
-    "enforceRoutes": {
-      "shouldTranslate": false
-    },
-    "excludeAPNs": {
-      "shouldTranslate": false
-    },
-    "excludeCellularServices": {
-      "shouldTranslate": false
-    },
-    "excludeDeviceCommunication": {
-      "shouldTranslate": false
-    },
-    "excludeLocalNetworks": {
-      "shouldTranslate": false
-    },
     "false": {
       "localizations": {
         "fa": {
@@ -15591,9 +15496,6 @@
           }
         }
       },
-      "shouldTranslate": false
-    },
-    "includeAllNetworks": {
       "shouldTranslate": false
     },
     "sing-box": {

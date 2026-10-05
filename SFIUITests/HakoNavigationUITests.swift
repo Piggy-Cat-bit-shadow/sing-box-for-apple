@@ -381,6 +381,58 @@ final class HakoNavigationUITests: XCTestCase {
         }
     }
 
+    /// No page shows an internal identifier to the user.
+    ///
+    /// The manual's completion gate lists "no raw internal keys" and "no unrelated brand
+    /// residue" as separate conditions, and neither can be established by reading the source:
+    /// a framework property name reaches a row's label through a title that was never
+    /// rewritten, and a stale catalogue entry keeps its text alive after every call site has
+    /// moved on. So this walks the pages and reads what is actually on them.
+    ///
+    /// The pattern is a single unspaced token in camelCase (`excludeAPNs`) or an internal
+    /// target name (`SFI`, `SFM`, `SFMExtension`). Uppercase core vocabulary such as the
+    /// `URLTEST` a group header shows is matched deliberately: it is the core's word for the
+    /// object and the page is quoting it, not leaking it.
+    private func assertNoRawInternalKeys(on page: String) {
+        let camelCase = try! NSRegularExpression(pattern: "^[a-z][A-Za-z]*[A-Z][A-Za-z]*$")
+        let internalNames: Set<String> = ["SFI", "SFM", "SFMExtension", "ApplicationLibrary"]
+
+        for element in app.staticTexts.allElementsBoundByIndex {
+            guard element.exists else { continue }
+            let text = element.label
+            guard !text.isEmpty, !text.contains(" ") else { continue }
+            let range = NSRange(text.startIndex..., in: text)
+            if camelCase.firstMatch(in: text, range: range) != nil || internalNames.contains(text) {
+                XCTFail("\(page) shows an internal identifier to the user: \(text)")
+            }
+        }
+    }
+
+    /// The sweep, over every page a root can reach.
+    func testNoRawInternalKeysOnAnyPage() {
+        for identifier in ["hako.tab.home", "hako.tab.tools", "hako.tab.more"] {
+            tab(identifier).tap()
+            sleep(1)
+            assertNoRawInternalKeys(on: identifier)
+        }
+
+        // Every More destination, one at a time.
+        tab("hako.tab.more").tap()
+        for key in ["onDemandRules", "packetTunnel", "profileOverride", "app", "core", "remoteControl", "sponsors"] {
+            let row = app.buttons["hako.more.\(key)"]
+            guard row.waitForExistence(timeout: 5) else {
+                XCTFail("hako.more.\(key) must be listed on the More page")
+                continue
+            }
+            row.tap()
+            XCTAssertTrue(waitForChildPushed(), "\(key) must open as a page")
+            sleep(1)
+            assertNoRawInternalKeys(on: key)
+            goBack()
+            _ = waitForChildDismissed()
+        }
+    }
+
     /// Every page the More tab lists is reachable, and each one opens as a page rather
     /// than replacing the shell.
     func testEveryMoreDestinationOpens() {

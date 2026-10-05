@@ -238,7 +238,10 @@ public struct GlobalChecksModifier: ViewModifier {
             wifiLocationManager.onAuthorizationGranted = {
                 alert = AlertState(
                     title: String(localized: "WiFi State Access"),
-                    message: String(localized: "In the standalone version of SFM, reading WiFi state requires this app to be running. After you quit the SFM app, the sing-box service cannot continue to provide `wifi_ssid` and `wifi_bssid` routing rules.")
+                    // The routing keys stay: the user writes them in their own configuration, so
+                    // naming them is how they know which rules the condition affects. The
+                    // internal target name does not stay - it means nothing to a reader.
+                    message: String(localized: "Reading the WiFi state requires this app to be running. After you quit it, the sing-box service can no longer evaluate the `wifi_ssid` and `wifi_bssid` routing rules.")
                 )
             }
             wifiLocationManager.requestAuthorizationAndShowWarning()
