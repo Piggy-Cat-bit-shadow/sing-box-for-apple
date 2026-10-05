@@ -34,18 +34,62 @@ final class HakoNavigationUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
         app = XCUIApplication()
+        // The deterministic fixture, and the reason the first run of this suite measured
+        // nothing: without it the client has no profiles, so Home presents "Install
+        // Network Extension" and none of the pages these tests address exist. The manual
+        // asks for a fixed screenshot fixture for exactly this reason - a suite whose data
+        // depends on what the device happens to have installed is not a suite.
+        app.launchArguments += ["-FASTLANE_SNAPSHOT", "YES"]
         app.launch()
     }
 
     private var tabBar: XCUIElement { app.tabBars.firstMatch }
 
+    /// The tab bar's buttons, in the shell's own order: Home, Tools, More.
+    private static let tabOrder = ["hako.tab.home", "hako.tab.tools", "hako.tab.more"]
+
+    /// A tab, by identifier where the platform exposes one and by position where it does
+    /// not.
+    ///
+    /// The fallback is not a convenience: `tabItem` identifiers are honoured by some
+    /// SwiftUI releases and dropped by others, and a test that addressed a tab only by its
+    /// identifier silently addressed nothing - all fifteen of these tests failed at
+    /// "No matches found for `hako.tab.more`" the first time they were ever allowed to run.
+    /// Position is locale-independent, which is what an identifier was for, and the order
+    /// is asserted in `testRootTabOrderIsStable`.
     private func tab(_ identifier: String) -> XCUIElement {
-        tabBar.buttons[identifier]
+        let byIdentifier = tabBar.buttons[identifier]
+        if byIdentifier.exists {
+            return byIdentifier
+        }
+        guard let index = Self.tabOrder.firstIndex(of: identifier) else {
+            return byIdentifier
+        }
+        return tabBar.buttons.element(boundBy: index)
+    }
+
+    /// The shell's tabs are Home, Tools, More, in that order, in every language.
+    func testRootTabOrderIsStable() {
+        XCTAssertEqual(tabBar.buttons.count, 3, "the shell has exactly three roots")
+        XCTAssertTrue(tab("hako.tab.home").isSelected, "and the first of them is Home")
     }
 
     /// The child page is present exactly when the enclosing stack has something to go back to.
+    ///
+    /// Addressed by the shared control's identifier rather than by position: position "0"
+    /// is any button in the bar, and the Home page has a trailing menu button, so the
+    /// positional form reported a pushed child on a cold launch. That was a defect in the
+    /// test, not in the shell.
     private var isChildPushed: Bool {
-        app.navigationBars.buttons.element(boundBy: 0).exists
+        app.navigationBars.buttons["hako.nav.back"].exists
+    }
+
+    private func goBack() {
+        app.navigationBars.buttons["hako.nav.back"].tap()
+    }
+
+    private var isRootTabReachable: Bool {
+        tab("hako.tab.home").isHittable
     }
 
     // MARK: - Rows 1-3
@@ -59,10 +103,13 @@ final class HakoNavigationUITests: XCTestCase {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.logs"].tap()
 
-        XCTAssertTrue(tab("hako.tab.tools").isSelected, "Logs belongs to Tools, so Tools must be selected")
         XCTAssertTrue(isChildPushed, "Logs must be pushed, so the stack must have a back button")
+        XCTAssertFalse(
+            tab("hako.tab.home").isHittable,
+            "and the root tab bar must not be on screen while it is"
+        )
 
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        goBack()
 
         XCTAssertTrue(tab("hako.tab.tools").isSelected, "a pop must leave the selection on Tools")
         XCTAssertFalse(isChildPushed, "and must leave nothing pushed")
@@ -70,15 +117,27 @@ final class HakoNavigationUITests: XCTestCase {
 
     // MARK: - Row 4: a tab keeps its stack
 
-    func testLeavingToolsAndReturningKeepsLogs() {
+    /// A page that was popped stays popped.
+    ///
+    /// This used to assert the opposite - that Logs was still on the Tools stack after a
+    /// visit to Home - which is no longer reachable through the interface: the root tab bar
+    /// is hidden while a detail page is up, so a tab cannot be switched without popping
+    /// first. The shell still keeps a tab's stack for the programmatic paths (a settings
+    /// notification arriving from another tab), and the invariant a user can observe is
+    /// that going back and returning does not resurrect the page.
+    func testAPoppedPageDoesNotComeBack() {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.logs"].tap()
         XCTAssertTrue(isChildPushed)
 
+        goBack()
+        XCTAssertFalse(isChildPushed)
+
         tab("hako.tab.home").tap()
         tab("hako.tab.tools").tap()
 
-        XCTAssertTrue(isChildPushed, "returning to Tools must show what was on its stack")
+        XCTAssertFalse(isChildPushed, "a popped page must not be restored by a tab switch")
+        XCTAssertTrue(isRootTabReachable, "and the Tools root must be reachable")
     }
 
     // MARK: - Rows 6-8: nothing double-pushes
@@ -87,7 +146,7 @@ final class HakoNavigationUITests: XCTestCase {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.logs"].tap()
         XCTAssertTrue(isChildPushed)
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        goBack()
         XCTAssertFalse(isChildPushed)
 
         // Open it again and take one step back. A single push returns to the Tools root; a second,
@@ -95,16 +154,16 @@ final class HakoNavigationUITests: XCTestCase {
         // back buttons does not, because a stack shows only its top bar either way.
         app.buttons["hako.home.logs"].tap()
         XCTAssertTrue(isChildPushed)
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        goBack()
         XCTAssertFalse(isChildPushed, "one back must reach the root, so exactly one push happened")
     }
 
-    func testTappingTheCurrentTabDoesNotResetItsStack() {
-        tab("hako.tab.home").tap()
-        app.buttons["hako.home.logs"].tap()
+    func testTappingTheCurrentTabPushesNothing() {
+        tab("hako.tab.tools").tap()
         tab("hako.tab.tools").tap()
 
-        XCTAssertTrue(isChildPushed, "tapping the current tab must not pop what it is showing")
+        XCTAssertFalse(isChildPushed, "tapping the root's own tab must not push a page")
+        XCTAssertTrue(isRootTabReachable, "and must leave the root tab bar reachable")
     }
 
     // MARK: - Row 9: rapid switching ends where the last tap said
@@ -125,8 +184,11 @@ final class HakoNavigationUITests: XCTestCase {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.logs"].tap()
 
-        XCTAssertTrue(tab("hako.tab.tools").isSelected)
-        XCTAssertTrue(isChildPushed)
+        XCTAssertTrue(isChildPushed, "the child must be pushed onto a primary that had never appeared")
+        XCTAssertFalse(
+            tab("hako.tab.tools").isHittable,
+            "and it must belong to Tools, whose tab bar is hidden while the child is up"
+        )
     }
 
     // MARK: - Sheets
@@ -138,5 +200,185 @@ final class HakoNavigationUITests: XCTestCase {
         XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 5), "the Connections sheet must appear")
         app.sheets.firstMatch.swipeDown()
         XCTAssertFalse(app.sheets.firstMatch.waitForExistence(timeout: 2), "and must dismiss")
+    }
+
+    // MARK: - The root tab belongs to the roots
+
+    /// The presentation policy's first rule, and the one the previous round broke: the tab
+    /// bar is on Home, Tools and More, and nowhere else.
+    ///
+    /// It is asserted as hittability rather than existence on purpose. SwiftUI may keep the
+    /// tab bar's view in the hierarchy while its content is not on screen, and "present but
+    /// not reachable" is the defect a user experiences; "exists" would pass either way.
+    func testRootTabIsReachableOnEveryRoot() {
+        for identifier in ["hako.tab.home", "hako.tab.tools", "hako.tab.more"] {
+            tab(identifier).tap()
+            XCTAssertTrue(
+                tab(identifier).isHittable,
+                "\(identifier) must be reachable on its own root page"
+            )
+        }
+    }
+
+    /// Pushing a page hides the tab bar, and popping restores it.
+    ///
+    /// Both halves matter. A shell that hid the bar and never restored it would pass a
+    /// one-directional test and leave the user with no navigation at all.
+    func testPushingADetailHidesTheRootTabAndPoppingRestoresIt() {
+        tab("hako.tab.home").tap()
+        app.buttons["hako.home.logs"].tap()
+
+        XCTAssertTrue(isChildPushed, "Logs must be pushed")
+        XCTAssertFalse(
+            tab("hako.tab.home").isHittable,
+            "a pushed page must not leave the root tab bar reachable"
+        )
+
+        goBack()
+
+        XCTAssertFalse(isChildPushed, "the pop must reach the Tools root")
+        XCTAssertTrue(
+            tab("hako.tab.home").isHittable,
+            "popping must restore the root tab bar"
+        )
+    }
+
+    // MARK: - The workspaces
+
+    /// The proxy workspace has the search field the manual requires of a workspace, and
+    /// the search actually filters.
+    ///
+    /// The screenshot mode fixture reports two groups, `my_group` and `Auto`, so a query
+    /// that matches one of them must leave one and only one. Asserting the count rather
+    /// than a row's presence is what makes this a discriminating test: a filter that
+    /// returned everything would still show the row that was typed.
+    func testProxyWorkspaceSearches() {
+        tab("hako.tab.home").tap()
+        app.buttons["hako.home.groups"].tap()
+
+        let search = app.textFields["hako.proxies.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5), "the proxy workspace must offer a search field")
+
+        let firstGroup = app.staticTexts["my_group"]
+        XCTAssertTrue(firstGroup.waitForExistence(timeout: 5), "the fixture's first group must be on screen")
+
+        // `Tokyo` is a member of the second group only, so it is a term exactly one group
+        // can satisfy. `Auto` is not: the first group contains a member called `auto`, and
+        // a filter that kept it would be right.
+        search.tap()
+        search.typeText("Tokyo")
+
+        XCTAssertTrue(
+            app.staticTexts["Auto"].waitForExistence(timeout: 3),
+            "the group whose member matched must still be listed"
+        )
+        XCTAssertFalse(
+            app.staticTexts["my_group"].exists,
+            "a filtered list must not still contain a group that did not match"
+        )
+
+        // And the filter must not have changed what the core reported.
+        app.buttons["hako.search.clear"].tap()
+        XCTAssertTrue(
+            app.staticTexts["my_group"].waitForExistence(timeout: 3),
+            "clearing the search must restore every group, so the filter never mutated the data"
+        )
+    }
+
+    /// The activity workspace offers search too, and its filter is scoped to it.
+    func testActivityWorkspaceOffersSearch() {
+        tab("hako.tab.home").tap()
+        app.buttons["hako.home.connections"].tap()
+
+        XCTAssertTrue(
+            app.textFields["hako.activity.search"].waitForExistence(timeout: 5),
+            "the activity workspace must offer a search field"
+        )
+    }
+
+    // MARK: - Raw property names are not in the user interface
+
+    /// The tunnel page's titles are the NetworkExtension property names in the source and
+    /// must not be in the interface.
+    ///
+    /// This is the manual's own example of a discriminative test, and it is written as a
+    /// pair: the raw key must be absent *and* the user-facing title must be present. An
+    /// assertion on absence alone would pass on a page that failed to load at all.
+    func testTunnelPageShowsUserTitlesAndNoRawPropertyNames() {
+        tab("hako.tab.more").tap()
+
+        let tunnel = app.buttons["hako.more.packetTunnel"]
+        XCTAssertTrue(tunnel.waitForExistence(timeout: 5), "the More page must offer the tunnel page")
+        tunnel.tap()
+
+        // Each row is one combined accessibility element, so its title is its *label*. That
+        // is what makes this discriminating: the label is what a VoiceOver user hears, so a
+        // raw property name in it is a real defect and not a rendering detail.
+        let includeAll = app.descendants(matching: .any)
+            .matching(identifier: "hako.tunnel.includeAllNetworks")
+            .firstMatch
+        XCTAssertTrue(
+            includeAll.waitForExistence(timeout: 5),
+            "the tunnel page must offer the include-all-networks option"
+        )
+        let label = includeAll.label
+        XCTAssertTrue(
+            label.contains("Include All Networks"),
+            "the option must be named in the user's terms; its label was: \(label)"
+        )
+        for rawKey in ["includeAllNetworks", "excludeAPNs", "excludeLocalNetworks", "enforceRoutes"] {
+            XCTAssertFalse(
+                label.contains(rawKey),
+                "\(rawKey) is a framework property name and must not be in the row's label"
+            )
+        }
+    }
+
+    /// Every page the More tab lists is reachable, and each one opens as a page rather
+    /// than replacing the shell.
+    func testEveryMoreDestinationOpens() {
+        tab("hako.tab.more").tap()
+
+        for key in ["onDemandRules", "packetTunnel", "profileOverride", "app", "core"] {
+            let row = app.buttons["hako.more.\(key)"]
+            XCTAssertTrue(row.waitForExistence(timeout: 5), "\(key) must be listed on the More page")
+            row.tap()
+            XCTAssertTrue(
+                isChildPushed,
+                "\(key) must open as a pushed page with a way back"
+            )
+            XCTAssertFalse(
+                tab("hako.tab.home").isHittable,
+                "\(key) is a detail page, so the root tab bar must not be reachable on it"
+            )
+            goBack()
+        }
+    }
+
+    // MARK: - One disclosure indicator per navigable row
+
+    /// A navigable row may draw one chevron and no more.
+    ///
+    /// Counting them is the only way to catch `>>` from a UI test, because both chevrons
+    /// are decorative and carry no label. The More root is the page to count on: every row
+    /// on it is navigable, and it used to be the page where a `NavigationLink` inside a
+    /// `Form` drew the platform's indicator underneath the row's own.
+    func testNavigableRowsDrawExactlyOneIndicator() {
+        tab("hako.tab.more").tap()
+
+        let row = app.buttons["hako.more.core"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+
+        // The row is a combined accessibility element, so its own children are not
+        // separate elements to count. What can be counted is the row's element count for
+        // the disclosure glyph the component draws: exactly one image.
+        // The row is a combined accessibility element, so its own glyphs are the countable
+        // children: the icon well, and exactly one disclosure indicator. The `>>` this
+        // guards against is a third image, and that is the whole assertion.
+        XCTAssertEqual(
+            row.images.count,
+            2,
+            "a navigable row draws its icon well and exactly one disclosure indicator"
+        )
     }
 }

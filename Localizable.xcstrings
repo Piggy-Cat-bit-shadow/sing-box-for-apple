@@ -5971,6 +5971,22 @@
         }
       }
     },
+    "Home Cards": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首页卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁卡片"
+          }
+        }
+      }
+    },
     "Hostname": {
       "localizations": {
         "fa": {
@@ -14912,6 +14928,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "是"
+          }
+        }
+      }
+    },
+    "You can change the session colours and font in **More**, under **Client Settings**, in **Terminal Appearance**.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你可以在**更多**的**客户端设置**中，通过**终端外观**调整会话的配色与字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你可以在**更多**的**用戶端設定**中，透過**終端機外觀**調整工作階段的配色與字型。"
           }
         }
       }

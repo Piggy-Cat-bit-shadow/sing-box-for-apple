@@ -18,7 +18,7 @@ import SwiftUI
     #if os(macOS)
         private var macOSBody: some View {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Dashboard Items")
+                Text("Home Cards")
                     .font(.headline)
                     .padding(.horizontal, 20)
                     .padding(.top, 20)
@@ -59,7 +59,7 @@ import SwiftUI
                         listContent
                     }
                 }
-                .navigationTitle("Dashboard Items")
+                .navigationTitle("Home Cards")
                 #if os(iOS)
                     .navigationBarTitleDisplayMode(.inline)
                 #endif

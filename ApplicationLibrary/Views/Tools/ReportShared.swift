@@ -67,7 +67,7 @@ struct ReportFileContentView: View {
                 PlainTextView(content: content)
             }
         }
-        .navigationTitle(displayName)
+        .hakoNavigationChrome(title: displayName)
     }
 
     private static let maxContentBytes: UInt64 = 2 * 1024 * 1024

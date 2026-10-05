@@ -96,47 +96,45 @@ public struct NewProfileMenuView: View {
     #endif
 
     private var otherBody: some View {
-        Group {
-            if let request = importRequest {
-                NewProfileView(request, onSuccess: { profile in
-                    await SharedPreferences.selectedProfileID.set(profile.mustID)
-                    complete()
-                })
-                .environmentObject(environments)
-            } else if let request = localImportRequest {
-                NewProfileView(localImportRequest: request, onSuccess: { profile in
-                    await SharedPreferences.selectedProfileID.set(profile.mustID)
-                    complete()
-                })
-                .environmentObject(environments)
-            } else {
-                menuContent
+        HakoModalScaffold(title: String(localized: "Add Configuration")) {
+            Group {
+                if let request = importRequest {
+                    NewProfileView(request, onSuccess: { profile in
+                        await SharedPreferences.selectedProfileID.set(profile.mustID)
+                        complete()
+                    })
+                    .environmentObject(environments)
+                } else if let request = localImportRequest {
+                    NewProfileView(localImportRequest: request, onSuccess: { profile in
+                        await SharedPreferences.selectedProfileID.set(profile.mustID)
+                        complete()
+                    })
+                    .environmentObject(environments)
+                } else {
+                    menuContent
+                }
             }
-        }
-        .navigationTitle("New Profile")
-        #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-        #endif
             .onChangeCompat(of: manualCreateSucceeded) { newValue in
                 if newValue {
                     complete()
                 }
             }
             .alert($alert)
-        #if !os(tvOS)
-            .fileImporter(
-                isPresented: $showFileImporter,
-                allowedContentTypes: [.profile, .json],
-                allowsMultipleSelection: false
-            ) { result in
-                handleFileImport(result)
-            }
-            .sheet(isPresented: $showQRScanner) {
-                QRScannerView { result in
-                    handleQRScanResult(result)
+            #if !os(tvOS)
+                .fileImporter(
+                    isPresented: $showFileImporter,
+                    allowedContentTypes: [.profile, .json],
+                    allowsMultipleSelection: false
+                ) { result in
+                    handleFileImport(result)
                 }
-            }
-        #endif
+                .sheet(isPresented: $showQRScanner) {
+                    QRScannerView { result in
+                        handleQRScanResult(result)
+                    }
+                }
+            #endif
+        }
     }
 
     private func complete() {
@@ -147,10 +145,17 @@ public struct NewProfileMenuView: View {
         }
     }
 
+    /// How a configuration gets in.
+    ///
+    /// The three ways in are the page's whole content, so they are tiles rather than rows:
+    /// a row would say "Import from File" in the same voice as every setting on every other
+    /// page, and this is not a setting - it is the choice the sheet exists to offer. The
+    /// focus platform keeps its rows, whose larger type suits a television.
+    @ViewBuilder
     private var menuContent: some View {
-        FormView {
-            Section {
-                #if os(tvOS)
+        #if os(tvOS)
+            FormView {
+                Section {
                     FormNavigationLink {
                         ImportProfileView(onComplete: {
                             complete()
@@ -159,45 +164,56 @@ public struct NewProfileMenuView: View {
                     } label: {
                         Label("Import from iPhone or iPad", systemImage: "iphone.and.arrow.forward")
                     }
-                #endif
-
-                #if !os(tvOS)
-                    FormButton {
-                        showFileImporter = true
-                    } label: {
-                        Label("Import from File", systemImage: "doc.badge.plus")
-                    }
-                #endif
-
-                #if !os(tvOS)
-                    FormButton {
-                        showQRScanner = true
-                    } label: {
-                        Label("Scan QR Code", systemImage: "qrcode.viewfinder")
-                    }
-                #endif
-
-                #if os(macOS)
-                    FormButton {
-                        showNewProfile = true
-                    } label: {
-                        Label("Create Manually", systemImage: "square.and.pencil")
-                    }
-                #else
-                    FormNavigationLink {
-                        // Capturing anything that holds the sheet's DismissAction here makes
-                        // SwiftUI on iOS 17 loop forever laying the pushed view out.
-                        NewProfileView(onSuccess: { [$manualCreateSucceeded] profile in
-                            await SharedPreferences.selectedProfileID.set(profile.mustID)
-                            $manualCreateSucceeded.wrappedValue = true
-                        })
-                        .environmentObject(environments)
-                    } label: {
-                        Label("Create Manually", systemImage: "square.and.pencil")
-                    }
-                #endif
+                }
             }
-        }
+        #else
+            HakoSettingsSection {
+                HStack(alignment: .top, spacing: HakoTheme.Spacing.standard) {
+                    HakoActionTile(
+                        String(localized: "Import from File"),
+                        systemImage: "doc.badge.plus",
+                        tint: .blue
+                    ) {
+                        showFileImporter = true
+                    }
+
+                    HakoActionTile(
+                        String(localized: "Scan QR Code"),
+                        systemImage: "qrcode.viewfinder",
+                        tint: .teal
+                    ) {
+                        showQRScanner = true
+                    }
+
+                    #if os(macOS)
+                        HakoActionTile(
+                            String(localized: "Create Manually"),
+                            systemImage: "square.and.pencil",
+                            tint: .indigo
+                        ) {
+                            showNewProfile = true
+                        }
+                    #else
+                        NavigationLink {
+                            // Capturing anything that holds the sheet's DismissAction here makes
+                            // SwiftUI on iOS 17 loop forever laying the pushed view out.
+                            NewProfileView(onSuccess: { [$manualCreateSucceeded] profile in
+                                await SharedPreferences.selectedProfileID.set(profile.mustID)
+                                $manualCreateSucceeded.wrappedValue = true
+                            })
+                            .environmentObject(environments)
+                        } label: {
+                            HakoActionTileLabel(
+                                String(localized: "Create Manually"),
+                                systemImage: "square.and.pencil",
+                                tint: .indigo
+                            )
+                        }
+                        .buttonStyle(HakoPushRowButtonStyle())
+                    #endif
+                }
+            }
+        #endif
     }
 
     #if !os(tvOS)

@@ -68,7 +68,7 @@
             }
             .focusSection()
             .alert($viewModel.alert)
-            .navigationTitle("Export Report")
+            .hakoNavigationChrome(title: String(localized: "Export Report"))
             .onChange(of: viewModel.exportComplete) { newValue in
                 if newValue {
                     Task {

@@ -61,7 +61,7 @@ public struct TailscaleSSHPromptView: View {
             } header: {
                 Text("SSH Options")
             } footer: {
-                Text("You can customize the terminal appearance by editing the Ghostty Configuration in App Settings.")
+                Text("You can change the session colours and font in **More**, under **Client Settings**, in **Terminal Appearance**.")
             }
             Section {
                 Toggle("Remember SSH Options", isOn: $rememberSSHOptions)

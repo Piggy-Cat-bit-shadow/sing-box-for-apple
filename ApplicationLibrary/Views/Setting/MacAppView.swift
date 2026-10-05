@@ -349,10 +349,10 @@ public struct AppView: View {
                 }
             }
         #endif
-            .navigationTitle("App")
-        #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-        #endif
+            // Named for what it configures rather than for the target it lives in, and it
+            // wears the shared chrome: the same title treatment, the same back control and
+            // the same tab-bar rule as a page on the scaffold.
+            .hakoNavigationChrome(title: String(localized: "Client Settings"))
     }
 
     private func loadSettings() async {

@@ -30,4 +30,13 @@ public enum Variant {
     #endif
 
     public static let screenshotMode = ProcessInfo.processInfo.arguments.contains("-FASTLANE_SNAPSHOT")
+
+    /// The tunnel state the screenshot fixture starts in.
+    ///
+    /// `SCREENSHOT_STATE=disconnected` makes Home capture the stopped state. Anything
+    /// else - including nothing - leaves the fixture connected, which is what every other
+    /// page wants.
+    public static var screenshotDisconnectedTunnel: Bool {
+        ProcessInfo.processInfo.environment["SCREENSHOT_STATE"] == "disconnected"
+    }
 }

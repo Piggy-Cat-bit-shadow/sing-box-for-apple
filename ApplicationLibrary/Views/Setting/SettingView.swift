@@ -165,19 +165,25 @@ public struct SettingView: View {
 
         @ViewBuilder
         private func navigationRow(_ destination: Destination) -> some View {
-            if destination.pageKey == SettingsPage.remoteControl.settingsKey {
-                NavigationLink(isActive: $showRemoteControl) {
-                    destination.content()
-                } label: {
-                    rowLabel(destination)
-                }
-            } else {
-                NavigationLink {
-                    destination.content()
-                } label: {
-                    rowLabel(destination)
+            Group {
+                if destination.pageKey == SettingsPage.remoteControl.settingsKey {
+                    NavigationLink(isActive: $showRemoteControl) {
+                        destination.content()
+                    } label: {
+                        rowLabel(destination)
+                    }
+                } else {
+                    NavigationLink {
+                        destination.content()
+                    } label: {
+                        rowLabel(destination)
+                    }
                 }
             }
+            // Addressable without matching a localized label, so a UI test can reach a
+            // settings page in any language - which is the only way the localization can
+            // be tested at all.
+            .accessibilityIdentifier("hako.more.\(destination.pageKey)")
         }
 
         private func rowLabel(_ destination: Destination) -> some View {

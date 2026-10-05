@@ -201,6 +201,6 @@ public struct CrashReportDetailView: View {
                 #endif
             }
         }
-        .navigationTitle(report.date.formatted(date: .abbreviated, time: .shortened))
+        .hakoNavigationChrome(title: report.date.formatted(date: .abbreviated, time: .shortened))
     }
 }

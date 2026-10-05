@@ -37,12 +37,25 @@ public class ExtensionProfile: ObservableObject {
     }
 
     private static var _mock: ExtensionProfile?
+    private static var _mockDisconnected: ExtensionProfile?
 
     public static var mock: ExtensionProfile {
         if _mock == nil {
             _mock = ExtensionProfile(mockStatus: .connected, mockConnectedDate: Date().addingTimeInterval(-3600))
         }
         return _mock!
+    }
+
+    /// The tunnel stopped, for the screenshot fixture.
+    ///
+    /// The manual's snapshot list asks for Home in both states, and a state that only
+    /// exists when a real tunnel has been switched off cannot be captured on a simulator
+    /// that has no tunnel to switch off. Selected by `SCREENSHOT_STATE=disconnected`.
+    public static var mockDisconnected: ExtensionProfile {
+        if _mockDisconnected == nil {
+            _mockDisconnected = ExtensionProfile(mockStatus: .disconnected, mockConnectedDate: nil)
+        }
+        return _mockDisconnected!
     }
 
     public func register() {

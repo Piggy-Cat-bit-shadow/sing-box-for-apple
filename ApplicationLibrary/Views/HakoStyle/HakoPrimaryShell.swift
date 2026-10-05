@@ -246,12 +246,16 @@ public struct HakoPrimaryShell: View {
                         }
                 }
                 .tag(primary)
-                // Carries the tag view's accessibility identifier onto the tab bar item SwiftUI
-                // generates, so a UI test can address a tab without matching a localized title.
-                .accessibilityIdentifier("hako.tab.\(primary.rawValue)")
                 .tabItem {
+                    // The identifier has to be on the label INSIDE `tabItem`. An identifier
+                    // applied to the tagged view does not reach the item SwiftUI generates,
+                    // which was not visible until the UI tests actually ran: they could not
+                    // find `hako.tab.more` and the tab buttons came back with localized
+                    // labels only.
                     Label(primary.title, systemImage: primary.systemImage)
+                        .accessibilityIdentifier("hako.tab.\(primary.rawValue)")
                 }
+                .accessibilityIdentifier("hako.tab.\(primary.rawValue)")
                 .badge(primary == .tools ? toolsBadge : 0)
             }
         }

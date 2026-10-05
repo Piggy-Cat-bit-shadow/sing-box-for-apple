@@ -54,7 +54,7 @@ public struct RemoteControlView: View {
                     }
                 }
             }
-            .navigationTitle("Remote Control")
+            .hakoNavigationChrome(title: String(localized: "Remote Control"))
         }
 
         private func serverRow(_ server: RemoteServer) -> some View {
@@ -89,7 +89,7 @@ public struct RemoteControlView: View {
                     }
                 }
             }
-            .navigationTitle("Remote Control")
+            .hakoNavigationChrome(title: String(localized: "Remote Control"))
             .sheet(isPresented: $showNewServer) {
                 serverSheet(nil)
             }

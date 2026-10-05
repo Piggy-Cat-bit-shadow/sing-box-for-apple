@@ -65,6 +65,7 @@ public struct HakoBackButton: View {
             HakoCircularControlLabel(systemImage: "chevron.left")
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("hako.nav.back")
         .accessibilityLabel(Text("Back"))
     }
 }
@@ -91,6 +92,7 @@ public struct HakoCloseButton: View {
             HakoCircularControlLabel(systemImage: "xmark")
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("hako.nav.close")
         .accessibilityLabel(Text("Close"))
     }
 }
@@ -263,6 +265,13 @@ public struct HakoNavigationChrome<Trailing: View>: ViewModifier {
         content
             .navigationTitle(title)
             .hakoInlineTitle()
+            // A page that wears the chrome with a leading control is a detail page, so the
+            // root tab bar goes away. This is applied HERE rather than by the shell because
+            // there are two ways a page gets pushed: the shell pushes a `NavigationPage`,
+            // and a page pushes a `NavigationLink`. Only the shell was hiding the bar, so
+            // every settings page still had it - which is exactly the "root tab appears in
+            // detail" defect, found by the UI test that walks every More destination.
+            .hakoHidesRootTabBar(when: showsLeading && leading != .none)
             .hakoLeadingControl(leading, isVisible: showsLeading)
             .toolbar {
                 #if os(macOS)
@@ -285,7 +294,40 @@ public enum HakoNavigationLeadingControl: Equatable, Sendable {
     case none
 }
 
+public extension View {
+    /// Marks a page as a detail page for the root tab bar's rule.
+    ///
+    /// For a page that still owns its own form and title and has not yet adopted a
+    /// scaffold. It is the same rule the chrome applies, expressed once, so a page can
+    /// never hide the bar in its own way.
+    func hakoHidesRootTabBarForDetail() -> some View {
+        hakoHidesRootTabBar(when: true)
+    }
+}
+
 private extension View {
+    /// Hides the enclosing `TabView`'s bar while this page is on screen.
+    ///
+    /// iOS 16 and later. On iOS 15 there is no SwiftUI way to hide it, and reaching into
+    /// the backing `UITabBarController` would be an untestable hack on a system this build
+    /// cannot run on.
+    @ViewBuilder
+    func hakoHidesRootTabBar(when shouldHide: Bool) -> some View {
+        #if os(iOS)
+            if shouldHide {
+                if #available(iOS 16.0, *) {
+                    toolbar(.hidden, for: .tabBar)
+                } else {
+                    self
+                }
+            } else {
+                self
+            }
+        #else
+            self
+        #endif
+    }
+
     @ViewBuilder
     func hakoInlineTitle() -> some View {
         #if os(iOS)
@@ -827,6 +869,7 @@ public struct HakoBottomSearchBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("hako.search.clear")
                 .accessibilityLabel(Text("Clear"))
             }
         }

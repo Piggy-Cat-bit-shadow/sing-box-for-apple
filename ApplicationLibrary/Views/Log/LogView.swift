@@ -16,6 +16,12 @@ public struct LogView: View {
 
     public var body: some View {
         LogViewContent(commandClient: environments.commandClient, initialSearchText: environments.logSearchText)
+            // Logs is pushed inside the Tools tab, so it wears the detail chrome: a
+            // circular back control, an inline centred title, and no root tab bar. It
+            // previously had none of the three, which is how it ended up with the
+            // platform's chevron while every page that adopted the design system had a
+            // disc.
+            .hakoNavigationChrome(title: String(localized: "Logs"))
     }
 }
 

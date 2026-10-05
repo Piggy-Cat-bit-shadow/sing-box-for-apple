@@ -101,7 +101,7 @@ public struct RemoteDashboardView: View {
             CardManagementView(onDisappear: {
                 Task { await cardConfiguration.reload() }
             })
-            .navigationTitle("Dashboard Items")
+            .navigationTitle("Home Cards")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     BackButton()

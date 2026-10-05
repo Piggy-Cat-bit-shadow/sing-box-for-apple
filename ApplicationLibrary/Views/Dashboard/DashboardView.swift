@@ -86,7 +86,7 @@ public struct DashboardView: View {
                 Button {
                     showCardManagement = true
                 } label: {
-                    Label("Dashboard Items", systemImage: "square.grid.2x2")
+                    Label("Home Cards", systemImage: "square.grid.2x2")
                 }
                 RemoteControlMenuItems(servers: remoteServers)
             } label: {

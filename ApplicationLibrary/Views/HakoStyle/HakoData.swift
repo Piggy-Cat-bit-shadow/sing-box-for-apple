@@ -629,26 +629,47 @@ public struct HakoActionTile: View {
 
     public var body: some View {
         Button(action: action) {
-            VStack(spacing: HakoTheme.Spacing.compact) {
-                HakoIconWell(tint: tint.color) {
-                    Image(systemName: systemImage)
-                        .font(.body.weight(.semibold))
-                }
-                Text(title)
-                    .font(.footnote)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, HakoTheme.Spacing.row)
-            .contentShape(Rectangle())
+            HakoActionTileLabel(title, systemImage: systemImage, tint: tint)
         }
         .buttonStyle(HakoPushRowButtonStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
         .accessibilityLabel(Text(title))
+    }
+}
+
+/// The tile's face, for a caller that presents its own destination.
+///
+/// A tile whose action pushes a page cannot be a `Button`, and a page that re-drew the
+/// tile by hand would be a second version of it. The face is therefore its own component
+/// and `HakoActionTile` is one caller of it.
+public struct HakoActionTileLabel: View {
+    private let title: String
+    private let systemImage: String
+    private let tint: HakoAccentRole
+
+    public init(_ title: String, systemImage: String, tint: HakoAccentRole) {
+        self.title = title
+        self.systemImage = systemImage
+        self.tint = tint
+    }
+
+    public var body: some View {
+        VStack(spacing: HakoTheme.Spacing.compact) {
+            HakoIconWell(tint: tint.color) {
+                Image(systemName: systemImage)
+                    .font(.body.weight(.semibold))
+            }
+            Text(title)
+                .font(.footnote)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, HakoTheme.Spacing.row)
+        .contentShape(Rectangle())
     }
 }
 

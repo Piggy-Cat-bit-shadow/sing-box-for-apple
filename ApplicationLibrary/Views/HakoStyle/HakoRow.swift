@@ -538,6 +538,7 @@ public struct HakoToggleRow: View {
     private let subtitle: String?
     private let isOn: Binding<Bool>
     private let isEnabled: Bool
+    private let identifier: String?
     private let onChange: ((Bool) -> Void)?
 
     public init(
@@ -545,12 +546,14 @@ public struct HakoToggleRow: View {
         subtitle: String? = nil,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
+        identifier: String? = nil,
         onChange: ((Bool) -> Void)? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
         self.isOn = isOn
         self.isEnabled = isEnabled
+        self.identifier = identifier
         self.onChange = onChange
     }
 
@@ -563,6 +566,10 @@ public struct HakoToggleRow: View {
                     onChange?(newValue)
                 }
         }
+        // The row is one combined accessibility element, so a test cannot reach its title
+        // as a separate static text. The identifier is how a test asks the row what it says
+        // - which is what the manual's "no raw property names" check needs.
+        .accessibilityIdentifier(identifier ?? "")
         .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
     }
 }

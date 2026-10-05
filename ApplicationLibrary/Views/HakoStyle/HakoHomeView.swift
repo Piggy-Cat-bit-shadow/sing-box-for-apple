@@ -201,9 +201,6 @@ public struct HakoHomeView: View {
     /// running" first and "how is it doing" second, and the second answer belongs to
     /// the runtime card further down.
     private var sessionDetail: (title: String, value: String?, emphasis: HakoStatusBadge.Emphasis)? {
-        if Variant.screenshotMode {
-            return (String(localized: "Remote control"), nil, .neutral)
-        }
         if environments.remoteServer != nil {
             return (String(localized: "Remote control"), nil, .info)
         }

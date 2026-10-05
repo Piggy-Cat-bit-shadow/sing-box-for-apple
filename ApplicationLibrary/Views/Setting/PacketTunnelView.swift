@@ -68,7 +68,8 @@ struct PacketTunnelView: View {
             HakoToggleRow(
                 String(localized: "Include All Networks"),
                 subtitle: String(localized: "Route everything through the tunnel, except the system services the device needs to stay online."),
-                isOn: $includeAllNetworks
+                isOn: $includeAllNetworks,
+                identifier: "hako.tunnel.includeAllNetworks"
             ) { newValue in
                 Task {
                     await SharedPreferences.includeAllNetworks.set(newValue)
@@ -81,7 +82,8 @@ struct PacketTunnelView: View {
             HakoToggleRow(
                 String(localized: "Enforce Routes"),
                 subtitle: String(localized: "Keep the routes the tunnel does not carry on the current network interface, overriding the system routing table."),
-                isOn: $enforceRoutes
+                isOn: $enforceRoutes,
+                identifier: "hako.tunnel.enforceRoutes"
             ) { newValue in
                 Task {
                     await SharedPreferences.enforceRoutes.set(newValue)
@@ -100,7 +102,8 @@ struct PacketTunnelView: View {
                 HakoToggleRow(
                     String(localized: "Exclude APNs"),
                     subtitle: String(localized: "Leave Apple Push Notification traffic outside the tunnel."),
-                    isOn: $excludeAPNs
+                    isOn: $excludeAPNs,
+                    identifier: "hako.tunnel.excludeAPNs"
                 ) { newValue in
                     Task {
                         await SharedPreferences.excludeAPNs.set(newValue)
@@ -113,7 +116,8 @@ struct PacketTunnelView: View {
                 HakoToggleRow(
                     String(localized: "Exclude Cellular Services"),
                     subtitle: String(localized: "Leave Wi-Fi Calling, MMS, SMS and Visual Voicemail outside the tunnel."),
-                    isOn: $excludeCellularServices
+                    isOn: $excludeCellularServices,
+                    identifier: "hako.tunnel.excludeCellularServices"
                 ) { newValue in
                     Task {
                         await SharedPreferences.excludeCellularServices.set(newValue)
@@ -127,7 +131,8 @@ struct PacketTunnelView: View {
             HakoToggleRow(
                 String(localized: "Exclude Local Networks"),
                 subtitle: String(localized: "Leave AirPlay, AirDrop, CarPlay and other local-network traffic outside the tunnel."),
-                isOn: $excludeLocalNetworks
+                isOn: $excludeLocalNetworks,
+                identifier: "hako.tunnel.excludeLocalNetworks"
             ) { newValue in
                 Task {
                     await SharedPreferences.excludeLocalNetworks.set(newValue)
@@ -141,7 +146,8 @@ struct PacketTunnelView: View {
                 HakoToggleRow(
                     String(localized: "Exclude Device Communication"),
                     subtitle: String(localized: "Leave traffic between this device and nearby devices outside the tunnel."),
-                    isOn: $excludeDeviceCommunication
+                    isOn: $excludeDeviceCommunication,
+                    identifier: "hako.tunnel.excludeDeviceCommunication"
                 ) { newValue in
                     Task {
                         await SharedPreferences.excludeDeviceCommunication.set(newValue)
