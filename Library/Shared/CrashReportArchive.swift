@@ -106,6 +106,37 @@ public enum ReportArchive {
         return timestampFormatter.date(from: baseName)
     }
 
+    /// Write one report directory.
+    ///
+    /// The three report kinds keep different metadata and different payloads, and they kept
+    /// three copies of the layout as well - so the out-of-memory and power archives could not
+    /// write a report at all, and the screenshot fixture could not reach their pages. The
+    /// layout lives here now and each archive supplies its own metadata and files.
+    ///
+    /// A file whose content is nil or blank is removed rather than written empty, which is how
+    /// a report records "this artifact was not captured".
+    public static func writeArtifact(
+        at artifactURL: URL,
+        metadataData: Data,
+        textFiles: [String: String],
+        extraFiles: [String: Data] = [:]
+    ) throws {
+        try FileManager.default.createDirectory(at: artifactURL, withIntermediateDirectories: true)
+        for (name, body) in textFiles {
+            let url = artifactURL.appendingPathComponent(name)
+            let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                try? FileManager.default.removeItem(at: url)
+            } else {
+                try trimmed.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+        for (name, data) in extraFiles {
+            try data.write(to: artifactURL.appendingPathComponent(name), options: .atomic)
+        }
+        try metadataData.write(to: artifactURL.appendingPathComponent(metadataFileName), options: .atomic)
+    }
+
     public static func nextAvailableArtifactURL(in directory: URL, for date: Date) -> URL {
         let baseName = timestampFormatter.string(from: date)
         var index = 0
@@ -181,28 +212,15 @@ public enum CrashReportArchive {
             throw NSError(domain: "CrashReportArchive", code: 1, userInfo: [NSLocalizedDescriptionKey: "Empty crash report"])
         }
 
-        try FileManager.default.createDirectory(at: artifactURL, withIntermediateDirectories: true)
-
-        if let goLog = contents.goLog?.trimmingCharacters(in: .whitespacesAndNewlines), !goLog.isEmpty {
-            try goLog.write(to: goLogURL(for: artifactURL), atomically: true, encoding: .utf8)
-        } else {
-            try? FileManager.default.removeItem(at: goLogURL(for: artifactURL))
-        }
-
-        if let nativeLog = contents.nativeLog?.trimmingCharacters(in: .whitespacesAndNewlines), !nativeLog.isEmpty {
-            try nativeLog.write(to: nativeLogURL(for: artifactURL), atomically: true, encoding: .utf8)
-        } else {
-            try? FileManager.default.removeItem(at: nativeLogURL(for: artifactURL))
-        }
-
-        if let configContent = contents.configContent?.trimmingCharacters(in: .whitespacesAndNewlines), !configContent.isEmpty {
-            try configContent.write(to: configURL(for: artifactURL), atomically: true, encoding: .utf8)
-        } else {
-            try? FileManager.default.removeItem(at: configURL(for: artifactURL))
-        }
-
-        let metadataData = try metadataEncoder.encode(metadata)
-        try metadataData.write(to: metadataURL(for: artifactURL), options: .atomic)
+        try ReportArchive.writeArtifact(
+            at: artifactURL,
+            metadataData: try metadataEncoder.encode(metadata),
+            textFiles: [
+                ReportArchive.goLogFileName: contents.goLog ?? "",
+                ReportArchive.nativeLogFileName: contents.nativeLog ?? "",
+                ReportArchive.configFileName: contents.configContent ?? "",
+            ]
+        )
     }
 
     public static func readMetadata(for artifactURL: URL) -> CrashReportMetadata? {

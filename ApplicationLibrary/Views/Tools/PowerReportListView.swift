@@ -55,6 +55,9 @@ public struct PowerReportListView: View {
                                 } label: {
                                     reportLabel(report)
                                 }
+                                // The report's own identifier, as the crash list's rows have:
+                                // a test can address the row rather than guess at it by position.
+                                .accessibilityIdentifier("hako.report.\(report.id)")
                             #endif
                         }
                     }

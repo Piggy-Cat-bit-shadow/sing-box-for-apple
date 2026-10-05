@@ -54,6 +54,34 @@ public enum OOMReportArchive {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
+    /// Write one out-of-memory report.
+    ///
+    /// The archive could only be read from, so nothing but the app's own memory watchdog could
+    /// put a report in it - which meant the list and its read view had never been looked at,
+    /// and no test could reach them. This mirrors `CrashReportArchive.writeArchivedReport`.
+    @discardableResult
+    public static func writeArchivedReport(
+        metadata: OOMReportMetadata,
+        date: Date,
+        configContent: String? = nil,
+        goLog: String? = nil,
+        profileFiles: [String: Data] = [:]
+    ) throws -> URL {
+        let directory = reportsDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let artifactURL = ReportArchive.nextAvailableArtifactURL(in: directory, for: date)
+        try ReportArchive.writeArtifact(
+            at: artifactURL,
+            metadataData: try JSONEncoder().encode(metadata),
+            textFiles: [
+                ReportArchive.configFileName: configContent ?? "",
+                ReportArchive.goLogFileName: goLog ?? "",
+            ],
+            extraFiles: profileFiles
+        )
+        return artifactURL
+    }
+
     static func removeArtifact(at artifactURL: URL) {
         ReportArchive.removeArtifact(at: artifactURL)
     }

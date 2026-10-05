@@ -62,6 +62,37 @@ public enum PowerReportArchive {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
+    /// Write one power report.
+    ///
+    /// The same gap the out-of-memory archive had: readable, never writable, so its list and
+    /// read view had never been looked at and no test could reach them.
+    @discardableResult
+    public static func writeArchivedReport(
+        metadata: PowerReportMetadata,
+        date: Date,
+        configContent: String? = nil,
+        goLog: String? = nil,
+        timeline: String? = nil,
+        events: String? = nil,
+        extraFiles: [String: Data] = [:]
+    ) throws -> URL {
+        let directory = reportsDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let artifactURL = ReportArchive.nextAvailableArtifactURL(in: directory, for: date)
+        try ReportArchive.writeArtifact(
+            at: artifactURL,
+            metadataData: try JSONEncoder().encode(metadata),
+            textFiles: [
+                ReportArchive.configFileName: configContent ?? "",
+                ReportArchive.goLogFileName: goLog ?? "",
+                timelineFileName: timeline ?? "",
+                eventsFileName: events ?? "",
+            ],
+            extraFiles: extraFiles
+        )
+        return artifactURL
+    }
+
     static func removeArtifact(at artifactURL: URL) {
         ReportArchive.removeArtifact(at: artifactURL)
     }

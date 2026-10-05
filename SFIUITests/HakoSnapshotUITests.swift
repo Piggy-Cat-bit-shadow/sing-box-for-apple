@@ -261,6 +261,55 @@ final class HakoSnapshotUITests: XCTestCase {
         snapshot("33_ReportDetail")
     }
 
+    /// The other two report kinds, which had no writer to archive through.
+    ///
+    /// The crash archive could be written to and its siblings could not, so nothing but the
+    /// app's own watchdog could put a report in them and their pages had never been looked at.
+    /// They have a writer now, and the fixture uses it, so all three report kinds are exercised
+    /// the same way rather than one of them standing in for the other two.
+    func test34OutOfMemoryReportListAndDetail() {
+        tab("hako.tab.tools").tap()
+        tap("hako.tools.oomReports")
+
+        let rows = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "hako.report."))
+        XCTAssertTrue(
+            rows.firstMatch.waitForExistence(timeout: 20),
+            "the fixture's out-of-memory report must appear in the list"
+        )
+        snapshot("34_OOMReportList")
+
+        rows.firstMatch.tap()
+        XCTAssertTrue(
+            app.staticTexts["Files"].waitForExistence(timeout: 20),
+            "the report must open as a read view listing its artifacts"
+        )
+        sleep(1)
+        snapshot("35_OOMReportDetail")
+    }
+
+    /// The power report, the third of the three.
+    func test36PowerReportListAndDetail() {
+        tab("hako.tab.tools").tap()
+        tap("hako.tools.powerReports")
+
+        let rows = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "hako.report."))
+        XCTAssertTrue(
+            rows.firstMatch.waitForExistence(timeout: 20),
+            "the fixture's power report must appear in the list"
+        )
+        snapshot("36_PowerReportList")
+
+        rows.firstMatch.tap()
+        XCTAssertTrue(
+            app.staticTexts["Files"].waitForExistence(timeout: 20),
+            "the report must open as a read view listing its artifacts"
+        )
+        sleep(1)
+        snapshot("37_PowerReportDetail")
+    }
+
     // MARK: - Workspaces
 
     func test40ProxiesCollapsed() {
