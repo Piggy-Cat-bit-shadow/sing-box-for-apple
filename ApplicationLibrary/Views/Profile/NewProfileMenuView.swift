@@ -16,6 +16,8 @@ public struct NewProfileMenuView: View {
         @State private var showFileImporter = false
         @State private var showQRScanner = false
     #endif
+    /// The manual-creation push, on the touch client.
+    @State private var showManualCreate = false
     #if os(macOS)
         @State private var showNewProfile = false
     #endif
@@ -114,6 +116,28 @@ public struct NewProfileMenuView: View {
                     menuContent
                 }
             }
+            // The hidden destination belongs outside the form, which is where the rest of this
+            // client puts one: inside a form it is a row, and a row is laid out as one.
+            //
+            // Note for whoever picks this up: a stray disclosure indicator still draws at the
+            // trailing edge of the tile row in this modal, and it is *not* from here. Replacing
+            // the third tile's `NavigationLink` with a `Button` and moving this destination out
+            // of the form both left it in place, so the cause is something else - most likely
+            // the grouped `Form` giving an accessory to a section whose row holds interactive
+            // content. It is cosmetic and it is written down rather than guessed at again.
+            .background {
+                #if !os(tvOS)
+                    NavigationDestinationCompat(isPresented: $showManualCreate) {
+                        // Capturing anything that holds the sheet's DismissAction here makes
+                        // SwiftUI on iOS 17 loop forever laying the pushed view out.
+                        NewProfileView(onSuccess: { [$manualCreateSucceeded] profile in
+                            await SharedPreferences.selectedProfileID.set(profile.mustID)
+                            $manualCreateSucceeded.wrappedValue = true
+                        })
+                        .environmentObject(environments)
+                    }
+                #endif
+            }
             .onChangeCompat(of: manualCreateSucceeded) { newValue in
                 if newValue {
                     complete()
@@ -194,22 +218,20 @@ public struct NewProfileMenuView: View {
                             showNewProfile = true
                         }
                     #else
-                        NavigationLink {
-                            // Capturing anything that holds the sheet's DismissAction here makes
-                            // SwiftUI on iOS 17 loop forever laying the pushed view out.
-                            NewProfileView(onSuccess: { [$manualCreateSucceeded] profile in
-                                await SharedPreferences.selectedProfileID.set(profile.mustID)
-                                $manualCreateSucceeded.wrappedValue = true
-                            })
-                            .environmentObject(environments)
-                        } label: {
-                            HakoActionTileLabel(
-                                String(localized: "Create Manually"),
-                                systemImage: "square.and.pencil",
-                                tint: .indigo
-                            )
+                        // A button, not a `NavigationLink`. A link inside a form is a row, and
+                        // the platform gives a row that navigates a disclosure indicator - which
+                        // on a row of three action tiles lands at the card's trailing edge, where
+                        // it reads as belonging to the card rather than to the third tile. The
+                        // tile is its own affordance, named and illustrated, and the reference's
+                        // tiles carry no chevron at all. The push is the same hidden destination
+                        // the rest of this client uses.
+                        HakoActionTile(
+                            String(localized: "Create Manually"),
+                            systemImage: "square.and.pencil",
+                            tint: .indigo
+                        ) {
+                            showManualCreate = true
                         }
-                        .buttonStyle(HakoPushRowButtonStyle())
                     #endif
                 }
             }

@@ -57,7 +57,14 @@ final class HakoSnapshotUITests: XCTestCase {
         app.launch()
     }
 
-    private func tap(_ identifier: String, timeout: TimeInterval = 15) {
+    /// The same patience the navigation suite gives the same step.
+    ///
+    /// This was 15 seconds while `HakoNavigationUITests` waited 30 for the identical
+    /// operation, and the difference showed up as a flake: a full run of 35 cases on a loaded
+    /// machine failed to reach a row that the navigation suite had reached moments earlier in
+    /// the same run, and the case passed on its own. A test that fails under load is a defect
+    /// in the test.
+    private func tap(_ identifier: String, timeout: TimeInterval = 30) {
         let element = app.buttons[identifier]
         XCTAssertTrue(element.waitForExistence(timeout: timeout), "\(identifier) must be reachable")
         element.tap()
