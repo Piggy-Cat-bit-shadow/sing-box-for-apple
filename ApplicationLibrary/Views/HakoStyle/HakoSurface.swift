@@ -133,22 +133,47 @@ public enum HakoPlatformLayout {
 
     /// Whether the container a row sits in draws the disclosure indicator itself.
     ///
-    /// This is the fix for the double chevron, and it is deliberately a property of
-    /// the container rather than a per-call-site flag. On the touch client a page is a
-    /// `ScrollView` of painted cards, so nothing else draws an indicator and the row
-    /// does. On the desktop and on the focus platform the container is the system's
-    /// grouped form, which draws one for every navigable row, so the row does not.
+    /// This is the default answer for the disclosure rule, and it is a property of the
+    /// platform rather than of a call site: on the desktop and on the focus platform a
+    /// page is the system's grouped form, which draws one indicator for every navigable
+    /// row; on the touch client this migration draws its own pages, so nothing else
+    /// draws one.
     ///
-    /// The failure mode this prevents is precise: a `NavigationLink` inside a `Form`
-    /// gets the platform's indicator, and a custom chevron on top of it renders as
-    /// `>>`. Hiding one with an opacity would leave the row's trailing inset wrong, so
-    /// the rule is expressed as "who owns the indicator" and answered here once.
+    /// It is only the default. A container that knows better says so through the
+    /// `\.hakoContainerDrawsDisclosure` environment value - which is what the legacy
+    /// `FormView` does, because a `Form` on iOS is a `List` and a `List` draws its own
+    /// indicator no matter which platform it is on. Without that, every page still on
+    /// `FormView` rendered the platform's chevron and the row's chevron together.
     public static var containerDrawsDisclosureIndicator: Bool {
         #if os(iOS)
             false
         #else
             true
         #endif
+    }
+}
+
+/// Whether the surrounding container draws the disclosure indicator for a navigable row.
+///
+/// Read by every row that can draw one. Set by the container, never by the row.
+private struct HakoContainerDrawsDisclosureKey: EnvironmentKey {
+    static let defaultValue: Bool = HakoPlatformLayout.containerDrawsDisclosureIndicator
+}
+
+public extension EnvironmentValues {
+    var hakoContainerDrawsDisclosure: Bool {
+        get { self[HakoContainerDrawsDisclosureKey.self] }
+        set { self[HakoContainerDrawsDisclosureKey.self] = newValue }
+    }
+}
+
+public extension View {
+    /// Declares that this container draws its own disclosure indicators.
+    ///
+    /// Applied by the system-form containers (`FormView`) and by nothing else. The
+    /// painted scaffolds leave the default, which is the platform's answer.
+    func hakoContainerDrawsDisclosure(_ draws: Bool) -> some View {
+        environment(\.hakoContainerDrawsDisclosure, draws)
     }
 }
 

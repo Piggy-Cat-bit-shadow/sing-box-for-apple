@@ -42,41 +42,50 @@ public struct OnDemandRulesView: View {
     #endif
 
     public init() {}
+
+    /// The page the manual names as the golden sample for every other settings page.
+    ///
+    /// The structure is the one all of them now share: a back control, a centred title,
+    /// the page's own actions in the bar, then captioned cards of rows with one footnote
+    /// where a footnote is needed, then the destructive action on its own at the end.
+    ///
+    /// What it replaces put each control in whatever container was nearest: a bare
+    /// `Section` for the mode with the description as its footer, a second section whose
+    /// header was an `HStack` holding a `plus.circle.fill` button, a third holding the
+    /// reset, and an `EditButton` in the bar that the page never needed - reordering and
+    /// deleting are already the row's own affordances.
     public var body: some View {
-        Group {
-            if isLoading {
-                ProgressView().onAppear {
-                    loadTask = Task {
-                        await loadSettings()
-                    }
-                }
-            } else {
-                FormView {
-                    modePicker
-
-                    if mode == .enabled {
-                        rulesSection
-                    }
-
-                    resetButton
+        HakoSettingsScaffold(
+            title: String(localized: "On Demand"),
+            actions: {
+                HakoToolbarAction(
+                    systemImage: "plus",
+                    label: String(localized: "Add rule"),
+                    isEnabled: mode == .enabled
+                ) {
+                    isAddingRule = true
                 }
             }
+        ) {
+            if isLoading {
+                HakoLoadingState()
+                    .onAppear {
+                        loadTask = Task {
+                            await loadSettings()
+                        }
+                    }
+            } else {
+                modeSection
+                if mode == .enabled {
+                    rulesSection
+                }
+                resetSection
+            }
         }
-        .navigationTitle("On Demand Rules")
         .onDisappear {
             loadTask?.cancel()
         }
         .alert($alert)
-        #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                        .disabled(rules.isEmpty)
-                }
-            }
-            .environment(\.editMode, $editMode)
-        #endif
         #if !os(tvOS)
         .platformSheet(isPresented: $isAddingRule) {
             OnDemandRuleEditView(rule: OnDemandRule(), isNew: true) { newRule in
@@ -99,32 +108,91 @@ public struct OnDemandRulesView: View {
         #endif
     }
 
-    private var modePicker: some View {
-        Section {
-            FormPicker(
-                String(localized: "Mode"),
-                options: OnDemandMode.allCases.map { FormPickerOption($0, $0.name) },
-                selection: $mode
-            )
-            .onChange(of: mode) { newValue in
-                Task {
-                    await saveMode(newValue)
-                }
+    private var modeSection: some View {
+        HakoSettingsSection(
+            String(localized: "Mode"),
+            footnote: LocalizedStringKey(mode.description)
+        ) {
+            HakoSelectionRow(
+                title: OnDemandMode.disabled.name,
+                subtitle: OnDemandMode.disabled.description,
+                systemImage: "hand.raised.fill",
+                tint: .secondary,
+                isSelected: mode == .disabled
+            ) {
+                select(.disabled)
             }
-        } footer: {
-            Text(mode.description)
+
+            HakoSettingsDivider()
+
+            HakoSelectionRow(
+                title: OnDemandMode.alwaysOn.name,
+                subtitle: OnDemandMode.alwaysOn.description,
+                systemImage: "infinity",
+                tint: HakoAccentRole.green.color,
+                isSelected: mode == .alwaysOn
+            ) {
+                select(.alwaysOn)
+            }
+
+            HakoSettingsDivider()
+
+            HakoSelectionRow(
+                title: OnDemandMode.enabled.name,
+                subtitle: OnDemandMode.enabled.description,
+                systemImage: "list.bullet.rectangle",
+                tint: HakoAccentRole.orange.color,
+                isSelected: mode == .enabled
+            ) {
+                select(.enabled)
+            }
+        }
+    }
+
+    private func select(_ newMode: OnDemandMode) {
+        guard mode != newMode else { return }
+        mode = newMode
+        Task {
+            await saveMode(newMode)
         }
     }
 
     private var rulesSection: some View {
-        Section {
+        HakoSettingsSection(
+            String(localized: "Rules"),
+            footnote: "Rules are evaluated in order from top to bottom. The first matching rule determines the action."
+        ) {
             if rules.isEmpty {
-                Text("Empty rules")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
+                HakoEmptyState(
+                    symbol: "text.badge.plus",
+                    title: "No rules yet",
+                    message: "Add a rule to decide when the tunnel connects."
+                )
             } else {
-                ForEach(rules) { rule in
-                    ruleRow(rule)
+                ForEach(Array(rules.enumerated()), id: \.element.id) { index, rule in
+                    if index > 0 {
+                        HakoSettingsDivider()
+                    }
+                    HakoNavigationRow(
+                        title: rule.action.name,
+                        subtitle: ruleDescription(rule),
+                        systemImage: "arrow.triangle.branch",
+                        tint: HakoAccentRole.orange.color
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        editingRule = rule
+                    }
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            rules.removeAll { $0.id == rule.id }
+                            Task {
+                                await saveRules()
+                            }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
                 .onMove { from, to in
                     rules.move(fromOffsets: from, toOffset: to)
@@ -139,83 +207,27 @@ public struct OnDemandRulesView: View {
                     }
                 }
             }
-        } header: {
-            HStack {
-                Text("Rules")
-                Spacer()
-                #if os(tvOS)
-                    FormNavigationLink {
-                        OnDemandRuleEditView(rule: OnDemandRule(), isNew: true) { newRule in
-                            rules.append(newRule)
-                            Task {
-                                await saveRules()
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                    }
-                #else
-                    Button {
-                        isAddingRule = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                    }
-                    #if os(macOS)
-                    .buttonStyle(.plain)
-                    #endif
-                #endif
-            }
-        } footer: {
-            Text("Rules are evaluated in order from top to bottom. The first matching rule determines the action.")
         }
     }
 
-    @ViewBuilder
-    private func ruleRow(_ rule: OnDemandRule) -> some View {
-        #if os(tvOS)
-            FormNavigationLink {
-                OnDemandRuleEditView(rule: rule, isNew: false) { updatedRule in
-                    if let index = rules.firstIndex(where: { $0.id == updatedRule.id }) {
-                        rules[index] = updatedRule
-                        Task {
-                            await saveRules()
-                        }
+    private var resetSection: some View {
+        HakoSettingsSection(footnote: "Returns on-demand settings to their defaults.") {
+            HakoDestructiveRow(
+                String(localized: "Reset On Demand Rules"),
+                subtitle: String(localized: "Use the defaults the client ships with."),
+                systemImage: "eraser.fill"
+            ) {
+                Task {
+                    do {
+                        try await SharedPreferences.resetOnDemandRules()
+                        await updateService()
+                        isLoading = true
+                    } catch {
+                        alert = AlertState(action: "reset on-demand rules", error: error)
                     }
                 }
-            } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(rule.action.name)
-                        .fontWeight(.medium)
-                    Text(ruleDescription(rule))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
-        #else
-            Button {
-                editingRule = rule
-            } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(rule.action.name)
-                            .fontWeight(.medium)
-                        Text(ruleDescription(rule))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                }
-                .contentShape(Rectangle())
-            }
-            #if os(macOS)
-            .buttonStyle(.plain)
-            #elseif os(iOS)
-            .foregroundStyle(.primary)
-            #endif
-        #endif
+        }
     }
 
     private func ruleDescription(_ rule: OnDemandRule) -> String {
@@ -254,23 +266,6 @@ public struct OnDemandRulesView: View {
             return "All networks"
         }
         return parts.joined(separator: " · ")
-    }
-
-    private var resetButton: some View {
-        FormButton {
-            Task {
-                do {
-                    try await SharedPreferences.resetOnDemandRules()
-                    await updateService()
-                    isLoading = true
-                } catch {
-                    alert = AlertState(action: "reset on-demand rules", error: error)
-                }
-            }
-        } label: {
-            Label("Reset", systemImage: "eraser.fill")
-        }
-        .foregroundStyle(.red)
     }
 
     private func saveMode(_ newMode: OnDemandMode) async {

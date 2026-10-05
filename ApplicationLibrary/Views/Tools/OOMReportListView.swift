@@ -23,15 +23,17 @@ public struct OOMReportListView: View {
     }
 
     public var body: some View {
-        FormView {
+        HakoReportScaffold(title: String(localized: "Out of Memory Report")) {
             if !isLoading {
-                Section {
+                HakoSettingsSection("Reports", footnote: "A report is recorded when the device runs out of memory while the service is running.") {
                     if manager.reports.isEmpty {
                         HakoEmptyState(
                             symbol: "memorychip",
-                            title: "Empty",
-                            message: "No memory reports have been recorded."
+                            title: "No memory reports",
+                            message: "Reports recorded when the device ran out of memory appear here.",
+                            accent: .indigo
                         )
+                        .frame(minHeight: 180)
                     } else {
                         ForEach(manager.reports) { report in
                             #if os(tvOS)
@@ -49,14 +51,6 @@ public struct OOMReportListView: View {
                             #endif
                         }
                     }
-                } header: {
-                    Text("Reports")
-                } footer: {
-                    #if os(macOS)
-                        Text("When memory limit is enabled, you will receive a report if the service memory exceeds the limit. You can also manually trigger report collection.")
-                    #else
-                        Text("You will receive a report when the service runs out of memory. You can also manually trigger report collection.")
-                    #endif
                 }
 
                 #if os(macOS)
@@ -117,7 +111,6 @@ public struct OOMReportListView: View {
                 isLoading = false
             }
         }
-        .navigationTitle("OOM Report")
         #if os(macOS)
             .alert($alert)
         #endif
@@ -148,7 +141,20 @@ public struct OOMReportListView: View {
     }
 
     private func reportLabel(_ report: OOMReport) -> some View {
-        ReportLabel(date: report.date, isRead: report.isRead, origin: report.origin)
+        #if os(tvOS)
+            ReportLabel(date: report.date, isRead: report.isRead, origin: report.origin)
+        #else
+            HakoNavigationRow(
+                title: report.date.formatted(date: .abbreviated, time: .shortened),
+                subtitle: report.origin == ReportArchive.tvOSDeviceOrigin
+                    ? String(localized: "From Apple TV")
+                    : String(localized: "From this device"),
+                systemImage: "memorychip",
+                tint: HakoAccentRole.indigo.color,
+                badge: report.isRead ? nil : String(localized: "Unread"),
+                badgeEmphasis: .info
+            )
+        #endif
     }
 
     #if os(macOS)

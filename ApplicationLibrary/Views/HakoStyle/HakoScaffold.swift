@@ -392,7 +392,57 @@ struct HakoScaffoldBody<Content: View>: View {
             }
             .background(palette.canvas)
             .hakoScrollDismissesKeyboard()
+            // A painted page is not a `List`: no platform indicator exists, so the rows
+            // draw their own single chevron.
+            .hakoContainerDrawsDisclosure(false)
         #endif
+    }
+}
+
+// MARK: - Toolbar action
+
+/// One icon-only action in the navigation bar.
+///
+/// The bar's own actions are platform toolbar items rather than a hand-drawn capsule:
+/// the bar is where the platform's hit testing, focus, keyboard shortcuts and - on the
+/// releases that have it - the system's own button treatment live. Drawing a capsule
+/// inside the bar would put a second surface inside a surface.
+///
+/// What is shared is what the reference implementation actually shares: one place to
+/// declare the action, one label, one disabled state, one accessibility label.
+public struct HakoToolbarAction: View {
+    private let systemImage: String
+    private let label: String
+    private let isEnabled: Bool
+    private let isBusy: Bool
+    private let action: () -> Void
+
+    public init(
+        systemImage: String,
+        label: String,
+        isEnabled: Bool = true,
+        isBusy: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.systemImage = systemImage
+        self.label = label
+        self.isEnabled = isEnabled
+        self.isBusy = isBusy
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            if isBusy {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Label(label, systemImage: systemImage)
+                    .labelStyle(.iconOnly)
+            }
+        }
+        .disabled(!isEnabled || isBusy)
+        .accessibilityLabel(Text(label))
     }
 }
 
@@ -519,6 +569,7 @@ public struct HakoRootScaffold<Content: View>: View {
         }
         .background(palette.canvas)
         .hakoScrollDismissesKeyboard()
+        .hakoContainerDrawsDisclosure(false)
     }
 }
 
@@ -639,6 +690,8 @@ public struct HakoWorkspaceScaffold<Tabs: View, Content: View, Actions: View>: V
             }
         }
         .background(palette.canvas)
+        // A workspace draws its own page, so its rows own the disclosure indicator.
+        .hakoContainerDrawsDisclosure(false)
         .hakoNavigationChrome(title: title, leading: leading) {
             actions
         }
@@ -681,6 +734,32 @@ public extension HakoWorkspaceScaffold where Actions == EmptyView {
             search: search,
             tabs: tabs,
             actions: { EmptyView() },
+            content: content
+        )
+    }
+}
+
+public extension HakoWorkspaceScaffold where Tabs == EmptyView {
+    /// A workspace with actions and a search field but no segmented tabs.
+    ///
+    /// The proxy workspace is this shape: one list, two page-level actions, and a search
+    /// field. Without this the caller would have to pass an empty tab builder, which
+    /// reads as though the page had considered tabs and rejected them.
+    init(
+        title: String,
+        leading: HakoNavigationLeadingControl = .back,
+        palette: HakoProductPalette = .system,
+        search: HakoWorkspaceSearch? = nil,
+        @ViewBuilder actions: () -> Actions,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.init(
+            title: title,
+            leading: leading,
+            palette: palette,
+            search: search,
+            tabs: { EmptyView() },
+            actions: actions,
             content: content
         )
     }

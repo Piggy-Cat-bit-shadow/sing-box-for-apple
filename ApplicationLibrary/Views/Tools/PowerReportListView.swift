@@ -18,22 +18,30 @@ public struct PowerReportListView: View {
     }
 
     public var body: some View {
-        FormView {
+        HakoReportScaffold(title: String(localized: "Power Report")) {
             if !isLoading {
-                FormToggle("Enable Power Report", """
-                A report is saved for each service run
-                """, $powerReportEnabled, header: "Settings") { newValue in
-                    await SharedPreferences.powerReportEnabled.set(newValue)
-                    await restartService()
+                HakoSettingsSection("Settings") {
+                    HakoToggleRow(
+                        String(localized: "Enable Power Report"),
+                        subtitle: String(localized: "Record a report for each service run."),
+                        isOn: $powerReportEnabled
+                    ) { newValue in
+                        Task {
+                            await SharedPreferences.powerReportEnabled.set(newValue)
+                            await restartService()
+                        }
+                    }
                 }
 
-                Section {
+                HakoSettingsSection("Reports", footnote: "A report is saved for each service run.") {
                     if manager.reports.isEmpty {
                         HakoEmptyState(
-                            symbol: "bolt.horizontal",
-                            title: "Empty",
-                            message: "No power reports have been recorded."
+                            symbol: "battery.50percent",
+                            title: "No power reports",
+                            message: "A report is recorded for each service run.",
+                            accent: .green
                         )
+                        .frame(minHeight: 180)
                     } else {
                         ForEach(manager.reports) { report in
                             #if os(tvOS)
@@ -51,8 +59,6 @@ public struct PowerReportListView: View {
                             #endif
                         }
                     }
-                } header: {
-                    Text("Reports")
                 }
             }
         }
@@ -68,7 +74,6 @@ public struct PowerReportListView: View {
                 isLoading = false
             }
         }
-        .navigationTitle("Power Report")
         .alert($alert)
         #if os(tvOS)
             .navigationDestination(item: $selectedReport) { report in
@@ -94,7 +99,20 @@ public struct PowerReportListView: View {
     }
 
     private func reportLabel(_ report: PowerReport) -> some View {
-        ReportLabel(date: report.date, isRead: report.isRead, origin: report.origin)
+        #if os(tvOS)
+            ReportLabel(date: report.date, isRead: report.isRead, origin: report.origin)
+        #else
+            HakoNavigationRow(
+                title: report.date.formatted(date: .abbreviated, time: .shortened),
+                subtitle: report.origin == ReportArchive.tvOSDeviceOrigin
+                    ? String(localized: "From Apple TV")
+                    : String(localized: "From this device"),
+                systemImage: "battery.50percent",
+                tint: HakoAccentRole.green.color,
+                badge: report.isRead ? nil : String(localized: "Unread"),
+                badgeEmphasis: .info
+            )
+        #endif
     }
 
     private func restartService() async {

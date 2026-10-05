@@ -6,24 +6,38 @@ public struct SponsorsView: View {
 
     public init() {}
     public var body: some View {
-        FormView {
-            Section {
-                EmptyView()
-            } footer: {
-                Text("**If I’ve defended your modern life, please consider sponsoring me.**")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+        HakoSettingsScaffold(title: String(localized: "Sponsors")) {
+            HakoFootnote("**If I've defended your modern life, please consider sponsoring me.**")
 
-            FormButton(String(localized: "GitHub Sponsors (recommended)")) {
-                openURL(URL(string: "https://github.com/sponsors/nekohasekai")!)
-            }
-            FormButton(String(localized: "Other methods")) {
-                openURL(URL(string: "https://sekai.icu/sponsors/")!)
+            HakoSettingsSection {
+                Button {
+                    openURL(URL(string: "https://github.com/sponsors/nekohasekai")!)
+                } label: {
+                    HakoNavigationRow(
+                        title: String(localized: "GitHub Sponsors (recommended)"),
+                        subtitle: String(localized: "Recurring support through GitHub"),
+                        systemImage: "heart.fill",
+                        tint: HakoAccentRole.pink.color,
+                        linksOut: true
+                    )
+                }
+                .buttonStyle(HakoPushRowButtonStyle())
+
+                HakoSettingsDivider()
+
+                Button {
+                    openURL(URL(string: "https://sekai.icu/sponsors/")!)
+                } label: {
+                    HakoNavigationRow(
+                        title: String(localized: "Other methods"),
+                        subtitle: String(localized: "Other ways to contribute"),
+                        systemImage: "creditcard.fill",
+                        tint: HakoAccentRole.blue.color,
+                        linksOut: true
+                    )
+                }
+                .buttonStyle(HakoPushRowButtonStyle())
             }
         }
-        .navigationTitle("Sponsors")
-        #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-        #endif
     }
 }

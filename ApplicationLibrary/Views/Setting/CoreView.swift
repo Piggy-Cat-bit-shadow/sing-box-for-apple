@@ -26,79 +26,24 @@ public struct CoreView: View {
     #endif
 
     public init() {}
+
     public var body: some View {
-        Group {
+        HakoSettingsScaffold(title: String(localized: "Core")) {
             if isLoading {
-                ProgressView().onAppear {
-                    Task {
-                        await loadSettings()
+                HakoLoadingState()
+                    .onAppear {
+                        Task {
+                            await loadSettings()
+                        }
                     }
-                }
             } else {
-                FormView {
-                    FormTextItem("Version", version)
-                    if let dataSize {
-                        FormTextItem("Data Size", dataSize)
-                    } else if !dataSizeLoaded {
-                        HStack {
-                            Text("Data Size")
-                            Spacer()
-                            ProgressView()
-                        }
-                    } else {
-                        #if os(macOS)
-                            HStack {
-                                Text("Data Size")
-                                Spacer()
-                                Text("Unavailable")
-                                    .foregroundStyle(.red)
-                                    .onTapGesture {
-                                        alert = helperRequiredAlert()
-                                    }
-                            }
-                        #endif
-                    }
-
-                    if Variant.isBeta {
-                        FormToggle("Disable Deprecated Warnings", "Do not show warnings about usages of deprecated features.", $disableDeprecatedWarnings, header: "Beta Settings") {
-                            newValue in
-                            await SharedPreferences.disableDeprecatedWarnings.set(newValue)
-                        }
-                    }
-
-                    Section("Working Directory") {
-                        #if os(macOS)
-                            if !Variant.useSystemExtension {
-                                FormButton {
-                                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: FilePath.workingDirectory.relativePath)
-                                } label: {
-                                    Label("Open", systemImage: "macwindow.and.cursorarrow")
-                                }
-                            }
-                        #elseif os(iOS)
-                            if #available(iOS 16.0, *) {
-                                FormButton {
-                                    Task {
-                                        await openInFilesApp()
-                                    }
-                                } label: {
-                                    Label("Browse", systemImage: "folder.fill")
-                                }
-                            }
-                        #endif
-                        FormButton(role: .destructive) {
-                            Task {
-                                await confirmDestroyWorkingDirectory()
-                            }
-                        } label: {
-                            Label("Destroy", systemImage: "trash.fill")
-                        }
-                        .foregroundColor(.red)
-                    }
+                versionSection
+                if Variant.isBeta {
+                    betaSection
                 }
+                workingDirectorySection
             }
         }
-        .navigationTitle("Core")
         .alert($alert)
         .onAppear {
             guard !isLoading else {
@@ -116,9 +61,111 @@ public struct CoreView: View {
                 await refreshWorkingDirectorySize()
             }
         }
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+    }
+
+    private var versionSection: some View {
+        HakoSettingsSection {
+            HakoMetricRow(String(localized: "Version"), value: version, systemImage: "shippingbox.fill", tint: .indigo)
+            HakoSettingsDivider()
+            dataSizeRow
+        }
+    }
+
+    @ViewBuilder
+    private var dataSizeRow: some View {
+        if let dataSize {
+            HakoMetricRow(String(localized: "Data Size"), value: dataSize, systemImage: "internaldrive.fill", tint: .teal)
+        } else if !dataSizeLoaded {
+            HakoValueRow(String(localized: "Data Size")) {
+                ProgressView()
+            }
+        } else {
+            #if os(macOS)
+                Button {
+                    alert = helperRequiredAlert()
+                } label: {
+                    HakoMetricRow(
+                        String(localized: "Data Size"),
+                        value: String(localized: "Unavailable"),
+                        systemImage: "exclamationmark.triangle.fill",
+                        tint: .orange
+                    )
+                }
+                .buttonStyle(.plain)
+            #endif
+        }
+    }
+
+    private var betaSection: some View {
+        HakoSettingsSection(
+            String(localized: "Beta"),
+            footnote: "These options belong to a beta build and may change or disappear."
+        ) {
+            HakoToggleRow(
+                String(localized: "Disable Deprecated Warnings"),
+                subtitle: String(localized: "Do not warn about configuration that uses deprecated features."),
+                isOn: $disableDeprecatedWarnings
+            ) { newValue in
+                Task {
+                    await SharedPreferences.disableDeprecatedWarnings.set(newValue)
+                }
+            }
+        }
+    }
+
+    private var workingDirectorySection: some View {
+        HakoSettingsSection(
+            String(localized: "Working Directory"),
+            footnote: "Where the core keeps its data, its caches and the configuration it is running."
+        ) {
+            #if os(macOS)
+                if !Variant.useSystemExtension {
+                    Button {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: FilePath.workingDirectory.relativePath)
+                    } label: {
+                        HakoNavigationRow(
+                            title: String(localized: "Show in Finder"),
+                            subtitle: nil,
+                            systemImage: "folder.fill",
+                            tint: HakoAccentRole.blue.color,
+                            showsDisclosure: false
+                        )
+                    }
+                    .buttonStyle(HakoPushRowButtonStyle())
+                    .hakoContainerDrawsDisclosure(true)
+                    HakoSettingsDivider()
+                }
+            #elseif os(iOS)
+                if #available(iOS 16.0, *) {
+                    Button {
+                        Task {
+                            await openInFilesApp()
+                        }
+                    } label: {
+                        HakoNavigationRow(
+                            title: String(localized: "Browse in Files"),
+                            subtitle: nil,
+                            systemImage: "folder.fill",
+                            tint: HakoAccentRole.blue.color,
+                            showsDisclosure: false
+                        )
+                    }
+                    .buttonStyle(HakoPushRowButtonStyle())
+                    .hakoContainerDrawsDisclosure(true)
+                    HakoSettingsDivider()
+                }
+            #endif
+
+            HakoDestructiveRow(
+                String(localized: "Erase Working Directory"),
+                subtitle: String(localized: "Deletes the core's data, caches and downloaded resources on this device."),
+                systemImage: "trash.fill"
+            ) {
+                Task {
+                    await confirmDestroyWorkingDirectory()
+                }
+            }
+        }
     }
 
     private nonisolated func loadSettings() async {

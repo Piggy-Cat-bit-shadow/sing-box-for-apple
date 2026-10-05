@@ -8,6 +8,12 @@ public func FormView(@ViewBuilder content: () -> some View) -> some View {
     #if os(macOS)
     .formStyle(.grouped)
     #endif
+    // A `Form` is a `List`, and a `List` draws the platform's disclosure indicator for
+    // every navigable row - on iOS as well as on the desktop. A row inside one therefore
+    // must not draw its own, or the row renders `>>`. This declares which party owns the
+    // indicator, so the answer comes from the container rather than from a guess at the
+    // call site.
+    .hakoContainerDrawsDisclosure(true)
 }
 
 public func FormTextItem(_ name: LocalizedStringKey, _ value: String) -> some View {

@@ -45,58 +45,7 @@ public struct ConnectionView: View {
         Button {
             showDetails = true
         } label: {
-            HStack(alignment: .top, spacing: HakoTheme.Spacing.row) {
-                HakoIconWell(tint: connectionAccent.color) {
-                    Image(systemName: connectionSymbol)
-                        .font(.caption.weight(.semibold))
-                }
-
-                VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
-                    HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
-                        Text(verbatim: "\(connection.network.uppercased()) \(connection.displayDestination)")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer(minLength: HakoTheme.Spacing.compact)
-                        HakoStatusBadge(
-                            connection.closedAt == nil ? String(localized: "Active") : String(localized: "Closed"),
-                            emphasis: connection.closedAt == nil ? .success : .failure
-                        )
-                    }
-
-                    HStack(alignment: .top, spacing: HakoTheme.Spacing.compact) {
-                        VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
-                            Text(verbatim: "\u{2191} \(LibboxFormatBytes(connection.uploadTotal))")
-                            Text(verbatim: "\u{2193} \(LibboxFormatBytes(connection.downloadTotal))")
-                        }
-                        VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
-                            Text(format(connection.createdAt))
-                            if let closedAt = connection.closedAt {
-                                Text(formatInterval(connection.createdAt, closedAt))
-                            } else {
-                                Text(verbatim: "\(LibboxFormatBytes(connection.upload))/s")
-                            }
-                        }
-                        Spacer(minLength: HakoTheme.Spacing.compact)
-                        VStack(alignment: .trailing, spacing: HakoTheme.Spacing.tight) {
-                            Text(connection.inboundType + "/" + connection.inbound)
-                            Text(connection.chain.reversed().joined(separator: "/"))
-                        }
-                    }
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                }
-            }
-            .foregroundColor(.textColor)
-            #if !os(tvOS)
-                .padding(.vertical, style == .standalone ? HakoTheme.Spacing.standard : HakoTheme.Spacing.row)
-                .padding(.horizontal, style == .standalone ? HakoTheme.Spacing.standard : 0)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            #endif
+            rowBody
         }
         #if !os(tvOS)
         .buttonStyle(.plain)
@@ -128,6 +77,142 @@ public struct ConnectionView: View {
             }
             .opacity(0)
         }
+    }
+
+    /// The record, in the shared data-row composition.
+    ///
+    /// The row this replaces was three columns of `caption2` monospaced text under a
+    /// title: the destination, the figures and the route, all at the same weight and all
+    /// truncated at the same moment. On a long host name or an IPv6 literal the figures
+    /// and the route won the line and the destination - the only part that says what the
+    /// connection *is* - became `2001:db8:…:1`.
+    ///
+    /// The order is now the manual's: the record's identity first and with
+    /// `layoutPriority`, its route beneath it, the badges next, and the figures in a
+    /// trailing column that yields first and is monospaced so a list of rows can be read
+    /// down rather than across.
+    @ViewBuilder
+    private var rowBody: some View {
+        #if os(tvOS)
+            legacyBody
+        #else
+            HakoDataRow(
+                title: connection.displayDestination,
+                route: routeSummary,
+                badges: badges,
+                badgeRole: .category,
+                titleIsMonospaced: connection.ipVersion == 6
+            ) {
+                HakoIconWell(tint: connectionAccent.color) {
+                    Image(systemName: connectionSymbol)
+                        .font(.caption.weight(.semibold))
+                }
+            } trailing: {
+                HakoMetricStack(metrics, tint: connection.closedAt == nil ? .primary : .secondary)
+            }
+            .padding(.vertical, style == .standalone ? HakoTheme.Spacing.standard : HakoTheme.Spacing.row)
+            .padding(.horizontal, style == .standalone ? HakoTheme.Spacing.standard : 0)
+            .foregroundStyle(Color.textColor)
+        #endif
+    }
+
+    /// What the connection is: its network, its protocol and its state.
+    private var badges: [String] {
+        var items = [connection.network.uppercased()]
+        if !connection.protocolName.isEmpty {
+            items.append(connection.protocolName)
+        }
+        items.append(connection.closedAt == nil ? String(localized: "Active") : String(localized: "Closed"))
+        return items
+    }
+
+    /// How it is routed: the outbound chain, and the rule that chose it.
+    private var routeSummary: String {
+        var parts: [String] = []
+        if !connection.chain.isEmpty {
+            parts.append(connection.chain.reversed().joined(separator: " / "))
+        } else if !connection.outbound.isEmpty {
+            parts.append(connection.outbound)
+        }
+        if !connection.rule.isEmpty {
+            parts.append(String(localized: "Rule: \(connection.rule)"))
+        }
+        if !connection.inbound.isEmpty {
+            parts.append("\(connection.inboundType)/\(connection.inbound)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// What it has cost, and when it started.
+    private var metrics: [HakoMetricStack.Line] {
+        var lines = [
+            HakoMetricStack.Line(symbol: "arrow.up", text: LibboxFormatBytes(connection.uploadTotal)),
+            HakoMetricStack.Line(symbol: "arrow.down", text: LibboxFormatBytes(connection.downloadTotal)),
+        ]
+        if let closedAt = connection.closedAt {
+            lines.append(HakoMetricStack.Line(
+                symbol: "clock",
+                text: formatInterval(connection.createdAt, closedAt)
+            ))
+        } else {
+            lines.append(HakoMetricStack.Line(
+                symbol: "speedometer",
+                text: "\(LibboxFormatBytes(connection.upload))/s"
+            ))
+        }
+        lines.append(HakoMetricStack.Line(symbol: "calendar", text: format(connection.createdAt)))
+        return lines
+    }
+
+    /// The focus platform keeps the previous arrangement, whose larger type and simpler
+    /// structure suit a television at ten feet.
+    private var legacyBody: some View {
+        HStack(alignment: .top, spacing: HakoTheme.Spacing.row) {
+            HakoIconWell(tint: connectionAccent.color) {
+                Image(systemName: connectionSymbol)
+                    .font(.caption.weight(.semibold))
+            }
+
+            VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+                HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
+                    Text(verbatim: "\(connection.network.uppercased()) \(connection.displayDestination)")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: HakoTheme.Spacing.compact)
+                    HakoStatusBadge(
+                        connection.closedAt == nil ? String(localized: "Active") : String(localized: "Closed"),
+                        emphasis: connection.closedAt == nil ? .success : .failure
+                    )
+                }
+
+                HStack(alignment: .top, spacing: HakoTheme.Spacing.compact) {
+                    VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+                        Text(verbatim: "\u{2191} \(LibboxFormatBytes(connection.uploadTotal))")
+                        Text(verbatim: "\u{2193} \(LibboxFormatBytes(connection.downloadTotal))")
+                    }
+                    VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+                        Text(format(connection.createdAt))
+                        if let closedAt = connection.closedAt {
+                            Text(formatInterval(connection.createdAt, closedAt))
+                        } else {
+                            Text(verbatim: "\(LibboxFormatBytes(connection.upload))/s")
+                        }
+                    }
+                    Spacer(minLength: HakoTheme.Spacing.compact)
+                    VStack(alignment: .trailing, spacing: HakoTheme.Spacing.tight) {
+                        Text(connection.inboundType + "/" + connection.inbound)
+                        Text(connection.chain.reversed().joined(separator: "/"))
+                    }
+                }
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            }
+        }
+        .foregroundColor(.textColor)
     }
 
     /// The icon a row leads with: what kind of traffic this connection is.

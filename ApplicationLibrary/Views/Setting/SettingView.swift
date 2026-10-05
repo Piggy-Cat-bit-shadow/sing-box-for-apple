@@ -432,14 +432,6 @@ public struct SettingView: View {
                     accent: .teal,
                     content: { AnyView(PacketTunnelView()) }
                 ),
-                Destination(
-                    pageKey: "profileOverride",
-                    title: String(localized: "Routing Override"),
-                    subtitle: String(localized: "Routes the client adjusts for compatibility"),
-                    systemImage: "square.dashed.inset.filled",
-                    accent: .purple,
-                    content: { AnyView(ProfileOverrideView()) }
-                ),
             ]),
             SettingsGroup(title: String(localized: "Application"), destinations: [
                 Destination(
@@ -462,6 +454,14 @@ public struct SettingView: View {
                 ),
             ]),
             SettingsGroup(title: String(localized: "Remote and Configuration"), destinations: [
+                Destination(
+                    pageKey: "profileOverride",
+                    title: String(localized: "Profile Override"),
+                    subtitle: String(localized: "Routes the client adjusts for compatibility"),
+                    systemImage: "square.dashed.inset.filled",
+                    accent: .purple,
+                    content: { AnyView(ProfileOverrideView()) }
+                ),
                 Destination(
                     pageKey: "remoteControl",
                     title: String(localized: "Remote Control"),

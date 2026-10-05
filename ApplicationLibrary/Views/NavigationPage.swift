@@ -53,10 +53,16 @@ public extension NavigationPage {
     var title: String {
         switch self {
         case .dashboard:
-            return String(localized: "Dashboard")
+            // The first-level destination is Home. It was "Dashboard" - a name that
+            // belonged to the page's previous shape, a grid of kernel figures - and
+            // the tab bar has called it Home since the shell was introduced, so the
+            // two were showing the user two names for one page.
+            return String(localized: "Home")
         #if os(macOS)
             case .groups:
-                return String(localized: "Groups")
+                // The proxy workspace. "Groups" is the core's word for the object;
+                // "Proxies" is what the page is to the person reading the sidebar.
+                return String(localized: "Proxies")
             case .connections:
                 return String(localized: "Connections")
         #endif
@@ -65,7 +71,32 @@ public extension NavigationPage {
         case .tools:
             return String(localized: "Tools")
         case .settings:
-            return String(localized: "Settings")
+            // The third tab is More, not Settings: it contains the settings, and it
+            // also contains the About links, the sponsors and the licence terms.
+            return String(localized: "More")
+        }
+    }
+
+    /// The one-line explanation a sidebar or a destination row shows beneath the title.
+    ///
+    /// A Mac sidebar row has room for one; the touch client's tab bar does not, which is
+    /// why this is a separate value rather than part of `title`.
+    var subtitle: String? {
+        switch self {
+        case .dashboard:
+            return String(localized: "Session and traffic")
+        #if os(macOS)
+            case .groups:
+                return String(localized: "Choose an outbound")
+            case .connections:
+                return String(localized: "What is being routed")
+        #endif
+        case .logs:
+            return String(localized: "Tunnel output")
+        case .tools:
+            return String(localized: "Diagnostics and network tools")
+        case .settings:
+            return String(localized: "Connection, application and core")
         }
     }
 

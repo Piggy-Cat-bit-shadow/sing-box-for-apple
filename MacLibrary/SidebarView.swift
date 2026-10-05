@@ -5,9 +5,9 @@ import SwiftUI
 /// The sidebar rows.
 ///
 /// The desktop keeps its own navigation - a `List` with a selection, which is what a
-/// Mac window is expected to be - and takes the shared icon size from the design
-/// tokens so the glyphs match the touch client's rather than being sized by
-/// accident.
+/// Mac window is expected to be - and takes the shared icon size and type from the
+/// design tokens so the glyphs and the row text match the touch client's rather than
+/// being sized by accident.
 private extension View {
     func hakoSidebarRow() -> some View {
         self
@@ -17,105 +17,92 @@ private extension View {
     }
 }
 
-private struct SidebarContentView: View {
-    @Binding var selection: NavigationPage
-    @Binding var localSelection: NavigationPage
-    @ObservedObject var profile: ExtensionProfile
-    @EnvironmentObject private var sendManager: TaildropSendManager
-    var environments: ExtensionEnvironments
+/// The sidebar's information architecture: which page lives under which heading.
+///
+/// The list this replaces changed shape depending on the connection state - a
+/// disconnected client saw one flat list, a connected one saw a `Section` captioned
+/// "Dashboard" holding a row captioned "Overview", and the remote client saw a third
+/// arrangement. Three lists, one product: the same page could be reached from three
+/// different sidebar layouts depending on what the tunnel was doing.
+///
+/// The grouping is now a value, and it does not depend on the connection. What depends
+/// on the connection is which rows are *available*, which is a different question and is
+/// answered by hiding nothing: a session page is absent while there is no session to
+/// show, and the headings do not move.
+enum HakoSidebarSection: String, CaseIterable, Identifiable {
+    /// A page reached without a session: the client's own front page.
+    case primary
+    /// What the tunnel is doing: the outbounds it can use and the traffic it carries.
+    case session
+    /// The tools and the settings: the pages that are about the client rather than
+    /// about the traffic. HAKO calls this area Utilities, and the manual does too.
+    case utilities
 
-    private var hasGroups: Bool {
-        Variant.screenshotMode || environments.commandClient.groups?.isEmpty == false
+    var id: String {
+        rawValue
     }
 
-    var body: some View {
-        List(selection: $localSelection) {
-            if profile.status.isConnectedStrict {
-                Section(NavigationPage.dashboard.title) {
-                    Label("Overview", systemImage: "text.and.command.macwindow")
-                        .hakoSidebarRow()
-                        .tint(.textColor)
-                        .tag(NavigationPage.dashboard)
-                    if hasGroups {
-                        NavigationPage.groups.label.tag(NavigationPage.groups)
-                    }
-                    NavigationPage.connections.label.tag(NavigationPage.connections)
-                }
-                ForEach(NavigationPage.macosDefaultPages, id: \.self) { it in
-                    it.label
-                        .hakoSidebarRow()
-                        .badge(it == .tools ? environments.toolsBadgeCount + sendManager.failedSessionCount : 0)
-                }
-            } else {
-                ForEach(NavigationPage.allCases.filter { $0.visible(profile) }, id: \.self) { it in
-                    it.label
-                        .hakoSidebarRow()
-                        .badge(it == .tools ? environments.toolsBadgeCount + sendManager.failedSessionCount : 0)
-                }
-            }
+    var title: String? {
+        switch self {
+        case .primary: nil
+        case .session: String(localized: "Session")
+        case .utilities: String(localized: "Utilities")
         }
-        .listStyle(.sidebar)
-        .scrollDisabled(true)
-        .onAppear {
-            localSelection = selection
-        }
-        .onChangeCompat(of: selection) { newValue in
-            if localSelection != newValue {
-                localSelection = newValue
-            }
-        }
-        .onChangeCompat(of: localSelection) { newValue in
-            if selection != newValue {
-                Task { @MainActor in
-                    selection = newValue
-                }
-            }
-        }
-        .onChangeCompat(of: profile.status) {
-            if !localSelection.visible(profile) {
-                Task { @MainActor in
-                    localSelection = .dashboard
-                }
-            }
-        }
-        .onReceive(environments.commandClient.$groups) { groups in
-            if localSelection == .groups, groups?.isEmpty != false {
-                Task { @MainActor in
-                    localSelection = .dashboard
-                }
-            }
+    }
+
+    func pages(hasSession: Bool) -> [NavigationPage] {
+        switch self {
+        case .primary:
+            return [.dashboard]
+        case .session:
+            return hasSession ? [.groups, .connections, .logs] : [.logs]
+        case .utilities:
+            return [.tools, .settings]
         }
     }
 }
 
-private struct RemoteSidebarContentView: View {
+private struct HakoSidebarContent: View {
     @Binding var selection: NavigationPage
     @Binding var localSelection: NavigationPage
-    @ObservedObject var environments: ExtensionEnvironments
-    @EnvironmentObject private var sendManager: TaildropSendManager
-    @State private var hasGroups = false
+    /// Whether there is a tunnel whose outbounds and traffic can be listed.
+    let hasSession: Bool
+    /// Whether the core has reported any proxy group. A session without groups cannot
+    /// show the proxy page, because there would be nothing on it.
+    let hasGroups: Bool
+    let toolsBadge: Int
+
+    private var visibleSections: [HakoSidebarSection] {
+        HakoSidebarSection.allCases
+    }
+
+    private func pages(in section: HakoSidebarSection) -> [NavigationPage] {
+        section.pages(hasSession: hasSession).filter { page in
+            if page == .groups {
+                return hasGroups
+            }
+            return page.visible(nil) || hasSession
+        }
+    }
 
     var body: some View {
         List(selection: $localSelection) {
-            Section(NavigationPage.dashboard.title) {
-                Label("Overview", systemImage: "text.and.command.macwindow")
-                    .tint(.textColor)
-                    .tag(NavigationPage.dashboard)
-                if hasGroups {
-                    NavigationPage.groups.label.tag(NavigationPage.groups)
+            ForEach(visibleSections) { section in
+                let rows = pages(in: section)
+                if !rows.isEmpty {
+                    if let title = section.title {
+                        Section(title) {
+                            rowList(rows)
+                        }
+                    } else {
+                        rowList(rows)
+                    }
                 }
-                NavigationPage.connections.label.tag(NavigationPage.connections)
-            }
-            ForEach(NavigationPage.macosDefaultPages, id: \.self) { it in
-                it.label
-                    .badge(it == .tools ? environments.toolsBadgeCount + sendManager.failedSessionCount : 0)
             }
         }
         .listStyle(.sidebar)
-        .scrollDisabled(true)
         .onAppear {
             localSelection = selection
-            hasGroups = environments.commandClient.groups?.isEmpty == false
         }
         .onChangeCompat(of: selection) { newValue in
             if localSelection != newValue {
@@ -129,20 +116,14 @@ private struct RemoteSidebarContentView: View {
                 }
             }
         }
-        .onReceive(environments.commandClient.$groups) { groups in
-            hasGroups = groups?.isEmpty == false
-            if localSelection == .groups, groups?.isEmpty != false {
-                Task { @MainActor in
-                    localSelection = .dashboard
-                }
-            }
-        }
-        .onDisappear {
-            if localSelection == .groups || localSelection == .connections {
-                Task { @MainActor in
-                    localSelection = .dashboard
-                }
-            }
+    }
+
+    @ViewBuilder
+    private func rowList(_ rows: [NavigationPage]) -> some View {
+        ForEach(rows, id: \.self) { page in
+            page.label
+                .hakoSidebarRow()
+                .badge(page == .tools ? toolsBadge : 0)
         }
     }
 }
@@ -158,51 +139,94 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        if environments.remoteServer != nil {
-            remoteContent
-        } else if environments.extensionProfileLoading {
-            ProgressView()
-        } else if let profile = environments.extensionProfile {
-            SidebarContentView(
-                selection: $selection,
-                localSelection: $localSelection,
-                profile: profile,
-                environments: environments
-            )
-        } else {
-            disconnectedContent
+        Group {
+            if environments.remoteServer != nil {
+                remoteContent
+            } else if environments.extensionProfileLoading {
+                ProgressView()
+            } else if let profile = environments.extensionProfile {
+                localContent(profile: profile)
+            } else {
+                HakoSidebarContent(
+                    selection: $selection,
+                    localSelection: $localSelection,
+                    hasSession: false,
+                    hasGroups: false,
+                    toolsBadge: environments.toolsBadgeCount + sendManager.failedSessionCount
+                )
+            }
+        }
+    }
+
+    private func localContent(profile: ExtensionProfile) -> some View {
+        HakoSidebarContent(
+            selection: $selection,
+            localSelection: $localSelection,
+            hasSession: profile.status.isConnectedStrict,
+            hasGroups: Variant.screenshotMode || environments.commandClient.groups?.isEmpty == false,
+            toolsBadge: environments.toolsBadgeCount + sendManager.failedSessionCount
+        )
+        .onChangeCompat(of: profile.status) {
+            if !localSelection.visible(profile) {
+                Task { @MainActor in
+                    localSelection = .dashboard
+                }
+            }
+        }
+        .onReceive(environments.commandClient.$groups) { groups in
+            if localSelection == .groups, groups?.isEmpty != false {
+                Task { @MainActor in
+                    localSelection = .dashboard
+                }
+            }
         }
     }
 
     private var remoteContent: some View {
-        RemoteSidebarContentView(
+        RemoteSessionSidebar(selection: $selection, localSelection: $localSelection)
+    }
+}
+
+/// The sidebar while this client drives another device.
+///
+/// It is its own view rather than the local one with flags, because the questions it
+/// asks are different: whether the *remote* core has reported groups, and what to do
+/// with a selection that pointed at a page the remote session has taken away.
+private struct RemoteSessionSidebar: View {
+    @Binding var selection: NavigationPage
+    @Binding var localSelection: NavigationPage
+    @EnvironmentObject private var environments: ExtensionEnvironments
+    @EnvironmentObject private var sendManager: TaildropSendManager
+    @State private var hasGroups = false
+
+    var body: some View {
+        HakoSidebarContent(
             selection: $selection,
             localSelection: $localSelection,
-            environments: environments
+            hasSession: true,
+            hasGroups: hasGroups,
+            toolsBadge: environments.toolsBadgeCount + sendManager.failedSessionCount
         )
-    }
-
-    private var disconnectedContent: some View {
-        List(selection: $localSelection) {
-            ForEach(NavigationPage.allCases.filter { $0.visible(nil) }, id: \.self) { it in
-                it.label
-                    .badge(it == .tools ? environments.toolsBadgeCount + sendManager.failedSessionCount : 0)
-            }
-        }
-        .listStyle(.sidebar)
-        .scrollDisabled(true)
         .onAppear {
-            localSelection = selection
-        }
-        .onChangeCompat(of: selection) { newValue in
-            if localSelection != newValue {
-                localSelection = newValue
+            hasGroups = environments.commandClient.groups?.isEmpty == false
+            // The remote session is a real one, so the session pages are reachable even
+            // before the first status arrives.
+            if localSelection == .dashboard, selection != .dashboard {
+                localSelection = selection
             }
         }
-        .onChangeCompat(of: localSelection) { newValue in
-            if selection != newValue {
+        .onReceive(environments.commandClient.$groups) { groups in
+            hasGroups = groups?.isEmpty == false
+            if localSelection == .groups, groups?.isEmpty != false {
                 Task { @MainActor in
-                    selection = newValue
+                    localSelection = .dashboard
+                }
+            }
+        }
+        .onDisappear {
+            if localSelection == .groups || localSelection == .connections {
+                Task { @MainActor in
+                    localSelection = .dashboard
                 }
             }
         }

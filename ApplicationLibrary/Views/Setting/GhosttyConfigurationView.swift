@@ -21,14 +21,14 @@
             FormView {
                 if !isLoading {
                     schemeSection(
-                        header: "Light Configuration",
+                        header: "Light Theme",
                         isDark: false,
                         pickerTheme: $lightPickerTheme,
                         customEnabled: $lightCustomEnabled,
                         themePreference: SharedPreferences.tailscaleSSHGhosttyLightTheme
                     )
                     schemeSection(
-                        header: "Dark Configuration",
+                        header: "Dark Theme",
                         isDark: true,
                         pickerTheme: $darkPickerTheme,
                         customEnabled: $darkCustomEnabled,
@@ -37,7 +37,7 @@
                     fontSection()
                 }
             }
-            .navigationTitle("Ghostty Configuration")
+            .navigationTitle("Terminal Appearance")
             #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -47,7 +47,7 @@
         }
 
         private func fontSection() -> some View {
-            Section(header: Text("Font Configuration")) {
+            Section(header: Text("Font")) {
                 Toggle("Follow Theme", isOn: $fontFollowTheme)
                     .onChangeCompat(of: fontFollowTheme) { newValue in
                         Task {

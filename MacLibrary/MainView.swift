@@ -60,7 +60,17 @@ public struct MainView: View {
     public var body: some View {
         NavigationSplitView {
             SidebarView(selection: $viewModel.selection)
-                .navigationSplitViewColumnWidth(150)
+                // The sidebar's width comes from the design tokens rather than from a
+                // literal here. It used to be `150` while the tokens said `220`, which
+                // is how a window ends up with a sidebar narrower than every row it
+                // has to draw: the section captions and the two-line remote-control
+                // row truncated. A range rather than one number, because a Mac user
+                // drags this and a fixed width takes that away.
+                .navigationSplitViewColumnWidth(
+                    min: HakoTheme.Regular.Sidebar.minimumWidth,
+                    ideal: HakoTheme.Regular.Sidebar.idealWidth,
+                    max: HakoTheme.Regular.Sidebar.maximumWidth
+                )
         } detail: {
             NavigationStack(path: $settingsNavigationPath) {
                 // The desktop detail column is centred and inset rather than stretched across the
@@ -74,9 +84,18 @@ public struct MainView: View {
             }
             .environment(\.cardConfigurationVersion, cardConfigurationVersion)
             .environment(\.settingsNavigationPath, $settingsNavigationPath)
-            .navigationSplitViewColumnWidth(650)
+            // The detail column is bounded rather than pinned. It used to be a flat
+            // `650`, so a wide window left the page at 650 points with dead space
+            // beside it, and a narrow one squeezed the page below what it can lay out.
+            .navigationSplitViewColumnWidth(
+                min: HakoTheme.Regular.Detail.minimumContentWidth,
+                ideal: 720
+            )
         }
-        .frame(minHeight: Variant.screenshotMode ? 0 : 500)
+        .frame(
+            minWidth: Variant.screenshotMode ? 0 : HakoTheme.MacOS.minimumWindowWidth,
+            minHeight: Variant.screenshotMode ? 0 : HakoTheme.MacOS.minimumWindowHeight
+        )
         .background(WindowAccessor { window in
             guard Variant.screenshotMode, !didConfigureScreenshotWindow, let window else { return }
             didConfigureScreenshotWindow = true

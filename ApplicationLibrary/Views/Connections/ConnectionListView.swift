@@ -1,3 +1,4 @@
+import Libbox
 import Library
 import SwiftUI
 #if canImport(UIKit) && !os(tvOS)
@@ -12,34 +13,34 @@ public struct ConnectionListView: View {
     public init() {}
 
     public var body: some View {
-        ConnectionListContentView(dataModel: viewModel.dataModel)
-        #if os(iOS)
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    ConnectionMenuButton(
-                        connectionStateFilter: $viewModel.connectionStateFilter,
-                        connectionSort: $viewModel.connectionSort,
-                        closeAllConnections: viewModel.closeAllConnections
-                    )
-                }
-            }
-        #elseif os(macOS)
-            .applySearchable(text: $viewModel.searchText, isSearching: $viewModel.isSearching, shouldShow: viewModel.isSearching)
-            .toolbar {
-                ToolbarItemGroup {
-                    if #available(macOS 14.0, *) {
-                        Button(action: viewModel.toggleSearch) {
-                            Label("Search", systemImage: "magnifyingglass")
-                        }
+        #if os(tvOS)
+            ConnectionListContentView(dataModel: viewModel.dataModel)
+                .alert($viewModel.alert)
+                .onAppear {
+                    if !environments.connectionSearchText.isEmpty {
+                        viewModel.searchText = environments.connectionSearchText
+                        viewModel.isSearching = true
                     }
-                    ConnectionMenuView(
-                        connectionStateFilter: $viewModel.connectionStateFilter,
-                        connectionSort: $viewModel.connectionSort,
-                        closeAllConnections: viewModel.closeAllConnections
-                    )
+                    viewModel.connect()
                 }
-            }
-        #endif
+                .onDisappear {
+                    environments.connectionSearchText = viewModel.searchText
+                    viewModel.disconnect()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .background(HakoProductPalette.system.canvas)
+        #else
+            HakoWorkspaceScaffold(
+                title: String(localized: "Activity"),
+                leading: Self.leadingControl,
+                search: HakoWorkspaceSearch(
+                    text: $viewModel.searchText,
+                    prompt: "Search connections",
+                    accessibilityIdentifier: "hako.activity.search"
+                ),
+                actions: { actions },
+                content: { content }
+            )
             .alert($viewModel.alert)
             .onAppear {
                 if !environments.connectionSearchText.isEmpty {
@@ -52,12 +53,118 @@ public struct ConnectionListView: View {
                 environments.connectionSearchText = viewModel.searchText
                 viewModel.disconnect()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .background(HakoProductPalette.system.canvas)
+        #endif
     }
+
+    /// A sheet on the touch client, a sidebar selection on the desktop. Neither is a
+    /// push, so neither wears a back control.
+    ///
+    /// The manual's activity workspace has three lenses - connections, requests and logs.
+    /// This client's core does not record requests, so there are two pages rather than a
+    /// third tab that would have nothing behind it, and the connections lens is this one.
+    private static var leadingControl: HakoNavigationLeadingControl {
+        #if os(iOS)
+            .close
+        #else
+            .none
+        #endif
+    }
+
+    #if !os(tvOS)
+        @ViewBuilder
+        private var actions: some View {
+            Menu {
+                Picker("State", selection: $viewModel.connectionStateFilter) {
+                    ForEach(ConnectionStateFilter.allCases) { state in
+                        Text(state.name).tag(state)
+                    }
+                }
+
+                Picker("Sort By", selection: $viewModel.connectionSort) {
+                    ForEach(ConnectionSort.allCases, id: \.self) { sortBy in
+                        Text(sortBy.name).tag(sortBy)
+                    }
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    viewModel.closeAllConnections()
+                } label: {
+                    Label("Close All Connections", systemImage: "xmark.circle")
+                }
+                .disabled(viewModel.dataModel.filteredConnections.isEmpty)
+            } label: {
+                Label("Filter and sort", systemImage: "line.3.horizontal.decrease.circle")
+                    .labelStyle(.iconOnly)
+            }
+            .accessibilityLabel(Text("Filter and sort"))
+        }
+
+        @ViewBuilder
+        private var content: some View {
+            if viewModel.dataModel.isLoading {
+                HakoLoadingState()
+            } else if viewModel.dataModel.filteredConnections.isEmpty {
+                HakoEmptyState(
+                    symbol: "arrow.left.arrow.right",
+                    title: viewModel.searchText.isEmpty ? "No connections" : "No matches",
+                    message: viewModel.searchText.isEmpty
+                        ? "Connections appear here while the service routes traffic."
+                        : "No connection matches what you typed.",
+                    accent: .green
+                )
+            } else {
+                summaryCard
+                connectionCard
+            }
+        }
+
+        private var summaryCard: some View {
+            HakoSummaryCard(
+                String(localized: "Connections"),
+                symbol: "arrow.left.arrow.right",
+                tint: .green
+            ) {
+                HStack(alignment: .top, spacing: HakoTheme.Spacing.standard) {
+                    HakoSummaryMetric(
+                        String(localized: "Shown"),
+                        value: "\(viewModel.dataModel.filteredConnections.count)",
+                        symbol: "list.bullet"
+                    )
+                    HakoSummaryMetric(
+                        String(localized: "Uploaded"),
+                        value: LibboxFormatBytes(viewModel.dataModel.filteredConnections.reduce(0) { $0 + $1.uploadTotal }),
+                        symbol: "arrow.up"
+                    )
+                    HakoSummaryMetric(
+                        String(localized: "Downloaded"),
+                        value: LibboxFormatBytes(viewModel.dataModel.filteredConnections.reduce(0) { $0 + $1.downloadTotal }),
+                        symbol: "arrow.down"
+                    )
+                }
+            }
+        }
+
+        /// One card for the whole list rather than one per row: a connection list holds
+        /// hundreds of records, and a material, a corner radius and a stroke per record is
+        /// the cost the design notes call out.
+        private var connectionCard: some View {
+            let connections = viewModel.dataModel.filteredConnections
+            return HakoDataCard(palette: .system) {
+                ForEach(Array(connections.enumerated()), id: \.element.id) { index, connection in
+                    ConnectionView(connection, style: .groupedRow)
+                    if index != connections.count - 1 {
+                        HakoSettingsDivider(leadingInset: HakoTheme.Layout.proxyGroupIconSize + HakoTheme.Spacing.row)
+                    }
+                }
+            }
+        }
+    #endif
 }
 
-private struct ConnectionListContentView: View {
+#if os(tvOS)
+    private struct ConnectionListContentView: View {
     @ObservedObject var dataModel: ConnectionDataModel
 
     var body: some View {
@@ -249,4 +356,5 @@ private struct ConnectionListContentView: View {
             }
         }
     }
+#endif
 #endif

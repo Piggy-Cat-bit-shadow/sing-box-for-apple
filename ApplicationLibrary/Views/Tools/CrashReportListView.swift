@@ -19,15 +19,17 @@ public struct CrashReportListView: View {
     }
 
     public var body: some View {
-        FormView {
+        HakoReportScaffold(title: String(localized: "Crash Report")) {
             if !isLoading {
-                Section {
+                HakoSettingsSection("Reports", footnote: "You will receive a report when a crash occurs.") {
                     if manager.reports.isEmpty {
                         HakoEmptyState(
-                            symbol: "exclamationmark.triangle",
-                            title: "Empty",
-                            message: "No crash reports have been recorded."
+                            symbol: "ladybug.fill",
+                            title: "No crash reports",
+                            message: "Crash reports recorded on this device appear here.",
+                            accent: .pink
                         )
+                        .frame(minHeight: 180)
                     } else {
                         ForEach(manager.reports) { report in
                             #if os(tvOS)
@@ -45,10 +47,6 @@ public struct CrashReportListView: View {
                             #endif
                         }
                     }
-                } header: {
-                    Text("Reports")
-                } footer: {
-                    Text("You will receive a report when a crash occurs.")
                 }
             }
         }
@@ -63,7 +61,6 @@ public struct CrashReportListView: View {
                 isLoading = false
             }
         }
-        .navigationTitle("Crash Report")
         .alert($alert)
         #if os(tvOS)
             .navigationDestination(item: $selectedReport) { report in
@@ -103,7 +100,20 @@ public struct CrashReportListView: View {
     }
 
     private func reportLabel(_ report: CrashReport) -> some View {
-        ReportLabel(date: report.date, isRead: report.isRead, origin: report.origin)
+        #if os(tvOS)
+            ReportLabel(date: report.date, isRead: report.isRead, origin: report.origin)
+        #else
+            HakoNavigationRow(
+                title: report.date.formatted(date: .abbreviated, time: .shortened),
+                subtitle: report.origin == ReportArchive.tvOSDeviceOrigin
+                    ? String(localized: "From Apple TV")
+                    : String(localized: "From this device"),
+                systemImage: "ladybug.fill",
+                tint: HakoAccentRole.pink.color,
+                badge: report.isRead ? nil : String(localized: "Unread"),
+                badgeEmphasis: .info
+            )
+        #endif
     }
 }
 

@@ -68,6 +68,7 @@ public struct HakoIconWell<Icon: View>: View {
 public struct HakoDestinationRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.locale) private var locale
+    @Environment(\.hakoContainerDrawsDisclosure) private var containerDrawsDisclosure
 
     public let title: String
     public let subtitle: String?
@@ -76,7 +77,7 @@ public struct HakoDestinationRow: View {
     /// A short fact that belongs on the row's own line: a count, a state.
     public let badge: String?
     public let badgeEmphasis: HakoStatusBadge.Emphasis
-    private let showsDisclosure: Bool
+    private let showsDisclosureOverride: Bool?
 
     public init(
         title: String,
@@ -93,7 +94,12 @@ public struct HakoDestinationRow: View {
         self.tint = tint
         self.badge = badge
         self.badgeEmphasis = badgeEmphasis
-        self.showsDisclosure = showsDisclosure ?? !HakoPlatformLayout.pageUsesSystemSettingsIdiom
+        showsDisclosureOverride = showsDisclosure
+    }
+
+    /// One indicator, drawn by exactly one of the two parties.
+    private var showsDisclosure: Bool {
+        showsDisclosureOverride ?? !containerDrawsDisclosure
     }
 
     public var body: some View {
@@ -391,7 +397,7 @@ public struct HakoNavigationRow: View {
             value: value,
             badge: badge,
             badgeEmphasis: badgeEmphasis,
-            showsDisclosure: showsDisclosure ?? (!HakoPlatformLayout.containerDrawsDisclosureIndicator && !linksOut)
+            showsDisclosure: showsDisclosure ?? (linksOut ? false : nil)
         ) {
             // A row that leaves the app says so with the platform's external-link mark
             // rather than a chevron: a chevron promises another page inside this client,
@@ -417,6 +423,7 @@ public struct HakoNavigationRow: View {
 struct HakoRowBody<Trailing: View>: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.locale) private var locale
+    @Environment(\.hakoContainerDrawsDisclosure) private var containerDrawsDisclosure
 
     let title: String
     var subtitle: String?
@@ -425,7 +432,10 @@ struct HakoRowBody<Trailing: View>: View {
     var value: String?
     var badge: String?
     var badgeEmphasis: HakoStatusBadge.Emphasis = .neutral
-    var showsDisclosure: Bool = false
+    /// `nil` defers to the container: the indicator is drawn by the row only when the
+    /// container does not draw one. `false` suppresses it outright, which is what a row
+    /// whose trailing element is a control needs.
+    var showsDisclosure: Bool?
     /// A view that replaces the trailing disclosure - a toggle, a picker, a mark.
     @ViewBuilder var trailing: () -> Trailing
 
@@ -437,7 +447,7 @@ struct HakoRowBody<Trailing: View>: View {
         value: String? = nil,
         badge: String? = nil,
         badgeEmphasis: HakoStatusBadge.Emphasis = .neutral,
-        showsDisclosure: Bool = false,
+        showsDisclosure: Bool? = nil,
         @ViewBuilder trailing: @escaping () -> Trailing = { EmptyView() }
     ) {
         self.title = title
@@ -469,7 +479,7 @@ struct HakoRowBody<Trailing: View>: View {
 
             trailing()
 
-            if showsDisclosure {
+            if showsDisclosure ?? !containerDrawsDisclosure {
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.tertiary)
@@ -545,7 +555,7 @@ public struct HakoToggleRow: View {
     }
 
     public var body: some View {
-        HakoRowBody(title: title, subtitle: subtitle) {
+        HakoRowBody(title: title, subtitle: subtitle, showsDisclosure: false) {
             Toggle("", isOn: isOn)
                 .labelsHidden()
                 .disabled(!isEnabled)
@@ -585,7 +595,13 @@ public struct HakoDestructiveRow: View {
 
     public var body: some View {
         Button(action: action) {
-            HakoRowBody(title: title, subtitle: subtitle, systemImage: systemImage, tint: .red) {
+            HakoRowBody(
+                title: title,
+                subtitle: subtitle,
+                systemImage: systemImage,
+                tint: .red,
+                showsDisclosure: false
+            ) {
                 EmptyView()
             }
         }
@@ -630,7 +646,8 @@ public struct HakoSelectionRow: View {
                 title: title,
                 subtitle: subtitle,
                 systemImage: systemImage,
-                tint: tint
+                tint: tint,
+                showsDisclosure: false
             ) {
                 HakoSelectionMark(isSelected: isSelected)
             }
