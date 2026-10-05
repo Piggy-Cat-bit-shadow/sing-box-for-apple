@@ -167,6 +167,43 @@ final class HakoSnapshotUITests: XCTestCase {
         )
     }
 
+    /// Home and the proxy sheet must agree about how many groups there are.
+    ///
+    /// They did not: the sheet said "2" while Home's row said "Proxy groups", its zero
+    /// fallback, because Home read the count from a *nested* observable and was never
+    /// invalidated when it changed. Two views disagreeing about one number is a defect a
+    /// single-page assertion cannot see, which is why this one reads both.
+    func test17HomeAgreesWithTheProxySheet() {
+        tab("hako.tab.home").tap()
+
+        let homeRow = app.buttons["hako.home.groups"]
+        XCTAssertTrue(homeRow.waitForExistence(timeout: 15), "Home must offer the proxy row")
+        let homeLabel = homeRow.label
+
+        tap("hako.profile.select")
+        sleep(1)
+        app.buttons["hako.nav.close"].tap()
+        sleep(1)
+
+        tab("hako.tab.home").tap()
+        tap("hako.home.groups")
+        XCTAssertTrue(
+            app.buttons["hako.nav.close"].waitForExistence(timeout: 20),
+            "the proxy sheet must open"
+        )
+        // The sheet's own summary names the group count.
+        let sheetSaysTwo = app.staticTexts["Groups"].exists && app.staticTexts["2"].exists
+        app.buttons["hako.nav.close"].tap()
+        sleep(1)
+
+        if sheetSaysTwo {
+            XCTAssertTrue(
+                homeLabel.contains("2"),
+                "Home said \"\(homeLabel)\" while the sheet said 2 groups"
+            )
+        }
+    }
+
     /// Home while this client is driving another instance.
     ///
     /// That mode renders a different page entirely - the legacy card grid - so it is the one

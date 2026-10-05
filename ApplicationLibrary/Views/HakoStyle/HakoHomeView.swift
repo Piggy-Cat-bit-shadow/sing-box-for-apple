@@ -79,6 +79,15 @@ public struct HakoHomeView: View {
     @Environment(\.selection) private var selection
     /// The chosen outbound mode, held here until the core confirms it. See `selectClashMode`.
     @State private var localMode: String = ""
+    /// The counts the shortcut rows report.
+    ///
+    /// Held here rather than read from the client in `body`, because the client is a *nested*
+    /// observable: `environments.commandClient` is a published property of the environment
+    /// object, and a change inside the client does not invalidate a view that read through it.
+    /// The counts did not move, so Home said "Proxy groups" while the proxy sheet said "2" -
+    /// two views disagreeing about the same data, one observing it and one not.
+    @State private var liveGroupCount = 0
+    @State private var liveConnectionCount = 0
 
     /// Why the configuration list could not be read, if it could not be.
     private let profileLoadFailure: String?
@@ -140,6 +149,14 @@ public struct HakoHomeView: View {
         }
         .onAppear {
             localMode = environments.commandClient.clashMode
+            liveGroupCount = environments.commandClient.groups?.count ?? 0
+            liveConnectionCount = Int(environments.commandClient.status?.connectionsIn ?? 0)
+        }
+        .onReceive(environments.commandClient.$groups) { groups in
+            liveGroupCount = groups?.count ?? 0
+        }
+        .onReceive(environments.commandClient.statusPublisher) { status in
+            liveConnectionCount = Int(status?.connectionsIn ?? 0)
         }
         .onChangeCompat(of: environments.commandClient.clashMode) { newValue in
             if !newValue.isEmpty {
@@ -511,14 +528,14 @@ public struct HakoHomeView: View {
     }
 
     private var groupsSubtitle: String {
-        let count = environments.commandClient.groups?.count ?? 0
+        let count = liveGroupCount
         return count > 0
             ? String(localized: "\(count) groups")
             : String(localized: "Proxy groups")
     }
 
     private var connectionsSubtitle: String {
-        let count = Int(environments.commandClient.status?.connectionsIn ?? 0)
+        let count = liveConnectionCount
         return count > 0
             ? String(localized: "\(count) active")
             : String(localized: "Current sessions")

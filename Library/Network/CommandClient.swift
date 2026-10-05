@@ -167,6 +167,30 @@ public class CommandClient: ObservableObject {
         isConnected = true
         clashModeList = ["rule", "global", "direct"]
         clashMode = "rule"
+        // The groups belong here, with the rest of the fixture, because this is the client the
+        // whole app reads them from. They used to be fabricated inside `GroupListViewModel`
+        // instead, so the proxy sheet had two groups while Home - reading the same client the
+        // sheet reads - had none, and the two pages disagreed about one number.
+        //
+        // The type strings are the core's canonical lower-case names: capitalized ones are not
+        // recognised by the display-type mapping, so every member read "Unknown".
+        let selectorItems: [OutboundGroupItem] = [
+            OutboundGroupItem(tag: "server", type: "shadowsocks", urlTestTime: .now, urlTestDelay: 10),
+            OutboundGroupItem(tag: "server2", type: "wireguard", urlTestTime: .now, urlTestDelay: 20),
+            OutboundGroupItem(tag: "auto", type: "urltest", urlTestTime: .now, urlTestDelay: 30),
+        ]
+        let urlTestItems: [OutboundGroupItem] = (0 ..< 137).map { index in
+            OutboundGroupItem(
+                tag: index == 0 ? "Tokyo" : "node-\(index)",
+                type: "shadowsocks",
+                urlTestTime: .now,
+                urlTestDelay: UInt16(100 + index * 13)
+            )
+        }
+        groups = [
+            OutboundGroup(tag: "my_group", type: "selector", selected: "server", selectable: true, isExpand: true, items: selectorItems),
+            OutboundGroup(tag: "Auto", type: "urltest", selected: "Tokyo", selectable: true, isExpand: false, items: urlTestItems),
+        ]
         trafficSnapshot = TrafficSnapshot(
             uplinkHistory: Array(repeating: CGFloat(1000), count: 30),
             downlinkHistory: Array(repeating: CGFloat(5000), count: 30)

@@ -22,27 +22,9 @@ public class GroupListViewModel: BaseViewModel {
     }
 
     public func connect() {
-        if Variant.screenshotMode {
-            // The type strings are the core's canonical lower-case names. The fixture used
-            // capitalized ones, which the display-type mapping does not recognise, so every
-            // member in every snapshot read "Unknown" - a fixture that made the pages it
-            // exists to photograph look wrong.
-            let selectorItems: [OutboundGroupItem] = [
-                OutboundGroupItem(tag: "server", type: "shadowsocks", urlTestTime: .now, urlTestDelay: 10),
-                OutboundGroupItem(tag: "server2", type: "wireguard", urlTestTime: .now, urlTestDelay: 20),
-                OutboundGroupItem(tag: "auto", type: "urltest", urlTestTime: .now, urlTestDelay: 30),
-            ]
-            let urlTestItems: [OutboundGroupItem] = (0 ..< 137).map { index in
-                let tag = index == 0 ? "Tokyo" : "node-\(index)"
-                let delay = UInt16(100 + index * 13)
-                return OutboundGroupItem(tag: tag, type: "shadowsocks", urlTestTime: .now, urlTestDelay: delay)
-            }
-            groups = [
-                OutboundGroup(tag: "my_group", type: "selector", selected: "server", selectable: true, isExpand: true, items: selectorItems),
-                OutboundGroup(tag: "Auto", type: "urltest", selected: "Tokyo", selectable: true, isExpand: false, items: urlTestItems),
-            ]
-            isLoading = false
-        }
+        // The groups come from the client like every other page's data, including under the
+        // screenshot fixture. This method used to fabricate its own, which is how the proxy
+        // sheet came to show two groups that no other page could see.
     }
 
     public func setGroups(_ newGroups: [OutboundGroup]?) {
