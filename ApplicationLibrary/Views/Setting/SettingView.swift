@@ -14,6 +14,63 @@ import SwiftUI
     }
 #endif
 
+#if os(iOS)
+    private struct PendingSettingsPageKey: EnvironmentKey {
+        static let defaultValue: Binding<SettingsPage?>? = nil
+    }
+
+    public extension EnvironmentValues {
+        /// A settings page the root has been asked to open, applied by the settings page itself
+        /// once it exists.
+        ///
+        /// The request cannot be delivered to the settings page directly: `.remoteControl` is
+        /// pushed from the settings root, and when the notification arrives from another tab that
+        /// root is not installed yet, so a receiver inside it never runs. It is recorded here, at
+        /// the level that is always installed, and applied on appearance.
+        var pendingSettingsPage: Binding<SettingsPage?>? {
+            get { self[PendingSettingsPageKey.self] }
+            set { self[PendingSettingsPageKey.self] = newValue }
+        }
+    }
+#endif
+
+/// What the settings page should do about a page the root asked it to open.
+///
+/// A value rather than three lines inside a view, because the interesting cases are the ones a
+/// screenshot cannot show: a request that arrives before the page exists, one that arrives while
+/// the page is already open, and one that names a page this mechanism does not push.
+public enum HakoSettingsPush {
+    public struct Decision: Equatable {
+        /// Whether to open the remote-control page now.
+        public let pushRemoteControl: Bool
+        /// Whether the request has been satisfied and must not be applied again.
+        public let clearRequest: Bool
+
+        public init(pushRemoteControl: Bool, clearRequest: Bool) {
+            self.pushRemoteControl = pushRemoteControl
+            self.clearRequest = clearRequest
+        }
+    }
+
+    /// The only page the settings root pushes programmatically. The others are sections of the
+    /// root itself, so reaching them needs no push at all.
+    public static let pushedPage: SettingsPage = .remoteControl
+
+    public static func decide(requested: SettingsPage?, isRemoteControlPresented: Bool) -> Decision {
+        guard let requested, requested == pushedPage else {
+            // Nothing was asked for, or something this mechanism does not push. Clearing a request
+            // it cannot satisfy would silently drop a page the user asked for, so it is left alone.
+            return Decision(pushRemoteControl: false, clearRequest: false)
+        }
+        guard !isRemoteControlPresented else {
+            // Already open: the request is satisfied, and pushing again would give the user two
+            // copies of the page to dismiss.
+            return Decision(pushRemoteControl: false, clearRequest: true)
+        }
+        return Decision(pushRemoteControl: true, clearRequest: true)
+    }
+}
+
 public extension Notification.Name {
     static let navigateToSettingsPage = Notification.Name("navigateToSettingsPage")
 }
@@ -191,6 +248,9 @@ public struct SettingView: View {
 
     #if os(iOS)
         @State private var showRemoteControl = false
+        #if os(iOS)
+            @Environment(\.pendingSettingsPage) private var pendingSettingsPage
+        #endif
     #endif
 
     public init() {}
@@ -258,6 +318,26 @@ public struct SettingView: View {
         #endif
     }
 
+    #if os(iOS)
+        /// Applies a settings page the root asked for, now that this page exists.
+        ///
+        /// The request is cleared before the push so a later appearance cannot push twice, and the
+        /// guard on `showRemoteControl` covers the other direction: a request that arrives while
+        /// the page is already open is already satisfied.
+        private func applyPendingSettingsPage() {
+            let decision = HakoSettingsPush.decide(
+                requested: pendingSettingsPage?.wrappedValue,
+                isRemoteControlPresented: showRemoteControl
+            )
+            if decision.clearRequest {
+                pendingSettingsPage?.wrappedValue = nil
+            }
+            if decision.pushRemoteControl {
+                showRemoteControl = true
+            }
+        }
+    #endif
+
     #if !os(tvOS)
         private var remoteControlLink: some View {
             #if os(iOS)
@@ -266,13 +346,9 @@ public struct SettingView: View {
                 } label: {
                     Tabs.remoteControl.label
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsPage)) { notification in
-                    guard let page = notification.object as? SettingsPage, page == .remoteControl else { return }
-                    Task {
-                        // Wait for the tab switch to install this view before pushing.
-                        try? await Task.sleep(nanoseconds: NSEC_PER_MSEC * 300)
-                        showRemoteControl = true
-                    }
+                .onAppear { applyPendingSettingsPage() }
+                .onChangeCompat(of: pendingSettingsPage?.wrappedValue) { _ in
+                    applyPendingSettingsPage()
                 }
             #else
                 Tabs.remoteControl.navigationLink

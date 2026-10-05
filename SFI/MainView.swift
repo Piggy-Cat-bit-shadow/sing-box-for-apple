@@ -25,6 +25,12 @@ struct MainView: View {
     @State private var showGroups = false
     @State private var showConnections = false
     @State private var buttonState = ButtonVisibilityState()
+    /// A settings page the notification asked for, handed to the settings root when it exists.
+    ///
+    /// Recording it here rather than inside the settings page is what makes the request survive
+    /// the tab switch: the page is installed by that switch, so a receiver living in it misses a
+    /// notification that arrives first.
+    @State private var pendingSettingsPage: SettingsPage?
 
     private let profileEditor: (Binding<String>, Bool) -> AnyView = { text, isEditable in
         AnyView(ProfileEditorWrapperView(text: text, isEditable: isEditable))
@@ -285,9 +291,11 @@ struct MainView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsPage)) { notification in
-                guard notification.object is SettingsPage else { return }
+                guard let page = notification.object as? SettingsPage else { return }
+                pendingSettingsPage = page
                 selection = .settings
             }
+            .environment(\.pendingSettingsPage, $pendingSettingsPage)
             .environment(\.selection, $selection)
             .environment(
                 \.hakoHomeActions,

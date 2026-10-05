@@ -96,6 +96,33 @@ enum HakoPrimaryRouteCheck {
         check(armed[page.hakoPrimary] == page, "\(page) arms on \(page.hakoPrimary)")
     }
 
+    // MARK: - The settings page request
+
+    // The root records a requested settings page because the page that pushes it may not exist
+    // yet; these are the cases that decide whether the request is honoured, dropped or repeated.
+    check(HakoSettingsPush.decide(requested: .remoteControl, isRemoteControlPresented: false)
+        == HakoSettingsPush.Decision(pushRemoteControl: true, clearRequest: true),
+        "a pending remote-control request pushes once")
+    check(HakoSettingsPush.decide(requested: .remoteControl, isRemoteControlPresented: true)
+        == HakoSettingsPush.Decision(pushRemoteControl: false, clearRequest: true),
+        "a request that arrives while the page is open is satisfied, not repeated")
+    check(HakoSettingsPush.decide(requested: nil, isRemoteControlPresented: false)
+        == HakoSettingsPush.Decision(pushRemoteControl: false, clearRequest: false),
+        "no request does nothing")
+    check(HakoSettingsPush.decide(requested: .app, isRemoteControlPresented: false)
+        == HakoSettingsPush.Decision(pushRemoteControl: false, clearRequest: false),
+        "a page the settings root does not push keeps its request")
+
+    // Applying the same request twice must be the same as applying it once: the root clears it, and
+    // the rule above is what makes clearing safe.
+    var applied = HakoSettingsPush.decide(requested: .remoteControl, isRemoteControlPresented: false)
+    check(applied.pushRemoteControl, "the first application pushes")
+    var isPresented = true
+    if applied.clearRequest {
+        applied = HakoSettingsPush.decide(requested: nil, isRemoteControlPresented: isPresented)
+    }
+    check(!applied.pushRemoteControl, "and the cleared request cannot push again")
+
     print("")
     if failures == 0 {
         print("PASS: primary route mapping")
