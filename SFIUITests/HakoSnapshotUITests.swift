@@ -72,6 +72,31 @@ final class HakoSnapshotUITests: XCTestCase {
         snapshot("12_More")
     }
 
+    /// The end of the longest root page, where the floating tab bar meets the last row.
+    ///
+    /// The manual lists the bottom safe area as its own check, and this is the only way to
+    /// make it an assertion rather than an impression: scroll to the end and ask whether the
+    /// last row is still reachable. A floating bar that covers the final row leaves it
+    /// present in the tree and not hittable, which is exactly what a `isHittable` catches
+    /// and an existence check does not.
+    func test13MoreScrolledToBottom() {
+        tab("hako.tab.more").tap()
+
+        let last = app.buttons["hako.more.sponsors"]
+        XCTAssertTrue(last.waitForExistence(timeout: 15), "the About section must be on the More page")
+
+        for _ in 0 ..< 8 {
+            app.swipeUp()
+        }
+        sleep(1)
+        snapshot("13_MoreBottom")
+
+        XCTAssertTrue(
+            last.isHittable,
+            "the last row of the page must not be covered by the floating tab bar"
+        )
+    }
+
     // MARK: - Secondary pages
 
     func test20Logs() {

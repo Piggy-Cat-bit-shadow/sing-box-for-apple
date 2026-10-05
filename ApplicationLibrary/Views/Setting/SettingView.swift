@@ -325,6 +325,19 @@ public struct SettingView: View {
                         accent: .pink
                     ))
                 }
+                // Without an explicit style the button tints its own label, which made this
+                // the only row in About whose title was accent blue.
+                .buttonStyle(HakoPushRowButtonStyle())
+                HakoRowDivider()
+                NavigationLink {
+                    sponsorsDestination.content()
+                } label: {
+                    rowLabel(sponsorsDestination)
+                }
+                .buttonStyle(HakoPushRowButtonStyle())
+                // The last row of the longest root page: the bottom-safe-area check needs
+                // something to ask about once the page is scrolled to its end.
+                .accessibilityIdentifier("hako.more.sponsors")
             }
         }
 
@@ -383,14 +396,12 @@ public struct SettingView: View {
                     // is where the platform's own settings windows put it, and because
                     // the desktop only offers it on the system-extension build.
                     if Variant.useSystemExtension {
-                        ForEach(sponsorsDestination) { destination in
-                            FormNavigationLink(value: destination.page) {
-                                HakoToolRow(
-                                    title: destination.title,
-                                    systemImage: destination.systemImage,
-                                    tint: destination.accent
-                                )
-                            }
+                        FormNavigationLink(value: sponsorsDestination.page) {
+                            HakoToolRow(
+                                title: sponsorsDestination.title,
+                                systemImage: sponsorsDestination.systemImage,
+                                tint: sponsorsDestination.accent
+                            )
                         }
                     }
                     #if JAILBREAK
@@ -404,19 +415,27 @@ public struct SettingView: View {
             }
         }
 
-        private var sponsorsDestination: [Destination] {
-            groups.flatMap(\.destinations).filter { $0.pageKey == "sponsors" }
-        }
-
-        /// The desktop renders the same groups minus the ones the About section owns.
         private var desktopGroups: [SettingsGroup] {
-            #if os(macOS)
-                groups.filter { $0.id != String(localized: "Support") }
-            #else
-                groups
-            #endif
+            groups
         }
     #endif
+
+    /// The sponsorship page.
+    ///
+    /// It lives in About rather than in a group of its own: a section with a single row is
+    /// what the reference avoids, and the sponsorship page belongs beside the other entries
+    /// that leave the client. The touch client links to it; the desktop and the focus
+    /// platform push it by value.
+    private var sponsorsDestination: Destination {
+        Destination(
+            pageKey: "sponsors",
+            title: String(localized: "Sponsors"),
+            subtitle: String(localized: "Support the project"),
+            systemImage: "heart.fill",
+            accent: .pink,
+            content: { AnyView(SponsorsView()) }
+        )
+    }
 
     // MARK: - The map
 
@@ -439,15 +458,13 @@ public struct SettingView: View {
                     accent: .teal,
                     content: { AnyView(PacketTunnelView()) }
                 ),
-            ]),
-            SettingsGroup(title: String(localized: "App Settings"), destinations: [
                 Destination(
-                    pageKey: "app",
-                    title: String(localized: "Client Settings"),
-                    subtitle: String(localized: "Language, menu bar, updates and caches"),
-                    systemImage: "app.badge.fill",
-                    accent: .blue,
-                    content: { AnyView(AppView()) }
+                    pageKey: "profileOverride",
+                    title: String(localized: "Profile Override"),
+                    subtitle: String(localized: "Routes the client adjusts for compatibility"),
+                    systemImage: "square.dashed.inset.filled",
+                    accent: .purple,
+                    content: { AnyView(ProfileOverrideView()) }
                 ),
             ]),
             SettingsGroup(title: String(localized: "Core Settings"), destinations: [
@@ -460,15 +477,17 @@ public struct SettingView: View {
                     content: { AnyView(CoreView()) }
                 ),
             ]),
-            SettingsGroup(title: String(localized: "Remote and Configuration"), destinations: [
+            SettingsGroup(title: String(localized: "App Settings"), destinations: [
                 Destination(
-                    pageKey: "profileOverride",
-                    title: String(localized: "Profile Override"),
-                    subtitle: String(localized: "Routes the client adjusts for compatibility"),
-                    systemImage: "square.dashed.inset.filled",
-                    accent: .purple,
-                    content: { AnyView(ProfileOverrideView()) }
+                    pageKey: "app",
+                    title: String(localized: "Client Settings"),
+                    subtitle: String(localized: "Language, menu bar, updates and caches"),
+                    systemImage: "app.badge.fill",
+                    accent: .blue,
+                    content: { AnyView(AppView()) }
                 ),
+            ]),
+            SettingsGroup(title: String(localized: "Integrations"), destinations: [
                 Destination(
                     pageKey: "remoteControl",
                     title: String(localized: "Remote Control"),
@@ -476,16 +495,6 @@ public struct SettingView: View {
                     systemImage: "antenna.radiowaves.left.and.right",
                     accent: .cyan,
                     content: { AnyView(RemoteControlView()) }
-                ),
-            ]),
-            SettingsGroup(title: String(localized: "Support"), destinations: [
-                Destination(
-                    pageKey: "sponsors",
-                    title: String(localized: "Sponsors"),
-                    subtitle: String(localized: "Support the project"),
-                    systemImage: "heart.fill",
-                    accent: .pink,
-                    content: { AnyView(SponsorsView()) }
                 ),
             ]),
         ]
