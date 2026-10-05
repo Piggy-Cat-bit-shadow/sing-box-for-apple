@@ -123,7 +123,6 @@ public struct OnDemandRulesView: View {
                 select(.disabled)
             }
 
-            HakoSettingsDivider()
 
             HakoSelectionRow(
                 title: OnDemandMode.alwaysOn.name,
@@ -135,7 +134,6 @@ public struct OnDemandRulesView: View {
                 select(.alwaysOn)
             }
 
-            HakoSettingsDivider()
 
             HakoSelectionRow(
                 title: OnDemandMode.enabled.name,
@@ -171,7 +169,6 @@ public struct OnDemandRulesView: View {
             } else {
                 ForEach(Array(rules.enumerated()), id: \.element.id) { index, rule in
                     if index > 0 {
-                        HakoSettingsDivider()
                     }
                     HakoNavigationRow(
                         title: rule.action.name,

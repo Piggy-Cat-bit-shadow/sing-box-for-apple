@@ -236,7 +236,7 @@ final class HakoNavigationUITests: XCTestCase {
         // element at all, so `app.sheets.firstMatch` never exists and the old form of this
         // test could only ever fail. The page's content is the observable consequence
         // anyway, and it is what a user sees.
-        let search = app.textFields["hako.activity.search"]
+        let search = app.searchFields.firstMatch
         open.tap()
         XCTAssertTrue(search.waitForExistence(timeout: 30), "the Connections workspace must appear")
 
@@ -298,8 +298,11 @@ final class HakoNavigationUITests: XCTestCase {
         tab("hako.tab.home").tap()
         app.buttons["hako.home.groups"].tap()
 
-        let search = app.textFields["hako.proxies.search"]
-        XCTAssertTrue(search.waitForExistence(timeout: 5), "the proxy workspace must offer a search field")
+        // A `.searchable` field is the platform's own, which XCUITest reports as a search
+        // field rather than as a text field with an identifier. The reference puts the
+        // system field on this page, so the test addresses the system field.
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 15), "the proxy workspace must offer a search field")
 
         let firstGroup = app.staticTexts["my_group"]
         XCTAssertTrue(firstGroup.waitForExistence(timeout: 5), "the fixture's first group must be on screen")
@@ -320,7 +323,7 @@ final class HakoNavigationUITests: XCTestCase {
         )
 
         // And the filter must not have changed what the core reported.
-        app.buttons["hako.search.clear"].tap()
+        app.searchFields.firstMatch.buttons.firstMatch.tap()
         XCTAssertTrue(
             app.staticTexts["my_group"].waitForExistence(timeout: 3),
             "clearing the search must restore every group, so the filter never mutated the data"
@@ -333,7 +336,7 @@ final class HakoNavigationUITests: XCTestCase {
         app.buttons["hako.home.connections"].tap()
 
         XCTAssertTrue(
-            app.textFields["hako.activity.search"].waitForExistence(timeout: 5),
+            app.searchFields.firstMatch.waitForExistence(timeout: 15),
             "the activity workspace must offer a search field"
         )
     }

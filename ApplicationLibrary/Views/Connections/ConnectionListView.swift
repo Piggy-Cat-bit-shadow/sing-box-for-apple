@@ -35,8 +35,7 @@ public struct ConnectionListView: View {
                 leading: Self.leadingControl,
                 search: HakoWorkspaceSearch(
                     text: $viewModel.searchText,
-                    prompt: "Search connections",
-                    accessibilityIdentifier: "hako.activity.search"
+                    prompt: "Search connections"
                 ),
                 actions: { actions },
                 content: { content }
@@ -111,8 +110,7 @@ public struct ConnectionListView: View {
                     title: viewModel.searchText.isEmpty ? "No connections" : "No matches",
                     message: viewModel.searchText.isEmpty
                         ? "Connections appear here while the service routes traffic."
-                        : "No connection matches what you typed.",
-                    accent: .green
+                        : "No connection matches what you typed."
                 )
             } else {
                 summaryCard
@@ -155,7 +153,7 @@ public struct ConnectionListView: View {
                 ForEach(Array(connections.enumerated()), id: \.element.id) { index, connection in
                     ConnectionView(connection, style: .groupedRow)
                     if index != connections.count - 1 {
-                        HakoSettingsDivider(leadingInset: HakoTheme.Layout.proxyGroupIconSize + HakoTheme.Spacing.row)
+                        HakoRowDivider(leadingInset: HakoTheme.Layout.proxyGroupIconSize + HakoTheme.Spacing.row)
                     }
                 }
             }

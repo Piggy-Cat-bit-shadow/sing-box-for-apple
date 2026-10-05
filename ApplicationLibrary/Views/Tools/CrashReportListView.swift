@@ -23,11 +23,10 @@ public struct CrashReportListView: View {
             if !isLoading {
                 HakoSettingsSection("Reports", footnote: "You will receive a report when a crash occurs.") {
                     if manager.reports.isEmpty {
-                        HakoEmptyState(
+                        HakoCardEmptyState(
                             symbol: "ladybug.fill",
                             title: "No crash reports",
-                            message: "Crash reports recorded on this device appear here.",
-                            accent: .pink
+                            message: "Crash reports recorded on this device appear here."
                         )
                         .frame(minHeight: 180)
                     } else {

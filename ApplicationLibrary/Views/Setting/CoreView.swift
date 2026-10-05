@@ -66,7 +66,6 @@ public struct CoreView: View {
     private var versionSection: some View {
         HakoSettingsSection {
             HakoMetricRow(String(localized: "Version"), value: version, systemImage: "shippingbox.fill", tint: .indigo)
-            HakoSettingsDivider()
             dataSizeRow
         }
     }
@@ -133,7 +132,6 @@ public struct CoreView: View {
                     }
                     .buttonStyle(HakoPushRowButtonStyle())
                     .hakoContainerDrawsDisclosure(true)
-                    HakoSettingsDivider()
                 }
             #elseif os(iOS)
                 if #available(iOS 16.0, *) {
@@ -152,7 +150,6 @@ public struct CoreView: View {
                     }
                     .buttonStyle(HakoPushRowButtonStyle())
                     .hakoContainerDrawsDisclosure(true)
-                    HakoSettingsDivider()
                 }
             #endif
 

@@ -2,24 +2,48 @@
 //  HakoCard.swift
 //  ApplicationLibrary
 //
-//  Cards and sections. Extracted from Hako-Client (GPL-3.0),
-//  `Components/HakoCardSurface.swift` and `Components/HakoSection.swift` at commit
-//  62aa2f2f, reduced to the parts this client uses.
+//  Cards, sections and the page containers.
 //
-//  # The two idioms
+//  Extracted from Hako-Client (GPL-3.0) at commit 62aa2f2f:
+//  `Sources/HakoClientUI/Components/HakoCardSurface.swift`,
+//  `Components/HakoSection.swift`, `Components/HakoProductRootPage.swift`
+//  (`HakoProductPageSection`), `Components/HakoRowDivider.swift` and
+//  `Components/HakoSectionCaption.swift`.
 //
-//  A section is presented one of two ways, and the platform decides which:
+//  # The two section systems, which are not interchangeable
 //
-//    touch   a caption, then a painted rounded card holding the rows
-//    desktop the system's own grouped form section, which is already a card
+//  The reference implementation has TWO section components, and reading it is the only
+//  way to know which page uses which:
 //
-//  Both are "a section with rows in it". Keeping one component that branches at
-//  this level is what stops the desktop from growing a second set of row views.
+//    `HakoProductPageSection`  a caption and a PAINTED card, used inside
+//                              `HakoProductRootPage` - a `ScrollView` - for the root
+//                              pages: Home, Utilities, More, Proxies, Activity.
+//
+//    `HakoSection`             a real SwiftUI `Section`, used inside a `Form`/`List`,
+//                              for the SECONDARY settings pages: On Demand, Tunnel,
+//                              Client Settings, the modal editors, the report pages.
+//
+//  The platform decides only whether that `Form` also takes `.formStyle(.grouped)`,
+//  which is a macOS-only API. On iOS a plain `Form` is already an inset-grouped list,
+//  so a settings page looks the same on both platforms - which is why
+//  `HakoPlatformLayout.pageUsesSystemSettingsIdiom` is about the grouped style and not
+//  about whether a form is used at all.
+//
+//  This file therefore provides one component per system, with the names this client
+//  already used:
+//
+//    `HakoPageSection`       the painted one   (root and workspace pages)
+//    `HakoSettingsSection`   the real `Section` (settings, modal and report pages)
+//
+//  Wrapping a settings row in a painted card is what made the earlier round's settings
+//  pages read as a different product from the same client's root pages: the system's
+//  own grouped list already draws the card, its header, its footer and its separators,
+//  and a second card painted inside it is a card inside a card.
 //
 
 import SwiftUI
 
-/// A painted card: the touch platforms' section body.
+/// A painted card: the root and workspace pages' section body.
 public struct HakoCardSurface<Content: View>: View {
     public let fill: Color
     public let separator: Color
@@ -42,7 +66,7 @@ public struct HakoCardSurface<Content: View>: View {
         content
             .background(shape.fill(fill))
             .clipShape(shape)
-            .overlay(shape.stroke(separator.opacity(0.16), lineWidth: 0.5))
+            .overlay(shape.stroke(separator.opacity(HakoTheme.Opacity.cardBorder), lineWidth: 0.5))
     }
 
     private var shape: RoundedRectangle {
@@ -50,79 +74,101 @@ public struct HakoCardSurface<Content: View>: View {
     }
 }
 
-/// A section of rows: a caption and a card on touch platforms, a native grouped
-/// section on the desktop.
+/// A section of rows on a root or workspace page: a caption and a painted card.
 ///
-/// The content is expected to be a vertical stack of rows separated by
-/// `HakoRowDivider`, which is what the reference implementation does; the card does
-/// not insert separators itself because a row may legitimately be the last one.
-public struct HakoSection<Content: View>: View {
+/// The card's inner padding is the reference's: horizontal `Spacing.standard`, and
+/// vertical `Spacing.compact` only at the regular widths, because a compact touch page
+/// gives the rows their own vertical rhythm through the row floor and a second inset on
+/// top of it makes the card taller than its contents.
+public struct HakoPageSection<Content: View>: View {
     private let title: String?
-    private let footer: String?
+    private let footnote: LocalizedStringKey?
     private let palette: HakoProductPalette
     private let content: Content
 
     public init(
         _ title: String? = nil,
-        footer: String? = nil,
-        palette: HakoProductPalette,
+        footnote: LocalizedStringKey? = nil,
+        palette: HakoProductPalette = .system,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
-        self.footer = footer
+        self.footnote = footnote
         self.palette = palette
         self.content = content()
     }
 
     public var body: some View {
-        if HakoPlatformLayout.pageUsesSystemSettingsIdiom {
-            Section {
-                content
-            } header: {
-                if let title {
-                    Text(title)
-                }
-            } footer: {
-                if let footer {
-                    Text(footer)
-                }
+        VStack(alignment: .leading, spacing: HakoTheme.Spacing.compact) {
+            if let title {
+                Text(title)
+                    .font(HakoTheme.FontRole.sectionHeader)
+                    .foregroundStyle(.secondary)
+                    .textCase(nil)
+                    .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
+                    .accessibilityAddTraits(.isHeader)
             }
-        } else {
-            VStack(alignment: .leading, spacing: HakoTheme.Spacing.compact) {
-                if let title {
-                    Text(title)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
-                }
 
-                HakoCardSurface(
-                    fill: palette.card,
-                    separator: palette.separator,
-                    cornerRadius: HakoTheme.Radius.groupedSection
-                ) {
-                    VStack(spacing: 0) {
-                        content
-                    }
-                    .padding(.horizontal, HakoTheme.Spacing.standard)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            HakoCardSurface(
+                fill: palette.card,
+                separator: palette.separator,
+                cornerRadius: HakoTheme.Radius.groupedSection
+            ) {
+                VStack(spacing: 0) {
+                    content
                 }
+                .padding(.horizontal, HakoTheme.Spacing.standard)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
-                if let footer {
-                    Text(footer)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
-                }
+            if let footnote {
+                HakoFootnote(footnote)
             }
         }
     }
 }
 
-/// The divider between two rows of a card.
+/// A section of rows on a settings, modal or report page: a real SwiftUI `Section`.
 ///
-/// It is inset to the row's text column on touch platforms, and omitted entirely on
-/// the desktop because the system section already draws its own separators.
+/// The system draws the card, the caption, the footnote and the separators. A page that
+/// paints its own card here draws a card inside a card.
+public struct HakoSettingsSection<Content: View>: View {
+    private let title: String?
+    private let footnote: LocalizedStringKey?
+    private let content: Content
+
+    public init(
+        _ title: String? = nil,
+        footnote: LocalizedStringKey? = nil,
+        palette _: HakoProductPalette = .system,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.footnote = footnote
+        self.content = content()
+    }
+
+    public var body: some View {
+        Section {
+            content
+        } header: {
+            if let title {
+                Text(title)
+            }
+        } footer: {
+            if let footnote {
+                Text(footnote)
+            }
+        }
+    }
+}
+
+/// The divider between two rows of a painted card.
+///
+/// It is inset to the row's text column, which is the icon plus the gap after it, and it
+/// is a `Divider` rather than a separator because a painted card has no separators of its
+/// own. A settings page does not use this: the system's grouped list draws its own, and a
+/// second line beside one is the "double divider" the manual names.
 public struct HakoRowDivider: View {
     private let leadingInset: CGFloat?
 
@@ -138,47 +184,5 @@ public struct HakoRowDivider: View {
                 Divider()
             }
         }
-    }
-}
-
-/// The page container: a canvas, and the sections stacked on it.
-///
-/// Touch platforms scroll a column of painted cards with the page's own horizontal
-/// inset; the desktop hands the sections to a grouped `Form`, which owns scrolling,
-/// selection and its own card geometry.
-public struct HakoPrimaryPage<Content: View>: View {
-    private let palette: HakoProductPalette
-    private let navigationTitle: String?
-    private let content: Content
-
-    public init(
-        palette: HakoProductPalette = .system,
-        navigationTitle: String? = nil,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.palette = palette
-        self.navigationTitle = navigationTitle
-        self.content = content()
-    }
-
-    public var body: some View {
-        #if os(macOS)
-            Form {
-                content
-            }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-            .background(palette.canvas)
-        #else
-            ScrollView {
-                VStack(alignment: .leading, spacing: HakoTheme.Spacing.section) {
-                    content
-                }
-                .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
-                .padding(.vertical, HakoTheme.Spacing.section)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(palette.canvas)
-        #endif
     }
 }

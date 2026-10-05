@@ -23,7 +23,6 @@ public struct SponsorsView: View {
                 }
                 .buttonStyle(HakoPushRowButtonStyle())
 
-                HakoSettingsDivider()
 
                 Button {
                     openURL(URL(string: "https://sekai.icu/sponsors/")!)

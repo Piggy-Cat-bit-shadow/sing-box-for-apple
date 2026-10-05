@@ -35,11 +35,10 @@ public struct PowerReportListView: View {
 
                 HakoSettingsSection("Reports", footnote: "A report is saved for each service run.") {
                     if manager.reports.isEmpty {
-                        HakoEmptyState(
+                        HakoCardEmptyState(
                             symbol: "battery.50percent",
                             title: "No power reports",
-                            message: "A report is recorded for each service run.",
-                            accent: .green
+                            message: "A report is recorded for each service run."
                         )
                         .frame(minHeight: 180)
                     } else {

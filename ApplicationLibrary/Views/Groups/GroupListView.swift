@@ -58,8 +58,7 @@ public struct GroupListView: View {
                 leading: Self.leadingControl,
                 search: HakoWorkspaceSearch(
                     text: $searchText,
-                    prompt: "Search proxies",
-                    accessibilityIdentifier: "hako.proxies.search"
+                    prompt: "Search proxies"
                 ),
                 actions: { workspaceActions },
                 content: { workspaceContent }
@@ -83,25 +82,29 @@ public struct GroupListView: View {
     @ViewBuilder
     private var workspaceActions: some View {
         if !viewModel.groups.isEmpty {
-            HakoToolbarAction(
+            HakoActionGroup {
+                HakoToolbarAction(
                 systemImage: "bolt.fill",
                 label: String(localized: "Test all groups"),
-                isEnabled: viewModel.testingGroups.isEmpty
-            ) {
-                for group in viewModel.groups {
-                    viewModel.performGroupURLTest(group.tag)
+                    isEnabled: viewModel.testingGroups.isEmpty
+                ) {
+                    for group in viewModel.groups {
+                        viewModel.performGroupURLTest(group.tag)
+                    }
                 }
-            }
 
-            HakoToolbarAction(
-                systemImage: allExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical",
-                label: allExpanded
-                    ? String(localized: "Collapse all groups")
-                    : String(localized: "Expand all groups")
-            ) {
-                let expanded = !allExpanded
-                for group in viewModel.groups where group.isExpand != expanded {
-                    viewModel.toggleExpand(groupTag: group.tag)
+                HakoActionDivider()
+
+                HakoToolbarAction(
+                    systemImage: allExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical",
+                    label: allExpanded
+                        ? String(localized: "Collapse all groups")
+                        : String(localized: "Expand all groups")
+                ) {
+                    let expanded = !allExpanded
+                    for group in viewModel.groups where group.isExpand != expanded {
+                        viewModel.toggleExpand(groupTag: group.tag)
+                    }
                 }
             }
         }
@@ -121,15 +124,13 @@ public struct GroupListView: View {
             HakoEmptyState(
                 symbol: "rectangle.3.group",
                 title: "No proxies",
-                message: "Proxy groups appear here once the core has loaded a configuration that has them.",
-                accent: .indigo
+                message: "Proxy groups appear here once the core has loaded a configuration that has them."
             )
         } else if filteredGroups.isEmpty {
             HakoEmptyState(
                 symbol: "magnifyingglass",
                 title: "No matches",
-                message: "No group or node matches what you typed.",
-                accent: .orange
+                message: "No group or node matches what you typed."
             )
         } else {
             summaryCard
@@ -185,7 +186,7 @@ public struct GroupListView: View {
                 )
 
                 if group.isExpand {
-                    HakoSettingsDivider(leadingInset: 0)
+                    HakoRowDivider(leadingInset: 0)
                     memberGrid(group)
                 }
             }

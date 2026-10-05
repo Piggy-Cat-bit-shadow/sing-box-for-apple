@@ -24,7 +24,7 @@ public struct HakoIconWell<Icon: View>: View {
 
     public init(
         tint: Color,
-        size: CGFloat = HakoTheme.Layout.destinationRowIconSize,
+        size: CGFloat = HakoTheme.Layout.resolvedDestinationRowIconSize,
         cornerRadius: CGFloat = HakoTheme.Radius.icon,
         @ViewBuilder icon: () -> Icon
     ) {

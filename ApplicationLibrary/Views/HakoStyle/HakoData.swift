@@ -376,35 +376,6 @@ public struct HakoSummaryMetric: View {
     }
 }
 
-/// A label and a value on one line, for the routing summary of a connection.
-public struct HakoRouteSummaryRow: View {
-    private let label: String
-    private let value: String
-
-    public init(_ label: String, value: String) {
-        self.label = label
-        self.value = value
-    }
-
-    public var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
-            Text(label)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .layoutPriority(1)
-            Spacer(minLength: HakoTheme.Spacing.tight)
-            Text(value)
-                .font(.footnote)
-                .foregroundStyle(.primary)
-                .truncationMode(.middle)
-                .lineLimit(1)
-                .multilineTextAlignment(.trailing)
-                .textSelection(.enabled)
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
-
 /// The header of a proxy group, and the proxy group's own summary line.
 ///
 /// The group is the unit of the proxy workspace: its name, how it chooses, which member

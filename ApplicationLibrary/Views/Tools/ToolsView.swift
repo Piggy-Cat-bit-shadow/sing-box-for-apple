@@ -139,7 +139,7 @@ public struct ToolsView: View {
 
     /// What the tunnel is doing right now.
     private var sessionSection: some View {
-        HakoSettingsSection(String(localized: "Current Session")) {
+        HakoPageSection(String(localized: "Current Session")) {
             Button {
                 selection.wrappedValue = .logs
             } label: {
@@ -159,9 +159,9 @@ public struct ToolsView: View {
     @ViewBuilder
     private var endpointSection: some View {
         if !tailscaleViewModel.endpoints.isEmpty || !openConnectViewModel.endpoints.isEmpty || !openVPNViewModel.endpoints.isEmpty {
-            HakoSettingsSection(String(localized: "Endpoints")) {
+            HakoPageSection(String(localized: "Endpoints")) {
                 ForEach(Array(tailscaleViewModel.endpoints.enumerated()), id: \.element.id) { index, endpoint in
-                    if index > 0 { HakoSettingsDivider() }
+                    if index > 0 { HakoRowDivider() }
                     FormNavigationLink {
                         TailscaleEndpointView(viewModel: tailscaleViewModel, endpointTag: endpoint.endpointTag)
                     } label: {
@@ -213,7 +213,7 @@ public struct ToolsView: View {
                 }
 
                 ForEach(openConnectViewModel.endpoints) { endpoint in
-                    HakoSettingsDivider()
+                    HakoRowDivider()
                     FormNavigationLink {
                         OpenConnectEndpointView(viewModel: openConnectViewModel, endpointTag: endpoint.endpointTag)
                     } label: {
@@ -228,7 +228,7 @@ public struct ToolsView: View {
                 }
 
                 ForEach(openVPNViewModel.endpoints) { endpoint in
-                    HakoSettingsDivider()
+                    HakoRowDivider()
                     FormNavigationLink {
                         OpenVPNEndpointView(viewModel: openVPNViewModel, endpointTag: endpoint.endpointTag)
                     } label: {
@@ -243,7 +243,7 @@ public struct ToolsView: View {
                 }
 
                 ForEach(usbipViewModel.servers) { server in
-                    HakoSettingsDivider()
+                    HakoRowDivider()
                     FormNavigationLink {
                         #if os(macOS)
                             USBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
@@ -266,7 +266,7 @@ public struct ToolsView: View {
     }
 
     private var networkToolsSection: some View {
-        HakoSettingsSection(
+        HakoPageSection(
             String(localized: "Network Tools"),
             footnote: "These measure the connection the device currently has, not the tunnel."
         ) {
@@ -280,7 +280,7 @@ public struct ToolsView: View {
                     detail: String(localized: "Throughput and responsiveness")
                 )
             }
-            HakoSettingsDivider()
+            HakoRowDivider()
             FormNavigationLink {
                 STUNTestView()
             } label: {
@@ -301,7 +301,7 @@ public struct ToolsView: View {
     @ViewBuilder
     private var diagnosticsSection: some View {
         if environments.remoteServer == nil {
-            HakoSettingsSection(
+            HakoPageSection(
                 String(localized: "Diagnostics"),
                 footnote: "Reports are recorded on this device and stay on it until you share them."
             ) {
@@ -331,7 +331,7 @@ public struct ToolsView: View {
                             }
                         }
                     }
-                    HakoSettingsDivider()
+                    HakoRowDivider()
                     NavigationLink(isActive: $showOOMReportList) {
                         OOMReportListView()
                     } label: {
@@ -342,7 +342,7 @@ public struct ToolsView: View {
                             unread: environments.oomReportManager.unreadCount
                         )
                     }
-                    HakoSettingsDivider()
+                    HakoRowDivider()
                     NavigationLink(isActive: $showPowerReportList) {
                         PowerReportListView()
                     } label: {
@@ -364,7 +364,7 @@ public struct ToolsView: View {
                             detail: unreadDetail(environments.crashReportManager.unreadCount)
                         )
                     }
-                    HakoSettingsDivider()
+                    HakoRowDivider()
                     FormNavigationLink {
                         OOMReportListView()
                     } label: {
@@ -375,7 +375,7 @@ public struct ToolsView: View {
                             detail: unreadDetail(environments.oomReportManager.unreadCount)
                         )
                     }
-                    HakoSettingsDivider()
+                    HakoRowDivider()
                     FormNavigationLink {
                         PowerReportListView()
                     } label: {

@@ -293,10 +293,24 @@ public enum HakoTheme {
 
         /// Horizontal inset of the primary pages' content column.
         public static let cardHorizontalInset: CGFloat = 20
+
+        /// The icon well's size on the platform that is drawing.
+        ///
+        /// The reference implementation carries two numbers for one role: 29 on the touch
+        /// platforms, where the row is the page's own composition, and 26 on the desktop,
+        /// where the row sits inside the system's settings form and a 29pt tile makes the
+        /// system's own row metrics look wrong. Resolving it here is what keeps a divider
+        /// inset, an icon well and a row floor agreeing about which one applies.
+        public static var resolvedDestinationRowIconSize: CGFloat {
+            HakoPlatformLayout.pageUsesSystemSettingsIdiom
+                ? MacOS.destinationRowIconSize
+                : destinationRowIconSize
+        }
+
         /// The divider starts where the row's text does, which is the icon plus the
-        /// gap after it.
+        /// gap after it - on the platform that is drawing.
         public static var destinationRowDividerInset: CGFloat {
-            destinationRowIconSize + Spacing.row
+            resolvedDestinationRowIconSize + Spacing.row
         }
 
         /// A card's own inner padding. `HakoSection` insets horizontally by this and

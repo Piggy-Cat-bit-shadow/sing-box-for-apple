@@ -414,8 +414,7 @@ private struct LogContentInnerView: View {
             } else if environments.remoteServer != nil {
                 HakoEmptyState(
                     symbol: "antenna.radiowaves.left.and.right",
-                    title: "Connecting...",
-                    accent: .cyan
+                    title: "Connecting..."
                 )
                 .onAppear {
                     environments.connect()
@@ -424,8 +423,7 @@ private struct LogContentInnerView: View {
                 HakoEmptyState(
                     symbol: "bolt.slash",
                     title: "Service not started",
-                    message: "Start sing-box to see its logs.",
-                    accent: .orange
+                    message: "Start sing-box to see its logs."
                 )
                 .onAppear {
                     environments.connect()

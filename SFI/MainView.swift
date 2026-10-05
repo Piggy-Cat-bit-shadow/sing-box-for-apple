@@ -99,6 +99,12 @@ struct MainView: View {
     private func tabContent(for page: NavigationPage) -> some View {
         page.contentView
             .navigationTitle(page.title)
+            // A root page's title is inline, not a system large title. The reference draws
+            // its own heading in the content and shows no large title on a compact root;
+            // the tab bar is what names the page. Keeping the title inline means the page
+            // starts at the first card instead of under a 50pt headline, and the title is
+            // still announced when the content scrolls.
+            .hakoInlineNavigationTitle()
             .modifier(RemoteControlChipModifier())
     }
 

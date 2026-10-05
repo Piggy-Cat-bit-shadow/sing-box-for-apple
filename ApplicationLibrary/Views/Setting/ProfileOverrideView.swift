@@ -51,7 +51,6 @@ public struct ProfileOverrideView: View {
                 }
             }
 
-            HakoSettingsDivider()
 
             HakoToggleRow(
                 String(localized: "No Default Route"),
@@ -64,7 +63,6 @@ public struct ProfileOverrideView: View {
                 }
             }
 
-            HakoSettingsDivider()
 
             HakoToggleRow(
                 String(localized: "Exclude APNs Route"),

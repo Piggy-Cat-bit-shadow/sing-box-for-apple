@@ -27,11 +27,10 @@ public struct OOMReportListView: View {
             if !isLoading {
                 HakoSettingsSection("Reports", footnote: "A report is recorded when the device runs out of memory while the service is running.") {
                     if manager.reports.isEmpty {
-                        HakoEmptyState(
+                        HakoCardEmptyState(
                             symbol: "memorychip",
                             title: "No memory reports",
-                            message: "Reports recorded when the device ran out of memory appear here.",
-                            accent: .indigo
+                            message: "Reports recorded when the device ran out of memory appear here."
                         )
                         .frame(minHeight: 180)
                     } else {

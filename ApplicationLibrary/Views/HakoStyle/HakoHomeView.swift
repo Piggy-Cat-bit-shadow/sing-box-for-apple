@@ -330,7 +330,7 @@ public struct HakoHomeView: View {
     /// presents, and the logs page, which is selected rather than pushed so the
     /// existing "logs selected → connect the command client" hook still runs.
     private var shortcutsSection: some View {
-        HakoSettingsSection(palette: .system) {
+        HakoPageSection(palette: .system) {
             if showGroups {
                 shortcutRow(
                     title: String(localized: "Proxies"),

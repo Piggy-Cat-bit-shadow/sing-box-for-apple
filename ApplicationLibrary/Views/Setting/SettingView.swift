@@ -145,11 +145,11 @@ public struct SettingView: View {
         private var compactBody: some View {
             HakoRootScaffold {
                 ForEach(groups) { group in
-                    HakoSettingsSection(group.title) {
+                    HakoPageSection(group.title) {
                         ForEach(Array(group.destinations.enumerated()), id: \.element.id) { index, destination in
                             navigationRow(destination)
                             if index != group.destinations.count - 1 {
-                                HakoSettingsDivider()
+                                HakoRowDivider()
                             }
                         }
                     }
@@ -295,7 +295,7 @@ public struct SettingView: View {
 
     #if os(iOS)
         private var aboutSection: some View {
-            HakoSettingsSection(String(localized: "About")) {
+            HakoPageSection(String(localized: "About")) {
                 Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/"))!) {
                     rowLabel(aboutDestination(
                         title: String(localized: "Documentation"),
@@ -305,7 +305,7 @@ public struct SettingView: View {
                     ))
                 }
                 .buttonStyle(HakoPushRowButtonStyle())
-                HakoSettingsDivider()
+                HakoRowDivider()
                 Link(destination: URL(string: "https://github.com/Piggy-Cat-bit-shadow/sing-box")!) {
                     rowLabel(aboutDestination(
                         title: String(localized: "Source Code"),
@@ -315,7 +315,7 @@ public struct SettingView: View {
                     ))
                 }
                 .buttonStyle(HakoPushRowButtonStyle())
-                HakoSettingsDivider()
+                HakoRowDivider()
                 RequestReviewButton {
                     rowLabel(aboutDestination(
                         title: String(localized: "Rate on the App Store"),

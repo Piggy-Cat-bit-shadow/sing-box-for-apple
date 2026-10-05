@@ -77,7 +77,6 @@ struct PacketTunnelView: View {
                 }
             }
 
-            HakoSettingsDivider()
 
             HakoToggleRow(
                 String(localized: "Enforce Routes"),
@@ -111,7 +110,6 @@ struct PacketTunnelView: View {
                     }
                 }
 
-                HakoSettingsDivider()
 
                 HakoToggleRow(
                     String(localized: "Exclude Cellular Services"),
@@ -125,7 +123,6 @@ struct PacketTunnelView: View {
                     }
                 }
 
-                HakoSettingsDivider()
             }
 
             HakoToggleRow(
@@ -141,7 +138,6 @@ struct PacketTunnelView: View {
             }
 
             if #available(iOS 17.4, macOS 14.4, *) {
-                HakoSettingsDivider()
 
                 HakoToggleRow(
                     String(localized: "Exclude Device Communication"),

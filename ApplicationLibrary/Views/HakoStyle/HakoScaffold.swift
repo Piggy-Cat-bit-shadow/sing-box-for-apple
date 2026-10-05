@@ -39,12 +39,26 @@ import SwiftUI
 
 // MARK: - Navigation controls
 
-/// The circular control a secondary page wears in place of the platform's plain
-/// back chevron.
+/// The control a secondary page wears in place of the platform's plain back chevron.
 ///
-/// The circle is `navigationControlDiameter` and the target it answers to is
-/// `minimumHitTarget`: a 44pt circle in a 52pt bar reads as a button with a bar
-/// around it, which is why the two numbers are separate tokens.
+/// # Why this is a system control and not a drawn disc
+///
+/// The reference implementation does not draw its own back control on iOS. Its pushed
+/// pages keep the system's chevron and the system's interactive swipe-back gesture, and
+/// only the desktop replaces the control - with a plain `chevron.backward` toolbar item
+/// (`Layout/HakoRegularDetailLayout.swift`, identifier `chevron.backward`). Its sheets use
+/// a plain icon-only `xmark` in `.cancellationAction` (`Components/HakoSheetCloseButton.swift`,
+/// identifier `sheet.close`).
+///
+/// This client had a hand-drawn 32pt disc with a custom hit region. It is replaced here
+/// because the manual's layout diagram asked for a "circular back" and the reference - read
+/// and run - plainly does not have one, and a drawn control has to re-earn the hit target,
+/// the Dynamic Type scaling, the focus behaviour and the interactive pop gesture that the
+/// system's own control already has. That is recorded as an intentional deviation from the
+/// manual's diagram in the migration report.
+///
+/// The identifiers are kept: the UI tests address the way back by identifier, which is what
+/// lets them pass in any language.
 public struct HakoBackButton: View {
     private let action: (() -> Void)?
 
@@ -62,16 +76,17 @@ public struct HakoBackButton: View {
                 dismiss()
             }
         } label: {
-            HakoCircularControlLabel(systemImage: "chevron.left")
+            Label("Back", systemImage: "chevron.backward")
+                .labelStyle(.iconOnly)
+                .hakoToolbarGlyph()
         }
-        .buttonStyle(.plain)
         .accessibilityIdentifier("hako.nav.back")
         .accessibilityLabel(Text("Back"))
     }
 }
 
-/// The circular control a modal wears: a close mark rather than a chevron, because a
-/// sheet ends rather than goes back.
+/// The control a modal wears: a close mark rather than a chevron, because a sheet ends
+/// rather than goes back.
 public struct HakoCloseButton: View {
     private let action: (() -> Void)?
 
@@ -89,41 +104,49 @@ public struct HakoCloseButton: View {
                 dismiss()
             }
         } label: {
-            HakoCircularControlLabel(systemImage: "xmark")
+            Label("Close", systemImage: "xmark")
+                .labelStyle(.iconOnly)
+                .hakoToolbarGlyph()
         }
-        .buttonStyle(.plain)
         .accessibilityIdentifier("hako.nav.close")
         .accessibilityLabel(Text("Close"))
     }
 }
 
-/// The disc both controls draw, so they cannot disagree about size or tint.
-struct HakoCircularControlLabel: View {
-    let systemImage: String
+public extension View {
+    /// The glyph metrics a navigation-bar control uses.
+    ///
+    /// The reference's `hakoToolbarGlyph()`: `.font(.body).imageScale(.medium)`, so a
+    /// toolbar symbol agrees with the bar's own text rather than being sized by a literal.
+    func hakoToolbarGlyph() -> some View {
+        font(.body).imageScale(.medium)
+    }
 
-    var body: some View {
-        Image(systemName: systemImage)
-            .font(.system(size: HakoTheme.Control.navigationControlGlyphSize, weight: .semibold))
-            .foregroundStyle(.primary)
-            .frame(
-                width: HakoTheme.Control.navigationControlDiameter,
-                height: HakoTheme.Control.navigationControlDiameter
-            )
-            .background(Circle().fill(HakoProductPalette.system.control))
-            .frame(
-                minWidth: HakoTheme.Control.minimumHitTarget,
-                minHeight: HakoTheme.Control.minimumHitTarget
-            )
-            .contentShape(Rectangle())
+    /// The padding a control takes when it sits at one end of a grouped toolbar run.
+    ///
+    /// The reference's `hakoToolbarCapsuleEnd`: on iOS a trailing item takes 9pt and a
+    /// leading one takes `Spacing.tight`, because a `ControlGroup` draws its own capsule and
+    /// the glyph has to sit inside it rather than against its edge. The desktop needs
+    /// nothing, because the platform spaces toolbar items itself.
+    @ViewBuilder
+    func hakoToolbarCapsuleEnd(_ edge: Edge.Set) -> some View {
+        #if os(iOS)
+            padding(edge, edge == .trailing ? 9 : HakoTheme.Spacing.tight)
+        #else
+            self
+        #endif
     }
 }
 
-/// One icon-only action, sized for a header.
+/// One icon-only action, sized for a navigation bar.
 ///
-/// Every instance carries a label, a >=44pt target and a disabled state, because
-/// these are the controls a user reaches for without looking: a refresh, a test, a
-/// sort. An icon-only button without an accessibility label is invisible to VoiceOver
-/// and a button under 44pt is invisible to a thumb.
+/// Every instance carries a label and a disabled state, because these are the controls a
+/// user reaches for without looking: a refresh, a test, a sort. An icon-only button without
+/// an accessibility label is invisible to VoiceOver.
+///
+/// Several of them belong in a `ControlGroup`, which is what the reference uses: on iOS that
+/// is the system's own grouped capsule, so the actions read as one control with parts rather
+/// than as a row of separate buttons.
 public struct HakoActionItem: View {
     private let systemImage: String
     private let label: String
@@ -147,62 +170,49 @@ public struct HakoActionItem: View {
 
     public var body: some View {
         Button(action: action) {
-            Group {
-                if isBusy {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: systemImage)
-                        .font(.system(size: HakoTheme.Control.navigationControlGlyphSize, weight: .semibold))
-                        .foregroundStyle(.primary)
-                }
+            if isBusy {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Label(label, systemImage: systemImage)
+                    .labelStyle(.iconOnly)
+                    .hakoToolbarGlyph()
             }
-            .frame(
-                minWidth: HakoTheme.Control.actionItemMinimumWidth,
-                minHeight: HakoTheme.Control.minimumHitTarget
-            )
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .disabled(!isEnabled || isBusy)
-        .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
         .accessibilityLabel(Text(label))
     }
 }
 
-/// A row of icon-only actions inside a surface.
-///
-/// Used where a page has actions of its own below the navigation bar - the workspace
-/// summary, a card that owns its own refresh. The header's own actions live in the
-/// navigation bar instead, which is what the platform's hit-testing, focus and
-/// keyboard shortcuts are built around.
-public struct HakoActionCapsule<Content: View>: View {
+/// A row of actions grouped into one control, for a bar that has more than one.
+public struct HakoActionGroup<Content: View>: View {
     private let content: Content
 
     public init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
+    @ViewBuilder
     public var body: some View {
-        HStack(spacing: 0) {
+        // `ControlGroup` and its navigation style are iOS 16 and later. Before that the
+        // actions are simply adjacent, which is what the platform did anyway.
+        if #available(iOS 16.0, macOS 13.0, tvOS 16.0, *) {
+            ControlGroup {
+                content
+            }
+            .controlGroupStyle(.navigation)
+        } else {
             content
         }
-        .padding(.horizontal, HakoTheme.Control.actionCapsuleHorizontalPadding)
-        .frame(height: HakoTheme.Control.actionCapsuleHeight)
-        .background(
-            Capsule(style: .continuous)
-                .fill(HakoProductPalette.system.control)
-        )
     }
 }
 
-/// The hairline between two actions of a capsule.
+/// The hairline between two actions of a toolbar run.
 public struct HakoActionDivider: View {
     public init() {}
 
     public var body: some View {
         Divider()
-            .frame(height: HakoTheme.Spacing.standard)
     }
 }
 
@@ -365,6 +375,44 @@ private extension View {
 }
 
 public extension View {
+    /// The grouped form style, where the platform has it.
+    ///
+    /// `.formStyle(.grouped)` and `.scrollContentBackground(.hidden)` are both iOS 16 and
+    /// later. The client still runs on iOS 15, where a plain `Form` is already the
+    /// inset-grouped idiom and its background is the system's - so the guarded no-op is the
+    /// correct behaviour rather than a compromise.
+    @ViewBuilder
+    func hakoGroupedFormStyle() -> some View {
+        #if os(macOS)
+            formStyle(.grouped)
+                .environment(\.defaultMinListRowHeight, 0)
+        #else
+            if #available(iOS 16.0, *) {
+                scrollContentBackground(.hidden)
+            } else {
+                self
+            }
+        #endif
+    }
+
+    /// The inline title treatment a page uses.
+    ///
+    /// The reference's `HakoPageTitle`: every page title is inline, and a page that wants a
+    /// large heading draws it in the content instead. Exposed so a root page - which the
+    /// shell titles rather than a scaffold - can take the same treatment.
+    @ViewBuilder
+    func hakoInlineNavigationTitle() -> some View {
+        #if os(iOS)
+            if #available(iOS 17.0, *) {
+                toolbarTitleDisplayMode(.inline)
+            } else {
+                navigationBarTitleDisplayMode(.inline)
+            }
+        #else
+            self
+        #endif
+    }
+
     /// The keyboard behaviour a scrolling page wants, where the platform has it.
     ///
     /// The client still runs on iOS 15, where `scrollDismissesKeyboard` does not
@@ -406,38 +454,33 @@ public extension View {
     }
 }
 
-/// The scrolling page body the settings, modal and report scaffolds share.
+/// The page body the settings, modal and report scaffolds share: a system grouped form.
 ///
-/// Its whole job is to be the same shape on every page that is not a workspace: the
-/// desktop hands the sections to the system's grouped form, the touch client scrolls
-/// a column of painted cards. Extracted so those three scaffolds cannot drift into
-/// three slightly different page paddings.
+/// The reference implementation's `HakoMacSettingsFormContainer` is one `Form` whose only
+/// platform difference is `.formStyle(.grouped)`, which is a macOS-only API. On iOS a plain
+/// `Form` is already an inset-grouped list, so a settings page is the same page on both
+/// platforms - and the system draws the card, the caption, the footnote and the separators.
+///
+/// This is the counterpart of `HakoPageSection`: that one paints a card for a root or
+/// workspace page, this one lets the system paint it for a settings page. A page that used
+/// the wrong one drew a card inside a card, or a `Section` with nothing to be a section in.
+///
+/// `defaultMinListRowHeight` is zeroed on the desktop, as the reference does, so a row's
+/// own floor decides its height instead of the platform's default.
 struct HakoScaffoldBody<Content: View>: View {
     let palette: HakoProductPalette
     let content: Content
 
     var body: some View {
-        #if os(macOS)
-            Form {
-                content
-            }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-            .background(palette.canvas)
-        #else
-            ScrollView {
-                VStack(alignment: .leading, spacing: HakoTheme.Layout.sectionSpacing) {
-                    content
-                }
-                .padding(.vertical, HakoTheme.Spacing.standard)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(palette.canvas)
-            .hakoScrollDismissesKeyboard()
-            // A painted page is not a `List`: no platform indicator exists, so the rows
-            // draw their own single chevron.
-            .hakoContainerDrawsDisclosure(false)
-        #endif
+        Form {
+            content
+        }
+        .hakoGroupedFormStyle()
+        .background(palette.canvas)
+        .hakoScrollDismissesKeyboard()
+        // A `Form` is a `List`, so the container draws the disclosure indicator: the rows
+        // must not draw a second one.
+        .hakoContainerDrawsDisclosure(true)
     }
 }
 
@@ -490,96 +533,6 @@ public struct HakoToolbarAction: View {
 
 // MARK: - Section container
 
-/// A grouped card of rows, with the caption above it and the footnote below.
-///
-/// The touch client paints a caption and a card; the desktop hands the section to the
-/// system's grouped form, which is already a card. Both are "a section with rows in
-/// it", and keeping that decision here is what stops the desktop from growing a second
-/// set of row views.
-///
-/// `HakoSection` in `HakoCard.swift` is this component's predecessor and is kept for
-/// the pages that already adopted it; new pages use this one, which adds the footnote
-/// slot, the divider handling and the card's own inner padding.
-public struct HakoSettingsSection<Content: View>: View {
-    private let title: String?
-    private let footnote: LocalizedStringKey?
-    private let palette: HakoProductPalette
-    private let content: Content
-
-    public init(
-        _ title: String? = nil,
-        footnote: LocalizedStringKey? = nil,
-        palette: HakoProductPalette = .system,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.title = title
-        self.footnote = footnote
-        self.palette = palette
-        self.content = content()
-    }
-
-    public var body: some View {
-        if HakoPlatformLayout.pageUsesSystemSettingsIdiom {
-            Section {
-                content
-            } header: {
-                if let title {
-                    Text(title)
-                }
-            } footer: {
-                if let footnote {
-                    Text(footnote)
-                }
-            }
-        } else {
-            VStack(alignment: .leading, spacing: HakoTheme.Spacing.compact) {
-                if let title {
-                    Text(title)
-                        .font(HakoTheme.FontRole.sectionHeader)
-                        .foregroundStyle(.secondary)
-                        .textCase(nil)
-                        .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
-                        .accessibilityAddTraits(.isHeader)
-                }
-
-                HakoCardSurface(
-                    fill: palette.card,
-                    separator: palette.separator,
-                    cornerRadius: HakoTheme.Radius.groupedSection
-                ) {
-                    VStack(spacing: 0) {
-                        content
-                    }
-                    .padding(.horizontal, HakoTheme.Layout.cardInnerPadding)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if let footnote {
-                    HakoFootnote(footnote)
-                }
-            }
-        }
-    }
-}
-
-/// The divider between two rows of a card, drawn only where the container does not
-/// draw its own.
-public struct HakoSettingsDivider: View {
-    private let leadingInset: CGFloat?
-
-    public init(leadingInset: CGFloat? = nil) {
-        self.leadingInset = leadingInset
-    }
-
-    public var body: some View {
-        if !HakoPlatformLayout.pageUsesSystemSettingsIdiom {
-            Divider()
-                .padding(.leading, leadingInset ?? 0)
-                .opacity(HakoTheme.Opacity.rowDivider)
-        }
-    }
-}
-
 // MARK: - Root scaffold
 
 /// The canvas a first-level destination draws on.
@@ -609,7 +562,7 @@ public struct HakoRootScaffold<Content: View>: View {
             .padding(.bottom, HakoTheme.Layout.rootTabClearance)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(palette.canvas)
+        .background(palette.canvas.ignoresSafeArea())
         .hakoScrollDismissesKeyboard()
         .hakoContainerDrawsDisclosure(false)
     }
@@ -673,14 +626,25 @@ public extension HakoSettingsScaffold where Actions == EmptyView {
 
 /// A high-density live page: proxies, activity, rules, connections, logs.
 ///
-/// Its distinguishing features, in the order they matter:
+/// # What the reference actually composes
 ///
-///   - optional segmented tabs above the content, which are the page's own and not the
-///     tab bar's;
-///   - a scrolling body of data cards, with the bottom inset a search field needs so
-///     the last card is never underneath it;
-///   - an optional fixed search field above the safe area, which owns the keyboard
-///     dismissal and the clear button rather than leaving them to each page.
+/// A workspace in the reference is a `HakoProductRootPage` - a `ScrollView` of self-drawn
+/// cards - with three things on top:
+///
+///   - the page's own segmented strip, pinned to the top of the scroll with
+///     `hakoPinnedTopBar` (`safeAreaBar(edge: .top)` on the current system), so it stays
+///     while the data moves under it;
+///   - the SYSTEM search field, not a drawn one. On the current system the reference puts
+///     it in the bottom bar with `.searchable(placement: .toolbar)` plus a
+///     `DefaultToolbarItem(kind: .search, placement: .bottomBar)`, and hides the tab bar
+///     there because the bottom bar slot is the tab bar's; before that it uses the
+///     navigation-bar drawer. (See `Features/Activity/HakoActivityPageView.swift`.)
+///   - the page's actions in the navigation bar, grouped into one `ControlGroup`.
+///
+/// This replaces a hand-drawn search field fixed above the safe area. The system's own
+/// field brings the keyboard behaviour, the clear button, the scroll-to-dismiss and the
+/// focus ring, and it is what the reference puts on screen; a drawn field has to re-earn all
+/// four and was in the bottom bar's slot rather than in the bottom bar.
 public struct HakoWorkspaceScaffold<Tabs: View, Content: View, Actions: View>: View {
     private let title: String
     private let leading: HakoNavigationLeadingControl
@@ -709,33 +673,30 @@ public struct HakoWorkspaceScaffold<Tabs: View, Content: View, Actions: View>: V
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            tabs
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: HakoTheme.Layout.cardSpacing) {
-                    content
-                }
-                .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
-                .padding(.vertical, HakoTheme.Spacing.standard)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // The search field floats over the page, so the page reserves exactly
-                // its height. Without this the last row of the last card is reachable
-                // only by scrolling it under the field.
-                .padding(.bottom, search == nil ? 0 : HakoTheme.Layout.bottomSearchClearance)
+        scrollingBody
+            .hakoWorkspaceSearch(search)
+            .background(palette.canvas.ignoresSafeArea())
+            // A workspace draws its own page, so its rows own the disclosure indicator.
+            .hakoContainerDrawsDisclosure(false)
+            .hakoNavigationChrome(title: title, leading: leading) {
+                actions
             }
-            .background(palette.canvas)
-            .hakoScrollDismissesKeyboard()
+    }
 
-            if let search {
-                HakoBottomSearchBar(search)
+    private var scrollingBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: HakoTheme.Layout.cardSpacing) {
+                content
             }
+            .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
+            .padding(.vertical, HakoTheme.Spacing.standard)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(palette.canvas)
-        // A workspace draws its own page, so its rows own the disclosure indicator.
-        .hakoContainerDrawsDisclosure(false)
-        .hakoNavigationChrome(title: title, leading: leading) {
-            actions
+        .hakoScrollDismissesKeyboard()
+        // Pinned, not scrolled: the reference's `hakoPinnedTopBar`. A strip that scrolls
+        // away cannot be used to change lens halfway down a long list.
+        .hakoPinnedTopBar {
+            tabs
         }
     }
 }
@@ -807,6 +768,56 @@ public extension HakoWorkspaceScaffold where Tabs == EmptyView {
     }
 }
 
+public extension View {
+    /// Applies a workspace's search field, in the platform's own idiom.
+    ///
+    /// The reference's rule, from `HakoActivityPageView`: on the current system the field
+    /// goes in the bottom bar - which is also why the tab bar is hidden there, since the
+    /// two share the slot - and before that it goes in the navigation-bar drawer. A page
+    /// does not choose; the same call produces the right one on each system.
+    @ViewBuilder
+    func hakoWorkspaceSearch(_ search: HakoWorkspaceSearch?) -> some View {
+        if let search {
+            #if os(iOS)
+                if #available(iOS 26.0, *) {
+                    searchable(text: search.text, placement: .toolbar, prompt: search.prompt)
+                        .toolbar { DefaultToolbarItem(kind: .search, placement: .bottomBar) }
+                        .toolbar(.hidden, for: .tabBar)
+                } else if #available(iOS 16.0, *) {
+                    searchable(
+                        text: search.text,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: search.prompt
+                    )
+                } else {
+                    searchable(text: search.text, prompt: search.prompt)
+                }
+            #else
+                searchable(text: search.text, prompt: search.prompt)
+            #endif
+        } else {
+            self
+        }
+    }
+
+    /// Pins a view to the top of the enclosing scroll, where the system can do it.
+    ///
+    /// The reference's `hakoPinnedTopBar`: `safeAreaBar(edge: .top)` on the current system,
+    /// which gives the bar the system's own scroll-edge treatment, and a plain
+    /// `safeAreaInset` before it.
+    @ViewBuilder
+    func hakoPinnedTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
+            safeAreaBar(edge: .top, spacing: 0, content: bar)
+        } else {
+            safeAreaInset(edge: .top, spacing: 0) {
+                bar()
+                    .background(.bar)
+            }
+        }
+    }
+}
+
 /// The search a workspace owns.
 ///
 /// A value rather than two loose bindings, because a workspace has to hand the same
@@ -814,170 +825,11 @@ public extension HakoWorkspaceScaffold where Tabs == EmptyView {
 public struct HakoWorkspaceSearch {
     public let text: Binding<String>
     public let prompt: LocalizedStringKey
-    public let accessibilityIdentifier: String?
 
-    public init(
-        text: Binding<String>,
-        prompt: LocalizedStringKey = "Search",
-        accessibilityIdentifier: String? = nil
-    ) {
+    public init(text: Binding<String>, prompt: LocalizedStringKey = "Search") {
         self.text = text
         self.prompt = prompt
-        self.accessibilityIdentifier = accessibilityIdentifier
     }
-}
-
-/// The fixed search field a workspace wears above its safe area.
-///
-/// It is a field, not a toolbar: it stays put while the data scrolls, it clears, it
-/// focuses, and it never lets the page underneath draw under it.
-public struct HakoBottomSearchBar: View {
-    @FocusState private var isFocused: Bool
-    private let search: HakoWorkspaceSearch
-
-    public init(_ search: HakoWorkspaceSearch) {
-        self.search = search
-    }
-
-    public var body: some View {
-        HStack(spacing: HakoTheme.Spacing.compact) {
-            Image(systemName: "magnifyingglass")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-
-            TextField(search.prompt, text: search.text)
-                .textFieldStyle(.plain)
-                .focused($isFocused)
-                .autocorrectionDisabled()
-                #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .submitLabel(.search)
-                #endif
-                .accessibilityIdentifier(search.accessibilityIdentifier ?? "")
-
-            if !search.text.wrappedValue.isEmpty {
-                Button {
-                    search.text.wrappedValue = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                        .frame(
-                            minWidth: HakoTheme.Control.minimumHitTarget,
-                            minHeight: HakoTheme.Control.minimumHitTarget
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("hako.search.clear")
-                .accessibilityLabel(Text("Clear"))
-            }
-        }
-        .padding(.horizontal, HakoTheme.Spacing.row)
-        .frame(height: HakoTheme.Layout.bottomSearchHeight)
-        .background(
-            RoundedRectangle(cornerRadius: HakoTheme.Radius.searchField, style: .continuous)
-                .fill(HakoProductPalette.system.control)
-        )
-        .padding(.horizontal, HakoTheme.Layout.bottomSearchInset)
-        .padding(.vertical, HakoTheme.Layout.bottomSearchInset)
-        .background(.bar)
-    }
-}
-
-/// The segmented tabs above a workspace's content.
-///
-/// One component because the alternative - a `Picker` on one page, a hand-rolled
-/// underline on another - is exactly the inconsistency this migration removes. The
-/// touch client underlines; the desktop uses the platform's own segmented control,
-/// which is what a Mac window is expected to offer.
-public struct HakoSegmentedTabs<Value: Hashable>: View {
-    public struct Tab: Identifiable {
-        public let value: Value
-        public let title: String
-        public let badge: Int?
-
-        public var id: Value {
-            value
-        }
-
-        public init(_ value: Value, _ title: String, badge: Int? = nil) {
-            self.value = value
-            self.title = title
-            self.badge = badge
-        }
-    }
-
-    @Namespace private var underline
-    private let tabs: [Tab]
-    @Binding private var selection: Value
-
-    public init(tabs: [Tab], selection: Binding<Value>) {
-        self.tabs = tabs
-        _selection = selection
-    }
-
-    public var body: some View {
-        #if os(macOS)
-            Picker("", selection: $selection) {
-                ForEach(tabs) { tab in
-                    Text(tab.title).tag(tab.value)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
-            .padding(.vertical, HakoTheme.Spacing.compact)
-        #else
-            HStack(spacing: HakoTheme.Spacing.section) {
-                ForEach(tabs) { tab in
-                    tabButton(tab)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
-            .frame(height: HakoTheme.Control.segmentedTabHeight + HakoTheme.Spacing.standard)
-            .background(HakoProductPalette.system.canvas)
-        #endif
-    }
-
-    #if !os(macOS)
-        private func tabButton(_ tab: Tab) -> some View {
-            let isSelected = tab.value == selection
-            return Button {
-                guard !isSelected else { return }
-                selection = tab.value
-            } label: {
-                VStack(spacing: HakoTheme.Spacing.tight) {
-                    HStack(spacing: HakoTheme.Spacing.tight) {
-                        Text(tab.title)
-                            .font(HakoTheme.FontRole.rowPrimary)
-                            .fontWeight(isSelected ? .semibold : .regular)
-                            .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                        if let badge = tab.badge, badge > 0 {
-                            HakoStatusBadge("\(badge)", emphasis: .info)
-                        }
-                    }
-                    .frame(height: HakoTheme.Control.segmentedTabHeight)
-
-                    ZStack {
-                        Capsule()
-                            .fill(.clear)
-                            .frame(height: 2)
-                        if isSelected {
-                            Capsule()
-                                .fill(Color.accentColor)
-                                .frame(height: 2)
-                                .matchedGeometryEffect(id: "hako.tab.underline", in: underline)
-                        }
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        }
-    #endif
 }
 
 // MARK: - Modal scaffold
