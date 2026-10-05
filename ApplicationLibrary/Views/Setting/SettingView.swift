@@ -329,6 +329,17 @@ public struct SettingView: View {
                 requested: pendingSettingsPage?.wrappedValue,
                 isRemoteControlPresented: showRemoteControl
             )
+            // Traced only when there was a request to decide about, so an ordinary appearance adds no
+            // line. The `push` answer is the one that matters: a request arriving after the page is
+            // already open is satisfied without a second push, which is the case this exists for.
+            if let requested = pendingSettingsPage?.wrappedValue {
+                HakoUITrace.transition(
+                    "settings-apply \(requested)",
+                    from: showRemoteControl ? "presented" : "absent",
+                    to: decision.pushRemoteControl ? "push" : "no-push",
+                    source: "SettingView.applyPendingSettingsPage"
+                )
+            }
             if decision.clearRequest {
                 pendingSettingsPage?.wrappedValue = nil
             }

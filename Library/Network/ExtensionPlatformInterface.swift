@@ -807,6 +807,29 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         #endif
     }
 
+    // MARK: - libbox compatibility
+
+    // These two members are required by the protocol this fork's libbox generates and absent from
+    // the revision this client was pinned to. They are answered "unavailable" rather than stubbed,
+    // because auto redirect is a Linux mechanism: it needs a TPROXY path Apple's NetworkExtension
+    // does not expose, and upstream sing-box-for-apple declares the same members unsupported. The
+    // core reads `false` from the first and never asks for a session.
+    //
+    // Carrying them here rather than leaving them to scripts/ci/prepare-apple-client.sh is what
+    // makes this client build against libbox on its own: the parent's prepare step refuses to apply
+    // its compatibility overlay twice, so a client that already declares these is recognised as
+    // done instead of being patched a second time.
+
+    public func usePlatformAutoRedirect() -> Bool {
+        false
+    }
+
+    public func createAutoRedirect(_: Data?, handler _: (any LibboxAutoRedirectHandlerProtocol)?) throws -> any LibboxAutoRedirectSessionProtocol {
+        throw NSError(domain: "ExtensionPlatformInterface", code: -1, userInfo: [
+            NSLocalizedDescriptionKey: "auto redirect is not supported on Apple platforms",
+        ])
+    }
+
     #if os(macOS) || JAILBREAK
         private class BridgeServiceSession: NSObject, LibboxBridgeSessionProtocol {
             private let tunFileDescriptor: Int32
@@ -938,3 +961,17 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         }
     }
 #endif
+
+// MARK: - libbox compatibility
+
+/// The core promotes a power-report draft on the next start only where it exposes a promotion entry
+/// point. It exposes `LibboxPromoteOOMDraft` and no power equivalent, so the call in
+/// `ExtensionProvider` has nothing to bind to; this defines it, exactly as the parent's
+/// `scripts/ci/apply-apple-compat-overlay.py` does and with the same behaviour.
+///
+/// The call discards its result and only ever promotes a draft already written, so with no entry
+/// point in this libbox doing nothing is correct. It stays a no-op deliberately: a stub that
+/// reported success would hide a report that was never published, which is what
+/// `scripts/ci/check-apple-compat-overlay.py` asserts against.
+public func LibboxPromotePowerReportDraft() {
+}

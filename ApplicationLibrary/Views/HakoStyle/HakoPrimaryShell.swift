@@ -228,6 +228,9 @@ public struct HakoPrimaryShell<Accessory: View>: View {
                         }
                 }
                 .tag(primary)
+                // Carries the tag view's accessibility identifier onto the tab bar item SwiftUI
+                // generates, so a UI test can address a tab without matching a localized title.
+                .accessibilityIdentifier("hako.tab.\(primary.rawValue)")
                 .tabItem {
                     Label(primary.title, systemImage: primary.systemImage)
                 }
@@ -245,6 +248,12 @@ public struct HakoPrimaryShell<Accessory: View>: View {
                 // every set would reset a child page (Logs, for example) back to its
                 // primary's root whenever SwiftUI re-evaluated the binding.
                 guard newPrimary != selection.hakoPrimary else { return }
+                HakoUITrace.transition(
+                    "primary",
+                    from: selection.hakoPrimary.rawValue,
+                    to: newPrimary.rawValue,
+                    source: "HakoPrimaryShell.primarySelection"
+                )
                 selection = newPrimary.rootPage
             }
         )
@@ -253,7 +262,22 @@ public struct HakoPrimaryShell<Accessory: View>: View {
     /// Arms the child this primary should push, if any, without touching the others.
     private func applySelectedRoute(for primary: HakoPrimaryTab) {
         let updated = HakoPrimaryChildArmer.next(pushed: pushedChild, selection: selection)
-        guard updated != pushedChild else { return }
+        guard updated != pushedChild else {
+            // The re-arm that changes nothing is the evidence for "a page is pushed once": if a
+            // second selection of the same child produced a transition line instead, it would be
+            // pushing onto what is already on screen.
+            HakoUITrace.event(
+                "child-unchanged \(primary.rawValue)/\(pushedChild[primary].map { String($0.rawValue) } ?? "nil")",
+                source: "HakoPrimaryShell.applySelectedRoute"
+            )
+            return
+        }
+        HakoUITrace.transition(
+            "child \(primary.rawValue)",
+            from: pushedChild[primary].map { String($0.rawValue) },
+            to: updated[primary].map { String($0.rawValue) },
+            source: "HakoPrimaryShell.applySelectedRoute"
+        )
         pushedChild = updated
     }
 
@@ -277,6 +301,12 @@ public struct HakoPrimaryShell<Accessory: View>: View {
                     // selection on the primary's root rather than on a page that is no longer
                     // on screen, and forgets the push so the next selection can arm it again.
                     guard !presented, childIsPresented(in: primary) else { return }
+                    HakoUITrace.transition(
+                        "child-dismiss \(primary.rawValue)",
+                        from: pushedChild[primary].map { String($0.rawValue) },
+                        to: nil,
+                        source: "HakoPrimaryShell.childDestination"
+                    )
                     pushedChild[primary] = nil
                     selection = HakoPrimaryRoute(selection).root
                 }

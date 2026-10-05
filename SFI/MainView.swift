@@ -1,4 +1,5 @@
 import ApplicationLibrary
+import Combine
 import Libbox
 import Library
 import NetworkExtension
@@ -31,6 +32,29 @@ struct MainView: View {
     /// the tab switch: the page is installed by that switch, so a receiver living in it misses a
     /// notification that arrives first.
     @State private var pendingSettingsPage: SettingsPage?
+    /// The last tunnel status a trace line reported, so a transition can show both ends.
+    ///
+    /// Kept in the view rather than derived, because `NEVPNStatus` carries no previous value and
+    /// "connected -> reasserting" is the transition this instrument exists to make visible.
+    @State private var tracedProfileStatus: String?
+
+    /// The name a trace line uses for a status.
+    ///
+    /// Defined unconditionally so the call site compiles in both configurations; in Release the only
+    /// caller discards its argument and the body inlines to nothing.
+    @inline(__always)
+    private func traceName(for status: NEVPNStatus?) -> String? {
+        guard let status else { return nil }
+        switch status {
+        case .invalid: return "invalid"
+        case .disconnected: return "disconnected"
+        case .connecting: return "connecting"
+        case .connected: return "connected"
+        case .reasserting: return "reasserting"
+        case .disconnecting: return "disconnecting"
+        @unknown default: return "unknown"
+        }
+    }
 
     private let profileEditor: (Binding<String>, Bool) -> AnyView = { text, isEditable in
         AnyView(ProfileEditorWrapperView(text: text, isEditable: isEditable))
@@ -249,14 +273,36 @@ struct MainView: View {
             .onReceive(environments.$extensionProfile) { _ in
                 Task { @MainActor in updateButtonVisibility() }
             }
+            .onReceive(
+                environments.$extensionProfile
+                    .map { self.traceName(for: $0?.status) }
+                    .removeDuplicates()
+            ) { tracedName in
+                // The tunnel's own life cycle: connecting -> connected -> reasserting -> connected.
+                // Traced from the root rather than the accessory, so the transition is recorded even
+                // while a sheet or a child page covers the accessory - which is exactly when "the UI
+                // never showed Reasserting" is hard to tell from "it never happened".
+                //
+                // Deduplicated on the name: repeated object publications are common, and a trace line
+                // only means something when the state actually moved.
+                HakoUITrace.transition(
+                    "profile",
+                    from: tracedProfileStatus,
+                    to: tracedName,
+                    source: "MainView.onReceive(extensionProfile.status)"
+                )
+                tracedProfileStatus = tracedName
+            }
             .onReceive(environments.$emptyProfiles) { _ in
                 Task { @MainActor in updateButtonVisibility() }
             }
             .sheet(isPresented: $showGroups) {
                 GroupsSheetContent()
+                    .hakoTracePresentation("sheet groups", isPresented: $showGroups)
             }
             .sheet(isPresented: $showConnections) {
                 ConnectionsSheetContent()
+                    .hakoTracePresentation("sheet connections", isPresented: $showConnections)
             }
             .onChangeCompat(of: buttonState.showGroupsButton) { newValue in
                 if !newValue {
@@ -283,17 +329,26 @@ struct MainView: View {
                     environments.connect()
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .reportReceived)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .reportReceived)) { notification in
+                let reportType = notification.object as? ReportType
+                HakoUITrace.event(
+                    "report-received \(reportType.map(String.init(describing:)) ?? "unknown")",
+                    source: "MainView.onReceive(reportReceived)"
+                )
                 Task {
                     await environments.crashReportManager.refresh()
                     await environments.oomReportManager.refresh()
-                    selection = .tools
+                    navigate(to: .tools, source: "MainView.onReceive(reportReceived)")
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsPage)) { notification in
                 guard let page = notification.object as? SettingsPage else { return }
+                HakoUITrace.event(
+                    "settings-requested \(page)",
+                    source: "MainView.onReceive(navigateToSettingsPage)"
+                )
                 pendingSettingsPage = page
-                selection = .settings
+                navigate(to: .settings, source: "MainView.onReceive(navigateToSettingsPage)")
             }
             .environment(\.pendingSettingsPage, $pendingSettingsPage)
             .environment(\.selection, $selection)
@@ -310,6 +365,22 @@ struct MainView: View {
             .environment(\.ghosttyConfigEditor, ghosttyConfigEditor)
             .handlesExternalEvents(preferring: [], allowing: ["*"])
             .onOpenURL(perform: openURL)
+    }
+
+    /// The one place a programmatic navigation decision is written back to `selection`.
+    ///
+    /// Named rather than open-coded so the trace records the decision and its origin together:
+    /// "the report notification moved it to Tools" is what a reader needs, and the previous value is
+    /// still visible here because these are the transitions that happen away from a tap - the ones
+    /// that cannot be reproduced by pressing a control and watching.
+    private func navigate(to page: NavigationPage, source: StaticString) {
+        HakoUITrace.transition(
+            "selection",
+            from: String(selection.rawValue),
+            to: String(page.rawValue),
+            source: source
+        )
+        selection = page
     }
 
     private func updateButtonVisibility() {

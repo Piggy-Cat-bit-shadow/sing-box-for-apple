@@ -180,6 +180,7 @@ public struct HakoHomeView: View {
                     subtitle: groupsSubtitle,
                     systemImage: "rectangle.3.group.fill",
                     tint: HakoAccentRole.indigo.color,
+                    identifier: "hako.home.groups",
                     action: actions.showGroups
                 )
                 HakoRowDivider()
@@ -189,6 +190,7 @@ public struct HakoHomeView: View {
                 subtitle: connectionsSubtitle,
                 systemImage: "list.bullet.rectangle.portrait.fill",
                 tint: HakoAccentRole.green.color,
+                identifier: "hako.home.connections",
                 action: actions.showConnections
             )
             HakoRowDivider()
@@ -197,7 +199,11 @@ public struct HakoHomeView: View {
                 subtitle: String(localized: "Tunnel output"),
                 systemImage: "list.bullet.rectangle",
                 tint: HakoAccentRole.orange.color,
-                action: { selection.wrappedValue = .logs }
+                identifier: "hako.home.logs",
+                action: {
+                    HakoUITrace.event("shortcut logs")
+                    selection.wrappedValue = .logs
+                }
             )
         }
     }
@@ -207,6 +213,7 @@ public struct HakoHomeView: View {
         subtitle: String,
         systemImage: String,
         tint: Color,
+        identifier: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -218,6 +225,9 @@ public struct HakoHomeView: View {
             )
         }
         .buttonStyle(HakoPushRowButtonStyle())
+        // Only the interactive nodes a UI test has to reach get an identifier: the three shortcuts
+        // are the whole of this page's navigation, and their labels are localized.
+        .accessibilityIdentifier(identifier)
     }
 
     // MARK: - Card configuration

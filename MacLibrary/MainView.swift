@@ -137,11 +137,24 @@ public struct MainView: View {
             Task { @MainActor in
                 viewModel.onSelectionChange(value, environments: environments)
                 if value != .settings {
+                    HakoUITrace.transition(
+                        "selection",
+                        from: settingsNavigationPath.isEmpty ? "none" : "settings-path",
+                        to: String(value.rawValue),
+                        source: "MacLibrary.MainView.onChange(selection).leaveSettings"
+                    )
                     settingsNavigationPath = NavigationPath()
                     pendingSettingsPage = nil
                     return
                 }
                 if let page = pendingSettingsPage {
+                    // The page was requested before Settings was on screen. Pushing it here, once the
+                    // selection has settled, is what makes the request deterministic: the path is
+                    // rebuilt from the request rather than the request waiting for a mounted page.
+                    HakoUITrace.event(
+                        "settings-apply \(page) push=true source=pendingSettingsPage",
+                        source: "MacLibrary.MainView.onChange(selection)"
+                    )
                     settingsNavigationPath = NavigationPath()
                     settingsNavigationPath.append(page)
                     pendingSettingsPage = nil
@@ -153,11 +166,23 @@ public struct MainView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsPage)) { notification in
             guard let page = notification.object as? SettingsPage else { return }
+            HakoUITrace.event(
+                "settings-requested \(page)",
+                source: "MacLibrary.MainView.onReceive(navigateToSettingsPage)"
+            )
             Task { @MainActor in
                 pendingSettingsPage = page
                 if viewModel.selection == .settings {
+                    // Already open: satisfy the request in place, and never stack a second copy.
+                    let alreadyThere = !settingsNavigationPath.isEmpty
+                    HakoUITrace.event(
+                        "settings-apply \(page) push=\(!alreadyThere) alreadyOpen=true",
+                        source: "MacLibrary.MainView.onReceive(navigateToSettingsPage)"
+                    )
                     settingsNavigationPath = NavigationPath()
-                    settingsNavigationPath.append(page)
+                    if !alreadyThere {
+                        settingsNavigationPath.append(page)
+                    }
                     pendingSettingsPage = nil
                 } else {
                     viewModel.selection = .settings
@@ -178,6 +203,7 @@ public struct MainView: View {
         }, content: {
             CardManagementSheet()
                 .frame(minWidth: 400, minHeight: 400)
+                .hakoTracePresentation("sheet cardManagement", isPresented: $showCardManagement)
         })
         .onReceive(NotificationCenter.default.publisher(for: .remoteServersUpdated)) { _ in
             Task { @MainActor in
