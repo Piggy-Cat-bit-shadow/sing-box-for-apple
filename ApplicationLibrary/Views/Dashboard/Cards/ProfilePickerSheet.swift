@@ -854,7 +854,7 @@ private struct ProfilePickerRow: View {
                             onDelete()
                         } label: {
                             Image(systemName: "minus.circle.fill")
-                                .font(.system(size: 20))
+                                .font(.title3)
                                 .foregroundStyle(.red)
                         }
                         .buttonStyle(.plain)
@@ -873,14 +873,8 @@ private struct ProfilePickerRow: View {
         }
 
         /// Whether this is the profile the client is using.
-        ///
-        /// A filled mark rather than a tinted word: the state has to survive a long profile
-        /// name, a subtitle and a trailing menu without moving any of them.
         private var selectionMark: some View {
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .font(.body)
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.35))
-                .accessibilityLabel(isSelected ? Text("Selected") : Text(""))
+            HakoSelectionMark(isSelected: isSelected)
         }
     #endif
 

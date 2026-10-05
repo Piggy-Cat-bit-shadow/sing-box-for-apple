@@ -95,14 +95,11 @@ public struct OutboundPickerView: View {
                 selectedOutbound = ""
                 dismiss()
             } label: {
-                HStack {
+                HStack(spacing: HakoTheme.Spacing.compact) {
                     Text("Default")
                         .foregroundStyle(.foreground)
-                    Spacer()
-                    if selectedOutbound.isEmpty {
-                        Image(systemName: "checkmark")
-                            .foregroundStyle(Color.accentColor)
-                    }
+                    Spacer(minLength: HakoTheme.Spacing.compact)
+                    HakoSelectionMark(isSelected: selectedOutbound.isEmpty)
                 }
                 .contentShape(Rectangle())
             }
@@ -114,27 +111,24 @@ public struct OutboundPickerView: View {
                     selectedOutbound = item.tag
                     dismiss()
                 } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: HakoTheme.Spacing.compact) {
+                        VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
                             Text(item.tag)
                                 .foregroundStyle(.foreground)
                                 .lineLimit(1)
-                            HStack {
+                            HStack(spacing: HakoTheme.Spacing.tight) {
                                 Text(item.displayType)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 Spacer(minLength: 0)
                                 if item.urlTestDelay > 0 {
                                     Text(item.delayString)
-                                        .font(.caption)
+                                        .font(.caption.monospacedDigit())
                                         .foregroundColor(item.delayColor)
                                 }
                             }
                         }
-                        if selectedOutbound == item.tag {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(Color.accentColor)
-                        }
+                        HakoSelectionMark(isSelected: selectedOutbound == item.tag)
                     }
                     .contentShape(Rectangle())
                 }

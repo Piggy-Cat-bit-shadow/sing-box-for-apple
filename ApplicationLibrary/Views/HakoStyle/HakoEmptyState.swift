@@ -57,3 +57,24 @@ public struct HakoEmptyState: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+/// Whether a row is the selected one.
+///
+/// A filled mark rather than a tinted word or a bare checkmark: the state has to survive a long
+/// name, a subtitle and a trailing menu without moving any of them, and it has to be readable
+/// when the row is not selected. It renders both states rather than being wrapped in an `if` by
+/// each caller, which is what made the pickers disagree about what "not selected" looks like.
+public struct HakoSelectionMark: View {
+    private let isSelected: Bool
+
+    public init(isSelected: Bool) {
+        self.isSelected = isSelected
+    }
+
+    public var body: some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.body)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.35))
+            .accessibilityLabel(isSelected ? Text("Selected") : Text(""))
+    }
+}

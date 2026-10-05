@@ -42,10 +42,7 @@ public struct TailscaleExitNodePickerView: View {
                     Text("Disabled")
                         .foregroundStyle(.foreground)
                     Spacer()
-                    if endpoint?.exitNode == nil {
-                        Image(systemName: "checkmark")
-                            .foregroundStyle(Color.accentColor)
-                    }
+                    HakoSelectionMark(isSelected: endpoint?.exitNode == nil)
                 }
                 .contentShape(Rectangle())
             }
@@ -72,10 +69,7 @@ public struct TailscaleExitNodePickerView: View {
                             }
                         }
                         Spacer()
-                        if endpoint?.exitNode?.stableID == row.peer.stableID {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(Color.accentColor)
-                        }
+                        HakoSelectionMark(isSelected: endpoint?.exitNode?.stableID == row.peer.stableID)
                     }
                     .contentShape(Rectangle())
                 }

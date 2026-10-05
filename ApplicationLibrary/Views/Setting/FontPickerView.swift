@@ -114,10 +114,7 @@
                         .font(name.isEmpty ? .body : .custom(name, size: 17))
                         .foregroundStyle(.primary)
                     Spacer()
-                    if selected == name {
-                        Image(systemName: "checkmark")
-                            .foregroundStyle(.tint)
-                    }
+                    HakoSelectionMark(isSelected: selected == name)
                 }
                 .contentShape(Rectangle())
             }

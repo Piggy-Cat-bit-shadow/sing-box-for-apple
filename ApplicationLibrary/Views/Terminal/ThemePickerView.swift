@@ -69,10 +69,7 @@
                     Text(theme.name)
                         .foregroundStyle(.primary)
                     Spacer()
-                    if selected == theme.name {
-                        Image(systemName: "checkmark")
-                            .foregroundStyle(.tint)
-                    }
+                    HakoSelectionMark(isSelected: selected == theme.name)
                 }
                 .contentShape(Rectangle())
             }
