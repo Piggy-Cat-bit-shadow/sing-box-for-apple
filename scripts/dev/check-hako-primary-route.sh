@@ -130,4 +130,10 @@ swiftc \
     -o "$out" \
     scripts/dev/check-hako-primary-route.swift
 
-DYLD_FRAMEWORK_PATH="$products:$libbox" "$out"
+# The framework is built with coverage instrumentation, so the harness writes a profile file. It is
+# given a temporary directory to do that in: a stray default.profraw lands inside the repository and
+# dirties the submodule, which the publish script's clean-tree gate - correctly - refuses to publish
+# from.
+scratch="$(mktemp -d)"
+( cd "$scratch" && LLVM_PROFILE_FILE="$scratch/coverage.profraw" \
+    DYLD_FRAMEWORK_PATH="$products:$libbox" "$out" )
