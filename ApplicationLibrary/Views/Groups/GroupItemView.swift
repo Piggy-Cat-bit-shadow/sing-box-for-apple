@@ -23,8 +23,8 @@ public struct GroupItemView: View {
                 listViewModel.selectOutbound(groupTag: groupTag, outboundTag: item.tag)
             }
         } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
+            VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
+                HStack(spacing: HakoTheme.Spacing.compact) {
                     Text(item.tag)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.foreground)
@@ -51,18 +51,23 @@ public struct GroupItemView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             #if !os(tvOS)
-                .padding(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
+                .padding(EdgeInsets(
+                top: HakoTheme.Spacing.cardGap,
+                leading: HakoTheme.Spacing.row,
+                bottom: HakoTheme.Spacing.cardGap,
+                trailing: HakoTheme.Spacing.row
+            ))
                 .contentShape(Rectangle())
             #endif
         }
         #if !os(tvOS)
         .buttonStyle(.borderless)
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: HakoTheme.Radius.control, style: .continuous)
                 .fill(isSelected ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(itemBackground))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: HakoTheme.Radius.control, style: .continuous)
                 .strokeBorder(isSelected ? Color.accentColor : Color.urlTestNeutral, lineWidth: 1)
         )
         .animation(.easeOut(duration: 0.12), value: isSelected)

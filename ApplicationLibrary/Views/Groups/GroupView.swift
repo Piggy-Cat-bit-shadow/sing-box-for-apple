@@ -32,19 +32,17 @@ public struct GroupHeaderView: View {
     }
 
     public var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: HakoTheme.Spacing.compact) {
             Text(group.tag)
                 .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
             Text(group.displayType)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Text(verbatim: "\(group.items.count)")
-                .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
-                .background(Color.urlTestNeutral)
-                .clipShape(Capsule())
+                .lineLimit(1)
+            Spacer(minLength: HakoTheme.Spacing.compact)
+            HakoStatusBadge(String(group.items.count))
             HStack(spacing: 16) {
                 Button {
                     listViewModel.performGroupURLTest(group.tag)
@@ -80,7 +78,12 @@ public struct GroupHeaderView: View {
                 #endif
             }
         }
-        .padding(EdgeInsets(top: 12, leading: 16, bottom: 10, trailing: 8))
+        .padding(EdgeInsets(
+            top: HakoTheme.Spacing.row,
+            leading: HakoTheme.Spacing.standard,
+            bottom: HakoTheme.Spacing.cardGap,
+            trailing: HakoTheme.Spacing.compact
+        ))
         .frame(maxWidth: .infinity, alignment: .leading)
         #if !os(tvOS)
             .contentShape(Rectangle())
