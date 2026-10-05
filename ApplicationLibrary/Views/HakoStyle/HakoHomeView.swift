@@ -77,6 +77,8 @@ public struct HakoHomeView: View {
     @EnvironmentObject private var profile: ExtensionProfile
     @Environment(\.hakoHomeActions) private var actions
     @Environment(\.selection) private var selection
+    /// The chosen outbound mode, held here until the core confirms it. See `selectClashMode`.
+    @State private var localMode: String = ""
 
     @Binding private var profileList: [ProfilePreview]
     @Binding private var selectedProfileID: Int64
@@ -104,8 +106,7 @@ public struct HakoHomeView: View {
             sessionCard
             profileCard
             if showsConnectedCards, enabledCards.contains(.clashMode) {
-                ClashModeCard()
-                    .environmentObject(environments.commandClient)
+                modeSection
             }
             shortcutsSection
             if showsConnectedCards {
@@ -114,6 +115,14 @@ public struct HakoHomeView: View {
                     httpProxyCard
                 }
                 runtimeSection
+            }
+        }
+        .onAppear {
+            localMode = environments.commandClient.clashMode
+        }
+        .onChangeCompat(of: environments.commandClient.clashMode) { newValue in
+            if !newValue.isEmpty {
+                localMode = newValue
             }
         }
         .alert($coordinator.alert)
@@ -403,6 +412,81 @@ public struct HakoHomeView: View {
 
     private var showGroups: Bool {
         Variant.screenshotMode || environments.commandClient.groups?.isEmpty == false
+    }
+
+    /// The outbound mode, as the reference presents it.
+    ///
+    /// A painted section of selection rows with the reason each mode exists, which is what
+    /// the reference's Home shows: its mode card is a vertical list where the chosen row
+    /// carries the explanation (`规则` / `按配置规则分流`), not a segmented control. A
+    /// segmented control also had to fit its labels into the width it was given, so this
+    /// client carried a `GeometryReader`, two preference keys and a menu fallback for the
+    /// case where they did not fit - machinery that no longer has a reason to exist.
+    @ViewBuilder
+    private var modeSection: some View {
+        let modes = environments.commandClient.clashModeList
+        let current = localMode.isEmpty ? environments.commandClient.clashMode : localMode
+        if modes.count > 1 {
+            HakoPageSection(String(localized: "Outbound Mode")) {
+                ForEach(Array(modes.enumerated()), id: \.offset) { index, mode in
+                    if index > 0 {
+                        HakoRowDivider()
+                    }
+                    HakoSelectionRow(
+                        title: modeTitle(mode),
+                        subtitle: modeExplanation(mode),
+                        isSelected: mode == current,
+                        identifier: "hako.home.mode.\(mode)"
+                    ) {
+                        selectClashMode(mode)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The core names the modes `rule`, `global` and `direct`; a user reads words.
+    private func modeTitle(_ mode: String) -> String {
+        switch mode {
+        case "rule": String(localized: "Rules")
+        case "global": String(localized: "Global")
+        case "direct": String(localized: "Direct")
+        default: mode.capitalized
+        }
+    }
+
+    private func modeExplanation(_ mode: String) -> String? {
+        switch mode {
+        case "rule": String(localized: "Split traffic by the profile's rules")
+        case "global": String(localized: "Send every connection through the proxy")
+        case "direct": String(localized: "Send every connection out directly")
+        default: nil
+        }
+    }
+
+    /// Choose a mode.
+    ///
+    /// The choice is held locally first and sent to the core second, which is what the card
+    /// this replaced did: the core can only report a mode back while it is running, so a row
+    /// that waited for it would not move at all with the tunnel stopped. The published value
+    /// reconciles the local one whenever the core does report.
+    private func selectClashMode(_ mode: String) {
+        withAnimation {
+            localMode = mode
+        }
+        // The fixture runs no tunnel, so there is no command server to send to. Attempting
+        // it raises a blocking alert with an IPC error over the very page a snapshot exists
+        // to photograph, and the alert reports a condition the fixture invented.
+        guard !Variant.screenshotMode else {
+            return
+        }
+        Task {
+            do {
+                try CommandTarget.standaloneClient().setClashMode(mode)
+            } catch {
+                coordinator.alert = AlertState(action: "set clash mode", error: error)
+            }
+        }
     }
 
     private var groupsSubtitle: String {

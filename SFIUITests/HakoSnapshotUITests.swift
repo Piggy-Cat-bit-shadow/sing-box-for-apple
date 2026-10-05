@@ -97,6 +97,32 @@ final class HakoSnapshotUITests: XCTestCase {
         )
     }
 
+    /// The outbound mode, chosen the way the reference presents it.
+    ///
+    /// The mode is the client's own state machine, so the test asserts against the core
+    /// rather than only against the screen: pick a mode and the row must report itself
+    /// selected. A segmented control could not be asked this question - its buttons carry no
+    /// selection trait - which is part of why the page no longer uses one.
+    func test14OutboundModeSelection() {
+        tab("hako.tab.home").tap()
+
+        let direct = app.buttons["hako.home.mode.direct"]
+        XCTAssertTrue(direct.waitForExistence(timeout: 15), "the Home page must offer the outbound modes")
+        direct.tap()
+        sleep(1)
+        snapshot("14_OutboundMode")
+
+        XCTAssertTrue(
+            app.buttons["hako.home.mode.direct"].isSelected,
+            "the chosen mode must report itself as selected"
+        )
+
+        // Leave the fixture on the mode it started in.
+        app.buttons["hako.home.mode.rule"].tap()
+        sleep(1)
+        XCTAssertTrue(app.buttons["hako.home.mode.rule"].isSelected, "the mode must switch back")
+    }
+
     // MARK: - Secondary pages
 
     func test20Logs() {

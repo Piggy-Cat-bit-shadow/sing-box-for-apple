@@ -3643,6 +3643,22 @@
         }
       }
     },
+    "Direct": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直连"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直連"
+          }
+        }
+      }
+    },
     "Direct connection": {
       "localizations": {
         "fa": {
@@ -5818,6 +5834,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub Token"
+          }
+        }
+      }
+    },
+    "Global": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全域"
           }
         }
       }
@@ -9540,6 +9572,22 @@
         }
       }
     },
+    "Outbound Mode": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出站模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出站模式"
+          }
+        }
+      }
+    },
     "Outbound Type": {
       "localizations": {
         "fa": {
@@ -11563,6 +11611,38 @@
         }
       }
     },
+    "Send every connection out directly": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有连接都直连"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有連線都直連"
+          }
+        }
+      }
+    },
+    "Send every connection through the proxy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有连接都走代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有連線都走代理"
+          }
+        }
+      }
+    },
     "Sending...": {
       "localizations": {
         "fa": {
@@ -12295,6 +12375,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "速度"
+          }
+        }
+      }
+    },
+    "Split traffic by the profile's rules": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按配置规则分流"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依設定規則分流"
           }
         }
       }

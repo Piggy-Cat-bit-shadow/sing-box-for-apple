@@ -655,6 +655,7 @@ public struct HakoSelectionRow: View {
     private let systemImage: String?
     private let tint: Color?
     private let isSelected: Bool
+    private let identifier: String?
     private let action: () -> Void
 
     public init(
@@ -663,6 +664,7 @@ public struct HakoSelectionRow: View {
         systemImage: String? = nil,
         tint: Color? = nil,
         isSelected: Bool,
+        identifier: String? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -670,6 +672,7 @@ public struct HakoSelectionRow: View {
         self.systemImage = systemImage
         self.tint = tint
         self.isSelected = isSelected
+        self.identifier = identifier
         self.action = action
     }
 
@@ -687,6 +690,7 @@ public struct HakoSelectionRow: View {
         }
         .buttonStyle(HakoPushRowButtonStyle())
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier(identifier ?? "")
     }
 }
 
