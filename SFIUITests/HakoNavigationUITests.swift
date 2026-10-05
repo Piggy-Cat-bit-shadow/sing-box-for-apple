@@ -2,13 +2,19 @@
 //  HakoNavigationUITests.swift
 //  UI tests for the HAKO shell's navigation.
 //
-//  # Not part of any target yet, and deliberately where it is
+//  # Why it lives in SFIUITests/ and nowhere else
 //
-//  This file lives under `scripts/dev/` rather than beside the app sources because the Xcode project
-//  uses synchronized root groups: a file placed under `SFI/` or `ApplicationLibrary/` would be
-//  compiled into the app target itself, where `import XCTest` fails the build. It becomes part of the
-//  UI test target when that target is added to `project.pbxproj` - a separate, verified step, since
-//  the parent's branding overlay also writes that file.
+//  `SFIUITests` is a PBXFileSystemSynchronizedRootGroup, so every file under `SFIUITests/` is a
+//  member of the SFIUITests UI-testing bundle with no `project.pbxproj` edit. That is the whole
+//  membership mechanism, and it is why this file must be here rather than under a source directory:
+//  a file placed under `SFI/` or `ApplicationLibrary/` would join the *app* target, where
+//  `import XCTest` fails the build.
+//
+//  It was previously kept under `scripts/dev/`, on the mistaken belief that the target had to be
+//  added to `project.pbxproj` by hand first. `scripts/dev/` belongs to no synchronized group, so the
+//  file was never compiled: `build-for-testing` reported success while the class was absent from the
+//  built bundle. Verified by symbol - `strings SFIUITests | grep HakoNavigationUITests` was 0 from
+//  scripts/dev and is non-zero from here.
 //
 //  # What these assert
 //
