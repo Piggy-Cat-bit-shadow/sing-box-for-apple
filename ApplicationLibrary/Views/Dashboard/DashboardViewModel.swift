@@ -50,7 +50,16 @@ public final class DashboardViewModel: BaseViewModel {
         if Variant.screenshotMode {
             profileList = [
                 ProfilePreview(Profile(id: 0, name: "profile local", type: .local, path: "")),
-                ProfilePreview(Profile(id: 1, name: "profile remote", type: .remote, path: "", lastUpdated: Date(timeIntervalSince1970: 0))),
+                // A plausible last-updated time. This was the 1970 epoch, so every capture of
+                // this page read "56 years ago" - a fixture that made the page it exists to
+                // photograph look broken.
+                ProfilePreview(Profile(
+                    id: 1,
+                    name: "profile remote",
+                    type: .remote,
+                    path: "",
+                    lastUpdated: Date().addingTimeInterval(-3600 * 5)
+                )),
             ]
             systemProxyAvailable = true
             systemProxyEnabled = true

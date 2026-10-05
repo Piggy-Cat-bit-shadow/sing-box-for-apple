@@ -229,6 +229,22 @@
         }
       }
     },
+    "Add Configuration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加配置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增設定"
+          }
+        }
+      }
+    },
     "Add DNS server IP": {
       "localizations": {
         "fa": {
@@ -3979,6 +3995,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "完成"
+          }
+        }
+      }
+    },
+    "Done Editing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成编辑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成編輯"
           }
         }
       }
@@ -14337,6 +14369,22 @@
         }
       }
     },
+    "Update All": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部更新"
+          }
+        }
+      }
+    },
     "Update Settings": {
       "localizations": {
         "fa": {
@@ -14389,6 +14437,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新通道"
+          }
+        }
+      }
+    },
+    "Updating": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新"
           }
         }
       }

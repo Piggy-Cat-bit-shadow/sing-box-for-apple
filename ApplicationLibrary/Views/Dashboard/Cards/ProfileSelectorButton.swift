@@ -30,6 +30,9 @@ struct ProfileSelectorButton: View {
         .buttonStyle(.plain)
         .selectorBackground()
         #endif
+        .accessibilityIdentifier("hako.profile.select")
+        .accessibilityLabel(Text("Profile"))
+        .accessibilityValue(Text(selectedItem?.name ?? String(localized: "Select Profile")))
     }
 
     private var buttonHeight: CGFloat {

@@ -218,6 +218,43 @@ final class HakoSnapshotUITests: XCTestCase {
     /// Reached through the profile card's own add control. That control had no
     /// accessibility label at all - an icon-only button that VoiceOver could not name - so
     /// this case could not reach the sheet until the control was labelled.
+    /// The configuration centre: the modal that lists this client's configurations.
+    ///
+    /// The manual's golden sample for this page is a complex modal - its own chrome, a
+    /// configuration card carrying progress, an update-all action and the ways in - so the
+    /// harness has to be able to open it before anything about it can be judged.
+    func test51ConfigurationCentre() {
+        tab("hako.tab.home").tap()
+        tap("hako.profile.select")
+        sleep(2)
+        snapshot("51_ConfigurationCentre")
+
+        // The manual's modal chrome is a close on the leading side, a centred title and the
+        // page's own actions on the trailing side. The centre had no close control at all:
+        // the only way out was to drag the sheet down.
+        let close = app.buttons["hako.nav.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "a modal must offer a way to close it")
+        XCTAssertTrue(close.isHittable, "the close control must be reachable")
+
+        // The manual's configuration card carries an update-all action, and it should exist
+        // exactly when there is a remote configuration to fetch.
+        XCTAssertTrue(
+            app.buttons["Update All"].waitForExistence(timeout: 10),
+            "a page with a remote configuration must offer to update them all"
+        )
+
+        let add = app.buttons["Add Configuration"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "the centre must offer a way to add one")
+        add.tap()
+        sleep(2)
+        snapshot("52_AddConfigurationFromCentre")
+
+        XCTAssertTrue(
+            app.buttons["hako.nav.close"].waitForExistence(timeout: 10),
+            "the add flow is itself a modal and must also be closeable"
+        )
+    }
+
     func test50AddConfiguration() {
         tab("hako.tab.home").tap()
         tap("hako.profile.add")

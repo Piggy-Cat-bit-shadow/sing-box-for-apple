@@ -21,6 +21,8 @@ struct ProfilePickerSheet: View {
     #endif
     @State private var profileToEdit: Profile?
     @State private var alert: AlertState?
+    @State private var showNewProfile = false
+    @State private var isUpdatingAll = false
     #if os(tvOS)
         @FocusState private var focusedProfileID: Int64?
         @State private var movingProfileID: Int64?
@@ -54,9 +56,47 @@ struct ProfilePickerSheet: View {
             iOSListContent
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
-                        EditButton()
+                        // Add and edit belong together in one capsule, which is how the rest
+                        // of this client presents a page's own actions. The add control used
+                        // to exist only on the Home card, so a user already looking at their
+                        // configurations had to close this sheet to add one.
+                        HakoActionGroup {
+                            if !remoteProfiles.isEmpty {
+                                HakoActionItem(
+                                    systemImage: "arrow.clockwise",
+                                    label: String(localized: "Update All"),
+                                    isBusy: isUpdatingAll
+                                ) {
+                                    Task {
+                                        await updateAllProfiles()
+                                    }
+                                }
+                            }
+                            HakoActionItem(
+                                systemImage: "plus",
+                                label: String(localized: "Add Configuration")
+                            ) {
+                                showNewProfile = true
+                            }
+                            HakoActionItem(
+                                systemImage: editMode.isEditing ? "checkmark" : "pencil",
+                                label: editMode.isEditing
+                                    ? String(localized: "Done")
+                                    : String(localized: "Edit")
+                            ) {
+                                withAnimation {
+                                    editMode = editMode.isEditing ? .inactive : .active
+                                }
+                            }
+                        }
                     }
                 }
+                .sheet(isPresented: $showNewProfile, onDismiss: {
+                    environments.profileUpdate.send()
+                }, content: {
+                    ProfileCard.NewProfileNavigationView()
+                        .environmentObject(environments)
+                })
                 .sheet(item: $profileToEdit) { profile in
                     NavigationSheet(title: "Edit Profile") {
                         EditProfileView()
@@ -418,6 +458,27 @@ struct ProfilePickerSheet: View {
         }
     }
 
+    /// The remote configurations this page can fetch.
+    private var remoteProfiles: [ProfilePreview] {
+        profileList.filter { $0.type == .remote }
+    }
+
+    /// Fetch every remote configuration.
+    ///
+    /// The same call a single row makes, once per remote configuration. It reports progress
+    /// through the page's own state, so the rows say what is happening rather than the page
+    /// going quiet for as long as the slowest download takes.
+    private func updateAllProfiles() async {
+        guard !isUpdatingAll else {
+            return
+        }
+        isUpdatingAll = true
+        defer { isUpdatingAll = false }
+        for profile in remoteProfiles {
+            await updateProfile(profile)
+        }
+    }
+
     private func moveProfile(from source: IndexSet, to destination: Int) {
         profileList.move(fromOffsets: source, toOffset: destination)
         for (index, profile) in profileList.enumerated() {
@@ -663,6 +724,23 @@ private struct ProfilePickerRow: View {
                 .actionButtonStyle()
                 .disabled(isUpdating)
                 .padding(.trailing, 12)
+                // A remote configuration that is being fetched reports it.
+                //
+                // The row only disabled itself and hid its menu, so a configuration that
+                // takes a while to download looked like one that had simply stopped
+                // responding - the manual's configuration card carries progress and expiry,
+                // and this is the progress half. The spinner takes the menu's place rather
+                // than sitting beside it, because the menu is not usable while it runs.
+                .opacity(isUpdating ? 0 : 1)
+                .overlay(alignment: .trailing) {
+                    if isUpdating {
+                        ProgressView()
+                            .controlSize(.small)
+                            .padding(.trailing, 24)
+                            .accessibilityIdentifier("hako.profile.updating.\(profile.id)")
+                            .accessibilityLabel(Text("Updating"))
+                    }
+                }
             }
         }
 
