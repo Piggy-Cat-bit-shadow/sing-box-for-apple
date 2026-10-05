@@ -435,6 +435,49 @@ final class HakoSnapshotUITests: XCTestCase {
         )
     }
 
+    /// The activity rows against the manual's high-density cases (§44).
+    ///
+    /// The manual names the values a row must survive — a long domain, an IPv6 literal, a
+    /// Chinese rule, a long outbound chain, several badges, a large traffic value, zero bytes —
+    /// and the ways it must not fail: a metric that squeezes the domain out, a badge that
+    /// overflows, an IPv6 literal that cannot be read, a route that overlaps the numbers. The
+    /// row renders this client's own `Connection` struct, so those values can be seeded at the
+    /// display layer, which is where they are laid out.
+    func test43ActivityDataDensity() {
+        launch(state: "activity")
+        tab("hako.tab.home").tap()
+        tap("hako.home.connections")
+
+        XCTAssertTrue(
+            app.textFields["hako.activity.search"].waitForExistence(timeout: 20),
+            "the activity workspace must open"
+        )
+        sleep(2)
+        snapshot("43_ActivityData")
+
+        // The values reached the screen rather than being dropped before layout. A truncated
+        // label still reports its full text, so this asserts presence; whether it is readable
+        // at the width it has is what the capture is for.
+        let expected = [
+            "very-long-subdomain-name.analytics.example-corporation-internal",
+            "[2001:db8:85a3::8a2e:370:7334]:443",
+            "assets.测试站点.中国",
+        ]
+        let labels = app.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " ")
+        for value in expected {
+            XCTAssertTrue(
+                labels.contains(value),
+                "the row must carry \(value); the page showed: \(labels.prefix(600))"
+            )
+        }
+
+        // Four rows, so the list rendered rather than the empty state.
+        XCTAssertFalse(
+            app.staticTexts["No connections"].exists,
+            "a seeded page must not show the empty state"
+        )
+    }
+
     // MARK: - Modal
 
     /// The configuration sheet: its three ways in are action tiles, not rows.

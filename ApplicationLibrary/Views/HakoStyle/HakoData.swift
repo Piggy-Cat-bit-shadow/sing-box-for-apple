@@ -210,11 +210,18 @@ public struct HakoDataRow<Leading: View, Trailing: View>: View {
                     .textSelection(.enabled)
 
                 if let route, !route.isEmpty {
+                    // Two lines, truncating at the end rather than in the middle.
+                    //
+                    // A route is composed of parts in reading order - the outbound chain, then
+                    // the rule that chose it, then the inbound - and a middle truncation drops
+                    // whatever is in the middle of that string, which is the rule as soon as the
+                    // chain is long. `proxy-b / proxy-a...IP,CN` names neither the rule nor which
+                    // part was lost. Truncating at the end loses only the tail.
                     Text(route)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .truncationMode(.middle)
-                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .lineLimit(2)
                         .layoutPriority(1)
                         .textSelection(.enabled)
                 }

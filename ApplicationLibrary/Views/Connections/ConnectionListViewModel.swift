@@ -68,6 +68,71 @@ public class ConnectionDataModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// The manual's high-density cases, as display rows.
+    ///
+    /// §44 names the values an activity row must survive and the ways it must not fail: a metric
+    /// that squeezes the domain out, a badge that overflows, an IPv6 literal that cannot be read,
+    /// a route that overlaps the numbers. A `LibboxConnection` is a Go-backed object and cannot
+    /// be fabricated, but the row renders `Connection`, which is this client's own struct - so
+    /// the hostile values go in at the display layer, which is where they are laid out.
+    func seedDataDensityFixture() {
+        func make(_ id: String, domain: String, ipVersion: Int32, network: String, protocolName: String,
+                  rule: String, outbound: String, chain: [String], up: Int64, down: Int64,
+                  upTotal: Int64, downTotal: Int64, closed: Bool = false) -> Connection {
+            Connection(
+                id: id,
+                inbound: "tun-in",
+                inboundType: "tun",
+                ipVersion: ipVersion,
+                network: network,
+                source: ipVersion == 6 ? "[fd00::1]:51234" : "192.168.1.24:51234",
+                destination: domain,
+                domain: domain,
+                displayDestination: domain,
+                protocolName: protocolName,
+                user: "",
+                fromOutbound: outbound,
+                createdAt: Date().addingTimeInterval(-120),
+                closedAt: closed ? Date() : nil,
+                upload: up,
+                download: down,
+                uploadTotal: upTotal,
+                downloadTotal: downTotal,
+                rule: rule,
+                outbound: outbound,
+                outboundType: "shadowsocks",
+                chain: chain
+            )
+        }
+
+        connections = [
+            // A long domain, a long protocol name and three badges.
+            make("d1",
+                 domain: "very-long-subdomain-name.analytics.example-corporation-internal.example.com",
+                 ipVersion: 4, network: "tcp", protocolName: "shadowsocks-2022-blake3-aes-256-gcm",
+                 rule: "DOMAIN-SUFFIX,example.com", outbound: "Proxy Group With A Long Name",
+                 chain: ["direct", "proxy-a", "proxy-b", "Proxy Group With A Long Name"],
+                 up: 12_345_678, down: 9_876_543_210, upTotal: 1_234_567_890, downTotal: 12_345_678_901),
+            // An IPv6 literal.
+            make("d2", domain: "[2001:db8:85a3::8a2e:370:7334]:443",
+                 ipVersion: 6, network: "tcp", protocolName: "",
+                 rule: "IP-CIDR6,2001:db8::/32", outbound: "direct", chain: ["direct"],
+                 up: 0, down: 512, upTotal: 0, downTotal: 512),
+            // A Chinese rule and zero traffic.
+            make("d3", domain: "assets.测试站点.中国",
+                 ipVersion: 4, network: "udp", protocolName: "",
+                 rule: "域名后缀:中国", outbound: "direct", chain: ["direct"],
+                 up: 0, down: 0, upTotal: 0, downTotal: 0),
+            // Kilobyte and megabyte order values, closed.
+            make("d4", domain: "cdn.example.net",
+                 ipVersion: 4, network: "tcp", protocolName: "http",
+                 rule: "GEOIP,CN", outbound: "proxy-a", chain: ["proxy-a", "proxy-b"],
+                 up: 1_024, down: 1_048_576, upTotal: 98_304, downTotal: 734_003_200, closed: true),
+        ]
+        updateFilteredConnections()
+        finishLoading()
+    }
+
     func finishLoading() {
         if isLoading {
             isLoading = false
@@ -175,7 +240,11 @@ public class ConnectionListViewModel: BaseViewModel {
         commandClient.connect()
 
         if Variant.screenshotMode {
-            dataModel.finishLoading()
+            if Variant.screenshotState == "activity" {
+                dataModel.seedDataDensityFixture()
+            } else {
+                dataModel.finishLoading()
+            }
             return
         }
 
