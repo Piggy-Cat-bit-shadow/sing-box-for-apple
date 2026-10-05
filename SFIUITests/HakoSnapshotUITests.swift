@@ -216,6 +216,44 @@ final class HakoSnapshotUITests: XCTestCase {
         snapshot("30_ReportInboxEmpty")
     }
 
+    /// The report list and one report, which no fixture could reach before.
+    ///
+    /// The fixture now archives a report through the archive's real writer, so the list has a
+    /// row, the read view has real files behind it, and both are exercised end to end. Until
+    /// this existed the report pages were the one part of the client that built, ran, and had
+    /// never been looked at.
+    func test32ReportListAndDetail() {
+        tab("hako.tab.tools").tap()
+        tap("hako.tools.crashReports")
+
+        // The list is no longer empty, which is the whole point of the fixture.
+        let rows = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "hako.report."))
+        XCTAssertTrue(
+            rows.firstMatch.waitForExistence(timeout: 20),
+            "the fixture's report must appear in the list"
+        )
+        snapshot("32_ReportList")
+
+        // The empty-state footnote explains an empty page, so it must not be on this one.
+        XCTAssertFalse(
+            app.staticTexts["You will receive a report when a crash occurs."].exists,
+            "a page with a report on it must not explain what happens when there is one"
+        )
+
+        rows.firstMatch.tap()
+
+        // Asserted on something only the read view has. The back control is on *both* pages -
+        // the list is pushed too - so asserting it proved nothing, and the first version of
+        // this case passed a tap that had not navigated anywhere.
+        XCTAssertTrue(
+            app.staticTexts["Files"].waitForExistence(timeout: 20),
+            "the report must open as a read view listing its artifacts"
+        )
+        sleep(1)
+        snapshot("33_ReportDetail")
+    }
+
     // MARK: - Workspaces
 
     func test40ProxiesCollapsed() {

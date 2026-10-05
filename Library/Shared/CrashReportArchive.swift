@@ -71,6 +71,15 @@ public struct CrashReportArtifactContents {
 }
 
 public enum ReportArchive {
+    /// Marks a report the screenshot fixture wrote.
+    ///
+    /// The fixture archives a report through the real writer so that the list and the read
+    /// views can be looked at with real files behind them, and this is what keeps that report
+    /// out of a normal run: `scanCrashReports` skips a directory carrying it unless the app
+    /// was launched as the fixture. Without it, a developer's own simulator would show a
+    /// crash that never happened.
+    public static let fixtureMarkerFileName = ".hako-fixture"
+
     public static let readMarkerFileName = ".read"
     public static let metadataFileName = "metadata.json"
     public static let configFileName = "configuration.json"

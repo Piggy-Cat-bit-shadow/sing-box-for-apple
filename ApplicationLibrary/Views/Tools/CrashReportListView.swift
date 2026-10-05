@@ -21,7 +21,14 @@ public struct CrashReportListView: View {
     public var body: some View {
         HakoReportScaffold(title: String(localized: "Crash Report")) {
             if !isLoading {
-                HakoSettingsSection("Reports", footnote: "You will receive a report when a crash occurs.") {
+                HakoSettingsSection(
+                    "Reports",
+                    // The footnote explains the empty page. Under a list that has a report in
+                    // it, it says the opposite of what the reader can see.
+                    footnote: manager.reports.isEmpty
+                        ? "You will receive a report when a crash occurs."
+                        : nil
+                ) {
                     if manager.reports.isEmpty {
                         HakoCardEmptyState(
                             symbol: "ladybug.fill",
@@ -43,6 +50,7 @@ public struct CrashReportListView: View {
                                 } label: {
                                     reportLabel(report)
                                 }
+                                .accessibilityIdentifier("hako.report.\(report.id)")
                             #endif
                         }
                     }

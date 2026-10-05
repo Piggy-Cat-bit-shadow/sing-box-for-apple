@@ -34,7 +34,92 @@ public class CrashReportManager: ObservableObject {
 
     public init() {}
 
+    /// Archive one plausible report, through the archive's own writer.
+    ///
+    /// No fixture reached a report, so the report list and the read views had never been
+    /// looked at: they built and they ran, and nobody had seen them. Writing the fixture with
+    /// the real writer rather than by stubbing the manager means the list, the file list and
+    /// the readers all run their real code over real files.
+    private nonisolated static func seedScreenshotFixtureIfNeeded() {
+        guard Variant.screenshotMode else { return }
+        let dir = CrashReportArchive.crashReportsDirectory
+        // The archive names a report after its timestamp, so the question is whether any
+        // report already carries the marker - not whether its name looks like a fixture's.
+        let alreadySeeded = ((try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: nil
+        )) ?? []).contains {
+            FileManager.default.fileExists(
+                atPath: $0.appendingPathComponent(ReportArchive.fixtureMarkerFileName).path
+            )
+        }
+        guard !alreadySeeded else {
+            return
+        }
+        let contents = CrashReportArtifactContents(
+            goLog: """
+            panic: runtime error: invalid memory address or nil pointer dereference
+            [signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x104a2b3c8]
+
+            goroutine 42 [running]:
+            github.com/sagernet/sing-box/route.(*Router).RouteConnection(0x0, {0x1400028c000, 0x1400028c060})
+            \t/Users/build/sing-box/route/router.go:412 +0x1a8
+            github.com/sagernet/sing-box/experimental/clashapi.(*Server).HandleConnection(0x1400031a000, 0x1400028c000)
+            \t/Users/build/sing-box/experimental/clashapi/server.go:88 +0x64
+            created by github.com/sagernet/sing-box/experimental/clashapi.(*Server).Start in goroutine 1
+            \t/Users/build/sing-box/experimental/clashapi/server.go:61 +0x128
+            """,
+            nativeLog: """
+            Incident Identifier:  8C1D4E2A-6F31-4B77-9E2C-1A5F0D3B7C44
+            CrashReporter Key:    5f2c9a1e8b7d4c6a3e0f9b2d8c1a4e7f6b3d0c9a
+            Process:              sing-box [1042]
+            Path:                 /private/var/containers/Bundle/Application/…/sing-box.app/sing-box
+            Exception Type:       EXC_BAD_ACCESS (SIGSEGV)
+            Exception Subtype:    KERN_INVALID_ADDRESS at 0x0000000000000000
+            Termination Reason:   Namespace SIGNAL, Code 11 Segmentation fault: 11
+            """,
+            configContent: """
+            {
+              "log": { "level": "info", "output": "sing-box.log" },
+              "inbounds": [{ "type": "tun", "tag": "tun-in", "auto_route": true }],
+              "outbounds": [
+                { "type": "selector", "tag": "proxy", "outbounds": ["direct"] },
+                { "type": "direct", "tag": "direct" }
+              ],
+              "route": { "final": "proxy" }
+            }
+            """
+        )
+        let metadata = CrashReportMetadata(
+            source: "NetworkExtension",
+            bundleIdentifier: AppConfiguration.packetTunnelBundleIDs.first ?? "io.nekohasekai.sfa.packet-tunnel",
+            processName: "sing-box",
+            appVersion: "1.12.0",
+            appMarketingVersion: "1.12.0",
+            coreVersion: "1.12.0",
+            goVersion: "go1.26.6",
+            crashedAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-1800)),
+            signalName: "SIGSEGV",
+            signalCode: "SEGV_MAPERR",
+            exceptionName: "EXC_BAD_ACCESS",
+            exceptionReason: "KERN_INVALID_ADDRESS at 0x0",
+            deviceOrigin: "This Device"
+        )
+        guard let url = try? CrashReportArchive.writeArchivedReport(
+            contents: contents,
+            date: Date().addingTimeInterval(-1800),
+            metadata: metadata
+        ) else {
+            return
+        }
+        try? FileManager.default.createFile(
+            atPath: url.appendingPathComponent(ReportArchive.fixtureMarkerFileName).path,
+            contents: nil
+        )
+    }
+
     public nonisolated func refresh() async {
+        Self.seedScreenshotFixtureIfNeeded()
         let reports = await BlockingIO.run {
             Self.archivePendingCrashLogs()
             Self.importPendingNativeCrashReports()
@@ -192,6 +277,11 @@ public class CrashReportManager: ObservableObject {
         return files
             .filter {
                 (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            }
+            .filter { url in
+                // A report the fixture wrote is only a report while the fixture is running.
+                let marker = url.appendingPathComponent(ReportArchive.fixtureMarkerFileName)
+                return Variant.screenshotMode || !FileManager.default.fileExists(atPath: marker.path)
             }
             .compactMap { url -> CrashReport? in
                 let date = CrashReportArchive.crashDate(for: url)
