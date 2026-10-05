@@ -37,8 +37,11 @@ public struct RemoteControlView: View {
                     }
                 } else if !isLoading {
                     Section("Servers") {
-                        Text("No servers")
-                            .foregroundColor(.secondary)
+                        HakoEmptyState(
+                            symbol: "server.rack",
+                            title: "No servers",
+                            message: "Add a remote server to control this client from another device."
+                        )
                     }
                 }
                 Section {
