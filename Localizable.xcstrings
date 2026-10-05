@@ -6524,6 +6524,22 @@
         }
       }
     },
+    "Import Configuration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入配置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入設定"
+          }
+        }
+      }
+    },
     "Import Profile": {
       "localizations": {
         "fa": {
@@ -8493,6 +8509,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "對匹配的域名不連接 VPN。"
+          }
+        }
+      }
+    },
+    "New Configuration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建配置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增設定"
           }
         }
       }

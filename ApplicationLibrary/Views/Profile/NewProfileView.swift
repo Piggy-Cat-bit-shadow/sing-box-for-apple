@@ -159,7 +159,9 @@ public struct NewProfileView: View {
     #if os(macOS)
         private var macOSBody: some View {
             VStack(alignment: .leading, spacing: 0) {
-                Text(viewModel.isImport ? "Import Profile" : "New Profile")
+                Text(viewModel.isImport
+                    ? String(localized: "Import Configuration")
+                    : String(localized: "New Configuration"))
                     .font(.headline)
                     .padding(.horizontal, 20)
                     .padding(.top, 20)
@@ -211,7 +213,6 @@ public struct NewProfileView: View {
     #else
         private var iOSBody: some View {
             formContent
-                .navigationTitle("New Profile")
                 .disabled(viewModel.isSaving)
                 .alert($viewModel.alert)
                 .onChangeCompat(of: viewModel.createSucceeded) { newValue in

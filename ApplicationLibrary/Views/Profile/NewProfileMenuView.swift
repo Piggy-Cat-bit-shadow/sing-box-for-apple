@@ -135,6 +135,10 @@ public struct NewProfileMenuView: View {
                             $manualCreateSucceeded.wrappedValue = true
                         })
                         .environmentObject(environments)
+                        // The push supplies the chrome, as every other pushed page's
+                        // presenter does. Without it the editor wore the platform's own
+                        // back control and the platform's title.
+                        .hakoNavigationChrome(title: String(localized: "New Configuration"))
                     }
                 #endif
             }

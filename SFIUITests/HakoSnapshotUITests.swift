@@ -349,6 +349,29 @@ final class HakoSnapshotUITests: XCTestCase {
     /// Reached through the profile card's own add control. That control had no
     /// accessibility label at all - an icon-only button that VoiceOver could not name - so
     /// this case could not reach the sheet until the control was labelled.
+    /// The manual editor, the last surface a fixture can reach that had not been looked at
+    /// large. It is a form of typed fields rather than a list of rows, which is why it is not
+    /// covered by the settings-page pass.
+    func test53ManualEditor() {
+        tab("hako.tab.home").tap()
+        tap("hako.profile.add")
+        sleep(1)
+        tap("Create Manually")
+        sleep(3)
+        // Captured before the assertion: when a navigation is in question, what is on the
+        // screen afterwards is the evidence, and an assertion only tells you it was wrong.
+        snapshot("53_AfterCreateManually")
+        // A back control, not a close: the editor is *pushed inside* the modal, so the
+        // platform's back control is the right one and asserting on the close was asserting
+        // the wrong thing - which is what the first version of this case did.
+        XCTAssertTrue(
+            app.navigationBars.buttons["hako.nav.back"].waitForExistence(timeout: 20),
+            "the manual editor must open as a page inside the modal"
+        )
+        sleep(1)
+        snapshot("53_ManualEditor")
+    }
+
     /// The configuration centre: the modal that lists this client's configurations.
     ///
     /// The manual's golden sample for this page is a complex modal - its own chrome, a
