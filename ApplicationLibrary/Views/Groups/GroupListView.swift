@@ -209,7 +209,7 @@ public struct GroupListView: View {
                     latencyTint: item.delayColor,
                     isSelected: group.selected == item.tag,
                     isSelectable: group.selectable,
-                    isTesting: false,
+                    isTesting: viewModel.testingItems.contains(item.tag),
                     onSelect: {
                         guard group.selectable, group.selected != item.tag else { return }
                         viewModel.selectOutbound(groupTag: group.tag, outboundTag: item.tag)

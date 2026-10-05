@@ -315,6 +315,7 @@ public struct ToolsView: View {
                         )
                     }
                     .buttonStyle(HakoPushRowButtonStyle())
+                    .accessibilityIdentifier("hako.tools.crashReports")
                     .onReceive(NotificationCenter.default.publisher(for: .reportReceived)) { notification in
                         Task {
                             try? await Task.sleep(nanoseconds: NSEC_PER_MSEC * 300)
@@ -342,6 +343,7 @@ public struct ToolsView: View {
                         )
                     }
                     .buttonStyle(HakoPushRowButtonStyle())
+                    .accessibilityIdentifier("hako.tools.oomReports")
                     HakoRowDivider()
                     NavigationLink(isActive: $showPowerReportList) {
                         PowerReportListView()
@@ -354,6 +356,7 @@ public struct ToolsView: View {
                         )
                     }
                     .buttonStyle(HakoPushRowButtonStyle())
+                    .accessibilityIdentifier("hako.tools.powerReports")
                 #else
                     FormNavigationLink {
                         CrashReportListView()

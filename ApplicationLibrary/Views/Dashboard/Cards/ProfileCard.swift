@@ -154,13 +154,22 @@ public struct ProfileCard: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 16))
-                    .frame(width: 44, height: 32)
+                    // The visual glyph is 16pt; the target is 44 by 32. An icon-only control
+                    // with no label is invisible to VoiceOver, and this one had neither a
+                    // label nor an identifier - so it was also the one control the snapshot
+                    // harness could not reach.
+                    .frame(
+                        minWidth: HakoTheme.Control.minimumHitTarget,
+                        minHeight: HakoTheme.Spacing.standard * 2
+                    )
                     .contentShape(Rectangle())
             }
             #if !os(tvOS)
             .buttonStyle(.plain)
             #endif
             .actionButtonStyle()
+            .accessibilityIdentifier("hako.profile.add")
+            .accessibilityLabel(Text("Add Profile"))
         }
     }
 

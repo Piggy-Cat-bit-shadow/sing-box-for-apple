@@ -713,12 +713,20 @@ public struct HakoWorkspaceScaffold<Tabs: View, Content: View, Actions: View>: V
     private let actions: Actions
     private let content: Content
     private let search: HakoWorkspaceSearch?
+    /// Whether a pinned top bar is applied at all.
+    ///
+    /// A page with no strip must not get an empty pinned bar: `safeAreaBar` given an empty
+    /// view still takes the bar's slot, and the scroll view below it was laid out with no
+    /// height - the proxy sheet rendered its chrome, its search field and nothing else.
+    /// That is why this is a property of the initializer rather than a runtime check.
+    private let pinsTopBar: Bool
 
     public init(
         title: String,
         leading: HakoNavigationLeadingControl = .back,
         palette: HakoProductPalette = .system,
         search: HakoWorkspaceSearch? = nil,
+        pinsTopBar: Bool = true,
         @ViewBuilder tabs: () -> Tabs,
         @ViewBuilder actions: () -> Actions,
         @ViewBuilder content: () -> Content
@@ -730,6 +738,7 @@ public struct HakoWorkspaceScaffold<Tabs: View, Content: View, Actions: View>: V
         self.tabs = tabs()
         self.actions = actions()
         self.content = content()
+        self.pinsTopBar = pinsTopBar
     }
 
     public var body: some View {
@@ -744,7 +753,7 @@ public struct HakoWorkspaceScaffold<Tabs: View, Content: View, Actions: View>: V
     }
 
     private var scrollingBody: some View {
-        ScrollView {
+        let scrolling = ScrollView {
             VStack(alignment: .leading, spacing: HakoTheme.Layout.cardSpacing) {
                 content
             }
@@ -753,15 +762,24 @@ public struct HakoWorkspaceScaffold<Tabs: View, Content: View, Actions: View>: V
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .hakoScrollDismissesKeyboard()
+
         // Pinned, not scrolled: the reference's `hakoPinnedTopBar`. A strip that scrolls
         // away cannot be used to change lens halfway down a long list.
-        .hakoPinnedTopBar {
-            tabs
+        return Group {
+            if pinsTopBar {
+                scrolling.hakoPinnedTopBar { tabs }
+            } else {
+                scrolling
+            }
         }
     }
 }
 
 public extension HakoWorkspaceScaffold where Tabs == EmptyView, Actions == EmptyView {
+    /// A workspace with neither a strip nor its own actions.
+    ///
+    /// A separate initializer rather than a call to the full one, because the full one pins
+    /// the top bar and an empty pinned bar takes the whole scroll area with it.
     init(
         title: String,
         leading: HakoNavigationLeadingControl = .back,
@@ -774,6 +792,7 @@ public extension HakoWorkspaceScaffold where Tabs == EmptyView, Actions == Empty
             leading: leading,
             palette: palette,
             search: search,
+            pinsTopBar: false,
             tabs: { EmptyView() },
             actions: { EmptyView() },
             content: content
@@ -821,6 +840,8 @@ public extension HakoWorkspaceScaffold where Tabs == EmptyView {
             leading: leading,
             palette: palette,
             search: search,
+            // No tabs, so no pinned bar: an empty pinned bar takes the whole scroll area.
+            pinsTopBar: false,
             tabs: { EmptyView() },
             actions: actions,
             content: content

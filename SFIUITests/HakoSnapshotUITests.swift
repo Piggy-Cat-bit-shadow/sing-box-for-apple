@@ -111,16 +111,21 @@ final class HakoSnapshotUITests: XCTestCase {
 
     // MARK: - Reports
 
+    /// The report inbox's empty state, reached the way a user reaches it.
+    ///
+    /// This case used to open the remote-control page and go back, then capture Tools - it
+    /// never opened a report list at all, so it proved nothing about the thing it was named
+    /// for. It now opens the crash-report inbox, which is empty on a fresh fixture, and
+    /// captures the empty state.
     func test30ReportInboxEmpty() {
-        tab("hako.tab.more").tap()
-        tap("hako.more.remoteControl")
-        app.navigationBars.buttons["hako.nav.back"].tap()
-
-        // Diagnostics live on Tools. The inbox's empty state is the page the manual asks
-        // for: a report list with nothing in it must say so in the shared language.
         tab("hako.tab.tools").tap()
+        tap("hako.tools.crashReports")
+        XCTAssertTrue(
+            app.navigationBars.buttons["hako.nav.back"].waitForExistence(timeout: 15),
+            "the crash-report inbox must open"
+        )
         sleep(1)
-        snapshot("30_ToolsWithDiagnostics")
+        snapshot("30_ReportInboxEmpty")
     }
 
     // MARK: - Workspaces
@@ -157,16 +162,14 @@ final class HakoSnapshotUITests: XCTestCase {
 
     // MARK: - Modal
 
+    /// The configuration sheet: its three ways in are action tiles, not rows.
+    ///
+    /// Reached through the profile card's own add control. That control had no
+    /// accessibility label at all - an icon-only button that VoiceOver could not name - so
+    /// this case could not reach the sheet until the control was labelled.
     func test50AddConfiguration() {
         tab("hako.tab.home").tap()
-        // The profile card's own "+" is the way in; it is not part of the row vocabulary,
-        // so it is addressed by its symbol's label.
-        let add = app.buttons["Add"].firstMatch
-        if add.waitForExistence(timeout: 5) {
-            add.tap()
-        } else {
-            app.buttons.matching(identifier: "hako.home.groups").firstMatch.press(forDuration: 0)
-        }
+        tap("hako.profile.add")
         sleep(1)
         snapshot("50_AddConfiguration")
     }

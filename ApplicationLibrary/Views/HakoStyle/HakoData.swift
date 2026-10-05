@@ -376,12 +376,17 @@ public struct HakoSummaryMetric: View {
     }
 }
 
-/// The header of a proxy group, and the proxy group's own summary line.
+/// The header of a proxy group.
 ///
-/// The group is the unit of the proxy workspace: its name, how it chooses, which member
-/// it currently resolves to, how many members it has, and two actions - test, and open
-/// it in place. The selected member is shown here rather than only inside the expanded
-/// body because a collapsed group still has to answer "what am I using".
+/// Composed from the reference's `HakoProxyGroupHeader` at commit 62aa2f2f, in its card
+/// presentation: the group's name, and beneath it the strategy and the member it currently
+/// resolves to as one uppercase line (`SELECT · DIRECT` in the reference's own render),
+/// with the member count and the fold chevron together on the trailing side and the group
+/// test as its own control.
+///
+/// The two controls are separate on purpose. Tapping the header folds the group; tapping
+/// the test glyph measures every member. A single tap target for both is how a group gets
+/// folded when the user meant to test it, which the manual names as a defect.
 public struct HakoExpandableGroupRow: View {
     private let name: String
     private let strategy: String
@@ -416,22 +421,19 @@ public struct HakoExpandableGroupRow: View {
     }
 
     public var body: some View {
-        HStack(alignment: .center, spacing: HakoTheme.Spacing.row) {
-            // The disclosure control is a button of its own rather than the whole row,
-            // because the row also carries a test action: making the entire surface
-            // toggle is what makes a member tap expand a group instead of selecting a
-            // member.
+        HStack(alignment: .center, spacing: HakoTheme.Spacing.compact) {
             Button(action: onToggle) {
-                HStack(alignment: .center, spacing: HakoTheme.Spacing.row) {
-                    chevron
+                HStack(alignment: .center, spacing: HakoTheme.Spacing.compact) {
                     copy
                     Spacer(minLength: HakoTheme.Spacing.compact)
+                    countAndFold
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(HakoPushRowButtonStyle())
-            .accessibilityLabel(Text(isExpanded ? "Collapse" : "Expand"))
-            .accessibilityAddTraits(isExpanded ? [.isButton, .isSelected] : .isButton)
+            .accessibilityLabel(Text(name))
+            .accessibilityValue(isExpanded ? Text("Expanded") : Text("Collapsed"))
+            .accessibilityIdentifier("proxies.group.\(name)")
 
             if let onTest {
                 HakoActionItem(
@@ -446,54 +448,56 @@ public struct HakoExpandableGroupRow: View {
         .accessibilityElement(children: .contain)
     }
 
-    private var chevron: some View {
-        Image(systemName: "chevron.right")
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.tertiary)
-            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-            .frame(width: HakoTheme.Spacing.standard)
-            .accessibilityHidden(true)
+    /// The strategy and the current selection as one line, in the reference's voice: the
+    /// strategy alone when the group selects for itself, and `strategy · selection` when it
+    /// does not, because a group that chooses automatically has no selection to name.
+    private var summaryLine: String {
+        let strategyText = strategy.uppercased()
+        guard isSelectable, let selectedMember, !selectedMember.isEmpty else {
+            return strategyText
+        }
+        return "\(strategyText) · \(selectedMember.uppercased())"
     }
 
     private var copy: some View {
         VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
-            HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
-                Text(name)
-                    .font(HakoTheme.FontRole.dataPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                HakoBadge(strategy, role: .requirement)
-                Spacer(minLength: 0)
-                HakoBadge("\(memberCount)", role: .category)
-            }
+            Text(name)
+                .font(HakoTheme.FontRole.dataPrimary)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
-            if isSelectable, let selectedMember, !selectedMember.isEmpty {
-                HStack(spacing: HakoTheme.Spacing.tight) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(Color.accentColor)
-                        .accessibilityHidden(true)
-                    Text(selectedMember)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            } else if !isSelectable {
-                Text("Automatic selection")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Text(summaryLine)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    private var countAndFold: some View {
+        HStack(spacing: HakoTheme.Spacing.compact) {
+            Text("\(memberCount)")
+                .font(HakoTheme.FontRole.metric)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+
+            Image(systemName: "chevron.down")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                .accessibilityHidden(true)
         }
     }
 }
 
-/// A member of a proxy group, in the shared row language.
+/// A member of a proxy group, in the reference's card presentation.
 ///
-/// Selection is one tap and expansion is another control, deliberately: a member row
-/// that both selected and expanded was the "member tap triggers expand instead of
-/// select" defect the manual names.
+/// The selected member is marked by a tinted surface and a 3pt bar down its leading edge
+/// (`HakoProxyMemberCard`: `RoundedRectangle(cornerRadius: .control).fill(.tint.opacity(0.16))`
+/// plus a 3pt `.tint` bar), not by a checkmark moved from column to column. A grid of
+/// members is scanned left to right, and a mark that changes the row's leading inset as it
+/// moves makes every row in the column shift.
 public struct HakoProxyMemberRow: View {
     private let name: String
     private let protocolName: String
@@ -531,24 +535,48 @@ public struct HakoProxyMemberRow: View {
         HStack(spacing: HakoTheme.Spacing.compact) {
             Button(action: onSelect) {
                 HStack(spacing: HakoTheme.Spacing.compact) {
-                    HakoSelectionMark(isSelected: isSelected)
-                    Text(name)
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .layoutPriority(1)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(protocolName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     Spacer(minLength: HakoTheme.Spacing.tight)
                 }
+                .padding(.vertical, HakoTheme.Spacing.compact)
+                .padding(.leading, HakoTheme.Spacing.row)
+                .padding(.trailing, HakoTheme.Spacing.compact)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(HakoPushRowButtonStyle())
+            .buttonStyle(.plain)
             .disabled(!isSelectable)
             .accessibilityLabel(Text(name))
+            .accessibilityValue(isSelected ? Text("Selected") : Text(""))
+            .accessibilityIdentifier("proxies.member.\(name)")
+            .background(
+                RoundedRectangle(cornerRadius: HakoTheme.Radius.control, style: .continuous)
+                    .fill(isSelected
+                        ? AnyShapeStyle(Color.accentColor.opacity(0.16))
+                        : AnyShapeStyle(Color.clear))
+            )
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    .fill(Color.accentColor)
+                    .frame(width: 3)
+                    .padding(.vertical, 6)
+                    .opacity(isSelected ? 1 : 0)
+            }
 
-            HakoBadge(protocolName, role: .category)
-
-            if let latency {
+            if isTesting {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(minWidth: 44, minHeight: 44)
+            } else if let latency {
                 Text(latency)
                     .font(HakoTheme.FontRole.metric)
                     .foregroundStyle(latencyTint ?? .secondary)
@@ -561,13 +589,12 @@ public struct HakoProxyMemberRow: View {
                 HakoActionItem(
                     systemImage: "bolt.fill",
                     label: String(localized: "Test latency"),
-                    isBusy: isTesting,
+                    isBusy: false,
                     action: onTest
                 )
                 .frame(width: HakoTheme.Control.actionItemMinimumWidth)
             }
         }
-        .padding(.vertical, HakoTheme.Spacing.compact)
         .frame(minHeight: HakoTheme.Control.toggleRowMinHeight)
     }
 }

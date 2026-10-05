@@ -236,7 +236,8 @@ final class HakoNavigationUITests: XCTestCase {
         // element at all, so `app.sheets.firstMatch` never exists and the old form of this
         // test could only ever fail. The page's content is the observable consequence
         // anyway, and it is what a user sees.
-        let search = app.searchFields.firstMatch
+        // The workspace is a sheet, so it draws its own field rather than using the system's.
+        let search = app.textFields["hako.activity.search"]
         open.tap()
         XCTAssertTrue(search.waitForExistence(timeout: 30), "the Connections workspace must appear")
 
@@ -337,7 +338,7 @@ final class HakoNavigationUITests: XCTestCase {
         app.buttons["hako.home.connections"].tap()
 
         XCTAssertTrue(
-            app.searchFields.firstMatch.waitForExistence(timeout: 15),
+            app.textFields["hako.activity.search"].waitForExistence(timeout: 20),
             "the activity workspace must offer a search field"
         )
     }

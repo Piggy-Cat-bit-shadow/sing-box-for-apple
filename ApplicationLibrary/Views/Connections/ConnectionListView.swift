@@ -35,7 +35,13 @@ public struct ConnectionListView: View {
                 leading: Self.leadingControl,
                 search: HakoWorkspaceSearch(
                     text: $viewModel.searchText,
-                    prompt: "Search connections"
+                    prompt: "Search connections",
+                    // This workspace is presented as a sheet, and a sheet has no bottom bar
+                    // for the system's search field - the same reason the proxy sheet draws
+                    // its own. `.system` is for a page pushed inside a tab, which is how the
+                    // reference presents its Activity page and how this one is not.
+                    placement: Self.searchPlacement,
+                    accessibilityIdentifier: "hako.activity.search"
                 ),
                 actions: { actions },
                 content: { content }
@@ -66,6 +72,16 @@ public struct ConnectionListView: View {
             .close
         #else
             .none
+        #endif
+    }
+
+    private static var searchPlacement: HakoWorkspaceSearch.Placement {
+        #if os(iOS)
+            // Presented as a sheet on the touch client, so the field is drawn.
+            .bottomBar
+        #else
+            // A sidebar selection on the desktop, where the system field works.
+            .system
         #endif
     }
 
