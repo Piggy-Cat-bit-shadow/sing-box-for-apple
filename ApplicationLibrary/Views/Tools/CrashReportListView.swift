@@ -23,8 +23,11 @@ public struct CrashReportListView: View {
             if !isLoading {
                 Section {
                     if manager.reports.isEmpty {
-                        Text("Empty")
-                            .foregroundStyle(.secondary)
+                        HakoEmptyState(
+                            symbol: "exclamationmark.triangle",
+                            title: "Empty",
+                            message: "No crash reports have been recorded."
+                        )
                     } else {
                         ForEach(manager.reports) { report in
                             #if os(tvOS)

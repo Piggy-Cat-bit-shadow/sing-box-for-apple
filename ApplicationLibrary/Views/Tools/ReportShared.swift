@@ -58,9 +58,11 @@ struct ReportFileContentView: View {
                         }
                     }
             } else if content.isEmpty {
-                Text("Empty")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HakoEmptyState(
+                    symbol: "doc.text",
+                    title: "Empty",
+                    message: "This report has no content."
+                )
             } else {
                 PlainTextView(content: content)
             }

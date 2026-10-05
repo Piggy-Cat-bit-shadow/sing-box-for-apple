@@ -29,8 +29,11 @@ public struct PowerReportListView: View {
 
                 Section {
                     if manager.reports.isEmpty {
-                        Text("Empty")
-                            .foregroundStyle(.secondary)
+                        HakoEmptyState(
+                            symbol: "bolt.horizontal",
+                            title: "Empty",
+                            message: "No power reports have been recorded."
+                        )
                     } else {
                         ForEach(manager.reports) { report in
                             #if os(tvOS)

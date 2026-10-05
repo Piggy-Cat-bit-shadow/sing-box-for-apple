@@ -27,8 +27,11 @@ public struct OOMReportListView: View {
             if !isLoading {
                 Section {
                     if manager.reports.isEmpty {
-                        Text("Empty")
-                            .foregroundStyle(.secondary)
+                        HakoEmptyState(
+                            symbol: "memorychip",
+                            title: "Empty",
+                            message: "No memory reports have been recorded."
+                        )
                     } else {
                         ForEach(manager.reports) { report in
                             #if os(tvOS)

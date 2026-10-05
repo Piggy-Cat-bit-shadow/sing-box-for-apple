@@ -277,7 +277,7 @@ public struct ToolsView: View {
                     #endif
                     FormTextItem("Taiwan Flag Available", "touchid") {
                         if viewModel.isLoading {
-                            Text("Loading...")
+                            HakoEmptyState(symbol: "square.grid.2x2", title: "Loading...", isBusy: true)
                                 .onAppear {
                                     Task.detached {
                                         await viewModel.checkTaiwanFlagAvailability()

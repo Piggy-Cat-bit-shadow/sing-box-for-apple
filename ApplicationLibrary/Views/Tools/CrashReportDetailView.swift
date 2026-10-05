@@ -96,8 +96,11 @@ public struct CrashReportDetailView: View {
             if isLoading {
                 ProgressView()
             } else if files.isEmpty {
-                Text("Empty")
-                    .foregroundStyle(.secondary)
+                HakoEmptyState(
+                    symbol: "doc.text",
+                    title: "Empty",
+                    message: "This report has no content."
+                )
             }
         }
         .onAppear {
