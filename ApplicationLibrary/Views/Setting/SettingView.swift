@@ -300,7 +300,7 @@ public struct SettingView: View {
                         title: String(localized: "Documentation"),
                         subtitle: String(localized: "The manual for the core this client runs"),
                         systemImage: "doc.text.fill",
-                        accent: .blue
+                        accent: HakoAccentRole.neutral
                     ))
                 }
                 .buttonStyle(HakoPushRowButtonStyle())
@@ -310,7 +310,7 @@ public struct SettingView: View {
                         title: String(localized: "Source Code"),
                         subtitle: String(localized: "This client's repository"),
                         systemImage: "chevron.left.forwardslash.chevron.right",
-                        accent: .purple
+                        accent: HakoAccentRole.neutral
                     ))
                 }
                 .buttonStyle(HakoPushRowButtonStyle())
@@ -394,7 +394,7 @@ public struct SettingView: View {
                     title: String(localized: "On Demand"),
                     subtitle: String(localized: "When the tunnel connects and disconnects by itself"),
                     systemImage: "filemenu.and.selection",
-                    accent: .orange,
+                    accent: HakoAccentRole.neutral,
                     content: { AnyView(OnDemandRulesView()) }
                 ),
                 Destination(
@@ -402,7 +402,7 @@ public struct SettingView: View {
                     title: String(localized: "Tunnel"),
                     subtitle: String(localized: "What the system routes through the tunnel"),
                     systemImage: "aspectratio.fill",
-                    accent: .teal,
+                    accent: HakoAccentRole.neutral,
                     content: { AnyView(PacketTunnelView()) }
                 ),
                 Destination(
@@ -410,7 +410,7 @@ public struct SettingView: View {
                     title: String(localized: "Profile Override"),
                     subtitle: String(localized: "Routes the client adjusts for compatibility"),
                     systemImage: "square.dashed.inset.filled",
-                    accent: .purple,
+                    accent: HakoAccentRole.neutral,
                     content: { AnyView(ProfileOverrideView()) }
                 ),
             ]),
@@ -420,7 +420,7 @@ public struct SettingView: View {
                     title: String(localized: "Core"),
                     subtitle: String(localized: "Version and working directory"),
                     systemImage: "shippingbox.fill",
-                    accent: .indigo,
+                    accent: HakoAccentRole.neutral,
                     content: { AnyView(CoreView()) }
                 ),
             ]),
@@ -430,7 +430,7 @@ public struct SettingView: View {
                     title: String(localized: "Client Settings"),
                     subtitle: String(localized: "Language, menu bar, updates and caches"),
                     systemImage: "app.badge.fill",
-                    accent: .blue,
+                    accent: HakoAccentRole.neutral,
                     content: { AnyView(AppView()) }
                 ),
             ]),
@@ -440,7 +440,7 @@ public struct SettingView: View {
                     title: String(localized: "Remote Control"),
                     subtitle: String(localized: "Drive another device from this one"),
                     systemImage: "antenna.radiowaves.left.and.right",
-                    accent: .cyan,
+                    accent: HakoAccentRole.neutral,
                     content: { AnyView(RemoteControlView()) }
                 ),
             ]),

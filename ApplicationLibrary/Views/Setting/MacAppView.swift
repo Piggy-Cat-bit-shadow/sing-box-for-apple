@@ -159,7 +159,7 @@ public struct AppView: View {
                                 HakoToolRow(
                                     title: String(localized: "Terminal Appearance"),
                                     systemImage: "terminal.fill",
-                                    tint: .teal
+                                    tint: HakoAccentRole.neutral
                                 )
                             }
                         }

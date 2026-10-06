@@ -68,6 +68,10 @@ public enum HakoAccentRole: String, CaseIterable, Sendable {
     /// The system accent, for a primary action or a selected state - and for nothing
     /// decorative. Named so a page that wants "the main colour" does not reach for a literal.
     case primaryAction
+    /// An ordinary icon or a piece of auxiliary information. The review's colour rule: the accent
+    /// is for primary actions and selection, green for running, orange for warning, red for
+    /// danger - and everything else is neutral, rather than a colour per feature.
+    case neutral
     case blue
     case cyan
     case green
@@ -80,6 +84,7 @@ public enum HakoAccentRole: String, CaseIterable, Sendable {
     public var color: Color {
         switch self {
         case .primaryAction: .accentColor
+        case .neutral: .secondary
         case .blue: .blue
         case .cyan: .cyan
         case .green: .green

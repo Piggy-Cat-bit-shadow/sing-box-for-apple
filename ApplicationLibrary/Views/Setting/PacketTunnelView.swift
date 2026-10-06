@@ -177,7 +177,7 @@ struct PacketTunnelView: View {
                     title: String(localized: "Apple's tunnel routing reference"),
                     subtitle: String(localized: "How the system decides what a VPN routes"),
                     systemImage: "doc.text.fill",
-                    tint: HakoAccentRole.blue.color,
+                    tint: HakoAccentRole.neutral.color,
                     linksOut: true
                 )
             }

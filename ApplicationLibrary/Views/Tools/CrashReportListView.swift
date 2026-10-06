@@ -116,7 +116,7 @@ public struct CrashReportListView: View {
                     ? String(localized: "From Apple TV")
                     : String(localized: "From this device"),
                 systemImage: "ladybug.fill",
-                tint: HakoAccentRole.pink.color,
+                tint: HakoAccentRole.neutral.color,
                 badge: report.isRead ? nil : String(localized: "Unread"),
                 badgeEmphasis: .info
             )

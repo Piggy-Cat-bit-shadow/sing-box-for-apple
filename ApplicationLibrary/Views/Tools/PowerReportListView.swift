@@ -111,7 +111,7 @@ public struct PowerReportListView: View {
                     ? String(localized: "From Apple TV")
                     : String(localized: "From this device"),
                 systemImage: "battery.50percent",
-                tint: HakoAccentRole.green.color,
+                tint: HakoAccentRole.neutral.color,
                 badge: report.isRead ? nil : String(localized: "Unread"),
                 badgeEmphasis: .info
             )

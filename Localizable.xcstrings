@@ -321,6 +321,22 @@
         }
       }
     },
+    "Add Profile": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加配置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增設定"
+          }
+        }
+      }
+    },
     "Add SSID": {
       "localizations": {
         "fa": {
@@ -6171,26 +6187,19 @@
     },
     "Goroutines": {
       "localizations": {
-        "fa": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Goroutines"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Goroutines"
+            "value": "协程数"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Goroutines"
+            "value": "協程數"
           }
         }
-      },
-      "shouldTranslate": false
+      }
     },
     "Grant Full Disk Access to the app’s system extension, then continue.": {
       "localizations": {
@@ -7097,6 +7106,22 @@
         }
       }
     },
+    "Integrations": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "集成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整合"
+          }
+        }
+      }
+    },
     "Interface %lld": {
       "localizations": {
         "fa": {
@@ -7857,6 +7882,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "本機"
+          }
+        }
+      }
+    },
+    "Local file": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機檔案"
           }
         }
       }
@@ -9454,6 +9495,22 @@
         }
       }
     },
+    "Not Running": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未執行"
+          }
+        }
+      }
+    },
     "Not supported by server": {
       "localizations": {
         "fa": {
@@ -11028,26 +11085,19 @@
     },
     "Releases": {
       "localizations": {
-        "fa": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Releases"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Releases"
+            "value": "版本发布"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Releases"
+            "value": "版本發佈"
           }
         }
-      },
-      "shouldTranslate": false
+      }
     },
     "Remember SSH Options": {
       "localizations": {
@@ -11685,6 +11735,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "規則從上到下依次評估。第一個匹配的規則決定操作。"
+          }
+        }
+      }
+    },
+    "Running": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中"
           }
         }
       }
@@ -15023,6 +15089,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "未知訊息類型 %u"
+          }
+        }
+      }
+    },
+    "Unread": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未讀"
           }
         }
       }

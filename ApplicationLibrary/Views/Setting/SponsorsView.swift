@@ -17,7 +17,7 @@ public struct SponsorsView: View {
                         title: String(localized: "GitHub Sponsors (recommended)"),
                         subtitle: String(localized: "Recurring support through GitHub"),
                         systemImage: "heart.fill",
-                        tint: HakoAccentRole.pink.color,
+                        tint: HakoAccentRole.neutral.color,
                         linksOut: true
                     )
                 }
@@ -31,7 +31,7 @@ public struct SponsorsView: View {
                         title: String(localized: "Other methods"),
                         subtitle: String(localized: "Other ways to contribute"),
                         systemImage: "creditcard.fill",
-                        tint: HakoAccentRole.blue.color,
+                        tint: HakoAccentRole.neutral.color,
                         linksOut: true
                     )
                 }

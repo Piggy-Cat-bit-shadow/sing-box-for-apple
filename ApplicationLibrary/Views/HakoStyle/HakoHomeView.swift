@@ -350,7 +350,7 @@ public struct HakoHomeView: View {
                         title: selectedProfileName ?? String(localized: "No profile selected"),
                         subtitle: selectedProfileSummary,
                         systemImage: "doc.text.fill",
-                        tint: HakoAccentRole.teal.color
+                        tint: HakoAccentRole.neutral.color
                     )
                 }
                 .buttonStyle(HakoPushRowButtonStyle())
@@ -472,7 +472,7 @@ public struct HakoHomeView: View {
                     title: String(localized: "Proxies"),
                     subtitle: groupsSubtitle,
                     systemImage: "rectangle.3.group.fill",
-                    tint: HakoAccentRole.indigo.color,
+                    tint: HakoAccentRole.neutral.color,
                     identifier: "hako.home.groups",
                     action: actions.showGroups
                 )
@@ -482,7 +482,7 @@ public struct HakoHomeView: View {
                 title: String(localized: "Connections"),
                 subtitle: connectionsSubtitle,
                 systemImage: "list.bullet.rectangle.portrait.fill",
-                tint: HakoAccentRole.green.color,
+                tint: HakoAccentRole.neutral.color,
                 identifier: "hako.home.connections",
                 action: actions.showConnections
             )
@@ -491,7 +491,7 @@ public struct HakoHomeView: View {
                 title: String(localized: "Logs"),
                 subtitle: String(localized: "Tunnel output"),
                 systemImage: "list.bullet.rectangle",
-                tint: HakoAccentRole.orange.color,
+                tint: HakoAccentRole.neutral.color,
                 identifier: "hako.home.logs",
                 action: {
                     HakoUITrace.event("shortcut logs")

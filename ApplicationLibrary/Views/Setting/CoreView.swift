@@ -65,7 +65,7 @@ public struct CoreView: View {
 
     private var versionSection: some View {
         HakoSettingsSection {
-            HakoMetricRow(String(localized: "Version"), value: version, systemImage: "shippingbox.fill", tint: .indigo)
+            HakoMetricRow(String(localized: "Version"), value: version, systemImage: "shippingbox.fill", tint: .neutral)
             dataSizeRow
         }
     }
@@ -73,7 +73,7 @@ public struct CoreView: View {
     @ViewBuilder
     private var dataSizeRow: some View {
         if let dataSize {
-            HakoMetricRow(String(localized: "Data Size"), value: dataSize, systemImage: "internaldrive.fill", tint: .teal)
+            HakoMetricRow(String(localized: "Data Size"), value: dataSize, systemImage: "internaldrive.fill", tint: .neutral)
         } else if !dataSizeLoaded {
             HakoValueRow(String(localized: "Data Size")) {
                 ProgressView()
@@ -128,7 +128,7 @@ public struct CoreView: View {
                             title: String(localized: "Show in Finder"),
                             subtitle: nil,
                             systemImage: "folder.fill",
-                            tint: HakoAccentRole.blue.color,
+                            tint: HakoAccentRole.neutral.color,
                             showsDisclosure: false
                         )
                     }
@@ -146,7 +146,7 @@ public struct CoreView: View {
                             title: String(localized: "Browse in Files"),
                             subtitle: nil,
                             systemImage: "folder.fill",
-                            tint: HakoAccentRole.blue.color,
+                            tint: HakoAccentRole.neutral.color,
                             showsDisclosure: false
                         )
                     }

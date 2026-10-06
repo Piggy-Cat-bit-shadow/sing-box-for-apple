@@ -146,7 +146,7 @@ public struct ConnectionListView: View {
             HakoSummaryCard(
                 String(localized: "Connections"),
                 symbol: "arrow.left.arrow.right",
-                tint: .green
+                tint: HakoAccentRole.neutral
             ) {
                 HakoSummaryMetrics {
                     HakoSummaryMetric(

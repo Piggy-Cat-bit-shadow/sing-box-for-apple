@@ -147,7 +147,7 @@ public struct ToolsView: View {
                     title: String(localized: "Logs"),
                     subtitle: String(localized: "What the core is writing as it runs"),
                     systemImage: "list.bullet.rectangle",
-                    tint: HakoAccentRole.orange.color
+                    tint: HakoAccentRole.neutral.color
                 )
             }
             .buttonStyle(HakoPushRowButtonStyle())
@@ -172,7 +172,7 @@ public struct ToolsView: View {
                                         ? String(localized: "Tailscale")
                                         : String(localized: "Tailscale: \(endpoint.endpointTag)"),
                                     systemImage: "point.3.filled.connected.trianglepath.dotted",
-                                    tint: .indigo,
+                                    tint: HakoAccentRole.neutral,
                                     detail: endpoint.unreadFileCount > 0
                                         ? String(localized: "\(endpoint.unreadFileCount) unread")
                                         : nil
@@ -222,7 +222,7 @@ public struct ToolsView: View {
                                 ? String(localized: "OpenConnect")
                                 : String(localized: "OpenConnect: \(endpoint.endpointTag)"),
                             systemImage: "network.badge.shield.half.filled",
-                            tint: .teal
+                            tint: HakoAccentRole.neutral
                         )
                     }
                 }
@@ -237,7 +237,7 @@ public struct ToolsView: View {
                                 ? String(localized: "OpenVPN")
                                 : String(localized: "OpenVPN: \(endpoint.endpointTag)"),
                             systemImage: "network.badge.shield.half.filled",
-                            tint: .cyan
+                            tint: HakoAccentRole.neutral
                         )
                     }
                 }
@@ -257,7 +257,7 @@ public struct ToolsView: View {
                                 ? String(localized: "USB/IP")
                                 : String(localized: "USB/IP: \(server.serverTag)"),
                             systemImage: "externaldrive.connected.to.line.below",
-                            tint: .orange
+                            tint: HakoAccentRole.neutral
                         )
                     }
                 }
@@ -275,7 +275,7 @@ public struct ToolsView: View {
                 HakoToolRow(
                     title: String(localized: "Network Quality"),
                     systemImage: "network",
-                    tint: .blue,
+                    tint: HakoAccentRole.neutral,
                     detail: String(localized: "Throughput and responsiveness")
                 )
             }
@@ -287,7 +287,7 @@ public struct ToolsView: View {
                 HakoToolRow(
                     title: String(localized: "STUN & NAT"),
                     systemImage: "arrow.triangle.swap",
-                    tint: .purple,
+                    tint: HakoAccentRole.neutral,
                     detail: String(localized: "UDP reachability and NAT behaviour")
                 )
             }
@@ -313,7 +313,7 @@ public struct ToolsView: View {
                             title: String(localized: "Crash Report"),
                             subtitle: String(localized: "Signals from the runs that ended early"),
                             systemImage: "ladybug.fill",
-                            tint: .pink,
+                            tint: HakoAccentRole.neutral,
                             unread: environments.crashReportManager.unreadCount
                         )
                     }
@@ -342,7 +342,7 @@ public struct ToolsView: View {
                             title: String(localized: "Out of Memory Report"),
                             subtitle: String(localized: "Memory use before the system killed it"),
                             systemImage: "memorychip",
-                            tint: .indigo,
+                            tint: HakoAccentRole.neutral,
                             unread: environments.oomReportManager.unreadCount
                         )
                     }
@@ -356,7 +356,7 @@ public struct ToolsView: View {
                             title: String(localized: "Power Report"),
                             subtitle: String(localized: "Battery use during each run"),
                             systemImage: "battery.50percent",
-                            tint: .green,
+                            tint: HakoAccentRole.neutral,
                             unread: environments.powerReportManager.unreadCount
                         )
                     }
@@ -369,7 +369,7 @@ public struct ToolsView: View {
                         HakoToolRow(
                             title: String(localized: "Crash Report"),
                             systemImage: "ladybug.fill",
-                            tint: .pink,
+                            tint: HakoAccentRole.neutral,
                             detail: unreadDetail(environments.crashReportManager.unreadCount)
                         )
                     }
@@ -380,7 +380,7 @@ public struct ToolsView: View {
                         HakoToolRow(
                             title: String(localized: "Out of Memory Report"),
                             systemImage: "memorychip",
-                            tint: .indigo,
+                            tint: HakoAccentRole.neutral,
                             detail: unreadDetail(environments.oomReportManager.unreadCount)
                         )
                     }
@@ -391,7 +391,7 @@ public struct ToolsView: View {
                         HakoToolRow(
                             title: String(localized: "Power Report"),
                             systemImage: "battery.50percent",
-                            tint: .green,
+                            tint: HakoAccentRole.neutral,
                             detail: unreadDetail(environments.powerReportManager.unreadCount)
                         )
                     }

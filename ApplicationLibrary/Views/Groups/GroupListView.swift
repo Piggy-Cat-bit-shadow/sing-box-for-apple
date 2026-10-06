@@ -144,7 +144,7 @@ public struct GroupListView: View {
         HakoSummaryCard(
             String(localized: "Groups"),
             symbol: "rectangle.3.group.fill",
-            tint: .indigo
+            tint: HakoAccentRole.neutral
         ) {
             HakoSummaryMetrics {
                 HakoSummaryMetric(

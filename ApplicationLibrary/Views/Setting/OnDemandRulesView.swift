@@ -133,7 +133,7 @@ public struct OnDemandRulesView: View {
             HakoSelectionRow(
                 title: OnDemandMode.alwaysOn.name,
                 systemImage: "infinity",
-                tint: HakoAccentRole.green.color,
+                tint: HakoAccentRole.neutral.color,
                 isSelected: mode == .alwaysOn
             ) {
                 select(.alwaysOn)
@@ -143,7 +143,7 @@ public struct OnDemandRulesView: View {
             HakoSelectionRow(
                 title: OnDemandMode.enabled.name,
                 systemImage: "list.bullet.rectangle",
-                tint: HakoAccentRole.orange.color,
+                tint: HakoAccentRole.neutral.color,
                 isSelected: mode == .enabled
             ) {
                 select(.enabled)
@@ -178,7 +178,7 @@ public struct OnDemandRulesView: View {
                         title: rule.action.name,
                         subtitle: ruleDescription(rule),
                         systemImage: "arrow.triangle.branch",
-                        tint: HakoAccentRole.orange.color
+                        tint: HakoAccentRole.neutral.color
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {

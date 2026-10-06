@@ -152,7 +152,7 @@ public struct OOMReportListView: View {
                     ? String(localized: "From Apple TV")
                     : String(localized: "From this device"),
                 systemImage: "memorychip",
-                tint: HakoAccentRole.indigo.color,
+                tint: HakoAccentRole.neutral.color,
                 badge: report.isRead ? nil : String(localized: "Unread"),
                 badgeEmphasis: .info
             )
