@@ -96,13 +96,15 @@ public struct CoreView: View {
     }
 
     private var betaSection: some View {
+        // Compact row, explanation in the footnote - the reference's shape. This section carries
+        // two sentences rather than one because it has both: what the switch does, and the caveat
+        // that the group it belongs to is a beta one.
         HakoSettingsSection(
             String(localized: "Beta"),
-            footnote: "These options belong to a beta build and may change or disappear."
+            footnote: "Do not warn about configuration that uses deprecated features. These options belong to a beta build and may change or disappear."
         ) {
             HakoToggleRow(
                 String(localized: "Disable Deprecated Warnings"),
-                subtitle: String(localized: "Do not warn about configuration that uses deprecated features."),
                 isOn: $disableDeprecatedWarnings
             ) { newValue in
                 Task {

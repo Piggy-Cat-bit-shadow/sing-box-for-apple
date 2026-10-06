@@ -28,52 +28,51 @@ public struct ProfileOverrideView: View {
                         }
                     }
             } else {
-                routingSection
+                routingSections
+                // Page-level rather than per-switch, so it keeps its own footnote section.
+                HakoSettingsSection(footnote: "Changing any of these reloads the running service.") {}
                 resetSection
             }
         }
         .alert($alert)
     }
 
-    private var routingSection: some View {
-        HakoSettingsSection(
-            String(localized: "Compatibility"),
-            footnote: "Changing any of these reloads the running service."
-        ) {
-            HakoToggleRow(
+    /// One section per setting, as the reference does it; see `PacketTunnelView`.
+    private func settingSection(
+        _ title: String,
+        explanation: LocalizedStringKey,
+        isOn: Binding<Bool>,
+        set: @escaping (Bool) async -> Void
+    ) -> some View {
+        HakoSettingsSection(title, footnote: explanation) {
+            HakoToggleRow(title, isOn: isOn) { newValue in
+                Task {
+                    await set(newValue)
+                    await reloadService()
+                }
+            }
+        }
+    }
+
+    private var routingSections: some View {
+        Group {
+            settingSection(
                 String(localized: "Hide VPN Icon"),
-                subtitle: String(localized: "Stop the system from showing its VPN badge, by excluding the addresses the badge probes."),
+                explanation: "Stop the system from showing its VPN badge, by excluding the addresses the badge probes.",
                 isOn: $excludeDefaultRoute
-            ) { newValue in
-                Task {
-                    await SharedPreferences.excludeDefaultRoute.set(newValue)
-                    await reloadService()
-                }
-            }
+            ) { await SharedPreferences.excludeDefaultRoute.set($0) }
 
-
-            HakoToggleRow(
+            settingSection(
                 String(localized: "No Default Route"),
-                subtitle: String(localized: "Route by subnet rather than taking over the default route. Fixes some HomeKit problems; on the Mac it stops Internet Sharing from working."),
+                explanation: "Route by subnet rather than taking over the default route. Fixes some HomeKit problems; on the Mac it stops Internet Sharing from working.",
                 isOn: $autoRouteUseSubRangesByDefault
-            ) { newValue in
-                Task {
-                    await SharedPreferences.autoRouteUseSubRangesByDefault.set(newValue)
-                    await reloadService()
-                }
-            }
+            ) { await SharedPreferences.autoRouteUseSubRangesByDefault.set($0) }
 
-
-            HakoToggleRow(
+            settingSection(
                 String(localized: "Exclude APNs Route"),
-                subtitle: String(localized: "Keep Apple Push Notification traffic off the tunnel by bypassing its hosts."),
+                explanation: "Keep Apple Push Notification traffic off the tunnel by bypassing its hosts.",
                 isOn: $excludeAPNsRoute
-            ) { newValue in
-                Task {
-                    await SharedPreferences.excludeAPNsRoute.set(newValue)
-                    await reloadService()
-                }
-            }
+            ) { await SharedPreferences.excludeAPNsRoute.set($0) }
         }
     }
 

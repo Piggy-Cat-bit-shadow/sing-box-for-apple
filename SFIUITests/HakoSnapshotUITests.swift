@@ -274,6 +274,14 @@ final class HakoSnapshotUITests: XCTestCase {
         snapshot("23_Core")
     }
 
+    /// Profile Override, which the same restructuring touched.
+    func test25ProfileOverride() {
+        tab("hako.tab.more").tap()
+        tap("hako.more.profileOverride")
+        sleep(1)
+        snapshot("25_ProfileOverride")
+    }
+
     func test24ClientSettings() {
         tab("hako.tab.more").tap()
         tap("hako.more.app")

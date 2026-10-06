@@ -3995,6 +3995,22 @@
         }
       }
     },
+    "Do not warn about configuration that uses deprecated features. These options belong to a beta build and may change or disappear.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不再对使用已弃用功能的配置发出警告。这些选项属于测试版功能，可能随时变更或移除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不再對使用已棄用功能的設定發出警告。這些選項屬於測試版功能，可能隨時變更或移除。"
+          }
+        }
+      }
+    },
     "Do you want to save the changes you made?": {
       "localizations": {
         "fa": {
