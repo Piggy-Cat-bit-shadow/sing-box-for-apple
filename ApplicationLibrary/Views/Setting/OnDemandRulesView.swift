@@ -109,15 +109,19 @@ public struct OnDemandRulesView: View {
     }
 
     private var modeSection: some View {
-        // No footnote here. It was the *selected mode's own description*, which is already the
-        // subtitle of the row that is selected, so the page said the same sentence twice - and
-        // it cost a line of height under a card whose rows each carry their own explanation.
-        // The section below keeps its footnote: the order the rules are evaluated in is not
-        // said anywhere else.
-        HakoSettingsSection(String(localized: "Mode")) {
+        // Compact rows, and the explanation as the section's footnote - the review's shape.
+        //
+        // Each option used to carry its own description inside the row, so the card was three
+        // two-line rows: tall, and as many heights as there were descriptions. The rows are the
+        // standard settings row now and the footnote carries the *selected* option's meaning,
+        // which is the one the reader is asking about, so nothing is said twice and the card
+        // does not change height when the choice changes.
+        HakoSettingsSection(
+            String(localized: "Mode"),
+            footnote: LocalizedStringKey(mode.description)
+        ) {
             HakoSelectionRow(
                 title: OnDemandMode.disabled.name,
-                subtitle: OnDemandMode.disabled.description,
                 systemImage: "hand.raised.fill",
                 tint: .secondary,
                 isSelected: mode == .disabled
@@ -128,7 +132,6 @@ public struct OnDemandRulesView: View {
 
             HakoSelectionRow(
                 title: OnDemandMode.alwaysOn.name,
-                subtitle: OnDemandMode.alwaysOn.description,
                 systemImage: "infinity",
                 tint: HakoAccentRole.green.color,
                 isSelected: mode == .alwaysOn
@@ -139,7 +142,6 @@ public struct OnDemandRulesView: View {
 
             HakoSelectionRow(
                 title: OnDemandMode.enabled.name,
-                subtitle: OnDemandMode.enabled.description,
                 systemImage: "list.bullet.rectangle",
                 tint: HakoAccentRole.orange.color,
                 isSelected: mode == .enabled

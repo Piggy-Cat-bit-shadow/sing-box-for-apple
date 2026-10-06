@@ -147,7 +147,15 @@ public struct NewProfileView: View {
                             }
                         } label: {
                             Label("Create", systemImage: "doc.fill.badge.plus")
+                                .frame(maxWidth: .infinity)
                         }
+                        // The page's primary action, in the design system's primary treatment.
+                        // `FormButton` is a bare button on the touch platforms, so this was a
+                        // blue text row while every other primary action in the client is a
+                        // filled one - the review's "the Create button must use the global
+                        // primary style".
+                        .hakoPrimaryActionButtonStyle()
+                        .controlSize(.large)
                     } else {
                         ProgressView()
                     }

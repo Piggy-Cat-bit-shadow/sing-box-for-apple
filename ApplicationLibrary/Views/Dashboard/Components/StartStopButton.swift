@@ -92,7 +92,9 @@ public struct StartStopButton: View {
                                     : String(localized: "Connect"),
                                 systemImage: "power"
                             )
-                            .frame(maxWidth: .infinity)
+                            // Only the primary action spans the card. A secondary one sized to
+                            // its own label stops reading as the page's subject.
+                            .frame(maxWidth: profile.status.isConnected ? nil : .infinity)
                         }
                     }
                     #if os(iOS)

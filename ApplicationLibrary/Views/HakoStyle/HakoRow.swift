@@ -372,17 +372,19 @@ public extension View {
     /// The reference's `ConnectionCard` uses its primary action style for connect and a
     /// destructive secondary for disconnect, so the button's weight says which way it goes
     /// before its label is read.
+    /// The card's connection action: filled to connect, quiet to disconnect.
+    ///
+    /// Connecting is the page's primary action and is drawn as one. Disconnecting is not: it was
+    /// the same full-width filled capsule, in red, so the state "running" made a high-saturation
+    /// block the centre of a page whose subject is the tunnel, not the button. The reference
+    /// draws its disconnect as a secondary action, and so does this - the label says what it
+    /// does, and the button no longer shouts it.
     @ViewBuilder
     func hakoConnectionActionButtonStyle(isDestructive: Bool) -> some View {
         if isDestructive {
-            buttonStyle(.bordered)
-                .tint(.red)
+            hakoSecondaryActionButtonStyle()
         } else {
-            // An explicit accent: the system's prominent glass takes the inherited tint, and
-            // inside a card that tint was neutral - a grey "Install" beside the notice's blue
-            // one, for the same action.
             hakoPrimaryActionButtonStyle()
-                .tint(.accentColor)
         }
     }
 }

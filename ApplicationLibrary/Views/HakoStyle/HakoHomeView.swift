@@ -99,6 +99,8 @@ public struct HakoHomeView: View {
     private let profileLoadFailure: String?
     private let retryProfileLoad: () async -> Void
     @Binding private var profileList: [ProfilePreview]
+    /// Whether the configuration centre is open. Opened from the row that used to be a picker.
+    @State private var showsConfigurationCentre = false
     @Binding private var selectedProfileID: Int64
     @Binding private var systemProxyAvailable: Bool
     @Binding private var systemProxyEnabled: Bool
@@ -155,15 +157,19 @@ public struct HakoHomeView: View {
             }
             sessionCard
             profileCard
+            // How traffic is leaving the device right now, with the other cards that describe
+            // the current working mode - not below the traffic totals at the foot of the page,
+            // where the review found it. It is a statement about the mode, and the mode is
+            // decided at the top of this page.
+            if enabledCards.contains(.httpProxy), systemProxyAvailable {
+                httpProxyCard
+            }
             if showsConnectedCards, enabledCards.contains(.clashMode) {
                 modeSection
             }
             shortcutsSection
             if showsConnectedCards {
                 trafficSection
-                if enabledCards.contains(.httpProxy), systemProxyAvailable {
-                    httpProxyCard
-                }
                 runtimeSection
             }
         }
@@ -306,24 +312,55 @@ public struct HakoHomeView: View {
     // MARK: - Cards
 
     @ViewBuilder
+    /// The current configuration, and the way into the configuration centre.
+    ///
+    /// The review's first item, and it was right: this card held the whole configuration
+    /// workflow - a picker to switch, a `+` to create, an edit button and a share button, in a
+    /// card whose caption said "Profile" - while the *session* card above already named the
+    /// profile it was running. The same profile appeared twice, and four management actions sat
+    /// on a page whose job is to say what is running. Changing, importing, creating and sharing
+    /// are one subject, so they live in the centre; the home keeps the summary and the door.
     private var profileCard: some View {
         if enabledCards.contains(.profile) || enabledCards.isEmpty {
-            ProfileCard(
-                profileList: $profileList,
-                selectedProfileID: Binding(
-                    get: { selectedProfileID },
-                    set: { newID in
-                        coordinator.reasserting = true
-                        Task {
-                            await coordinator.switchProfile(
-                                newID,
-                                profile: profile,
-                                environments: environments
-                            )
-                        }
-                    }
+            HakoPageSection(String(localized: "Profile")) {
+                Button {
+                    showsConfigurationCentre = true
+                } label: {
+                    HakoNavigationRow(
+                        title: selectedProfileName ?? String(localized: "No profile selected"),
+                        subtitle: selectedProfileSummary,
+                        systemImage: "doc.text.fill",
+                        tint: HakoAccentRole.teal.color
+                    )
+                }
+                .buttonStyle(HakoPushRowButtonStyle())
+                // The identifier the tests and the capture harness use to reach the centre;
+                // the row that opens it changed, the way in did not.
+                .accessibilityIdentifier("hako.profile.select")
+            }
+            .sheet(isPresented: $showsConfigurationCentre) {
+                ProfilePickerSheet(
+                    profileList: $profileList,
+                    selectedProfileID: $selectedProfileID
                 )
-            )
+                .environmentObject(environments)
+            }
+        }
+    }
+
+    /// What the current configuration is, in one line: its kind, and where it comes from when
+    /// that is a different thing. A summary, not a control.
+    private var selectedProfileSummary: String? {
+        guard let preview = profileList.first(where: { $0.id == selectedProfileID }) else {
+            return nil
+        }
+        switch preview.type {
+        case .local:
+            return String(localized: "Local file")
+        case .remote:
+            return preview.remoteURL ?? String(localized: "Remote")
+        case .icloud:
+            return String(localized: "iCloud Drive")
         }
     }
 
