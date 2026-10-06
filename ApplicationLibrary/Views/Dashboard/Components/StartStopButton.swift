@@ -42,68 +42,51 @@ public struct StartStopButton: View {
         private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
         var body: some View {
-            Button {
-                Task {
-                    await switchProfile(!profile.status.isConnected)
+            // The reference's action: one full-width button that names what it will do, filled
+            // when it will connect and destructive-toned when it will disconnect, with a
+            // progress line while it is working. Ours was a compact icon button beside the
+            // state text, so the card's main action was the smallest thing on it.
+            Group {
+                if isStarting || !profile.status.isSwitchable {
+                    HStack(spacing: HakoTheme.Spacing.compact) {
+                        ProgressView()
+                        Text("Working…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: HakoTheme.Control.minimumHitTarget)
+                } else {
+                    Button {
+                        Task {
+                            await switchProfile(!profile.status.isConnected)
+                        }
+                    } label: {
+                        HStack(spacing: HakoTheme.Spacing.compact) {
+                            if profile.status.isConnectedStrict, let duration = runtimeDuration {
+                                Text(duration)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                                    .fixedSize()
+                            }
+                            Label(
+                                profile.status.isConnected
+                                    ? String(localized: "Disconnect")
+                                    : String(localized: "Connect"),
+                                systemImage: "power"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                    #if os(iOS)
+                        .hakoConnectionActionButtonStyle(isDestructive: profile.status.isConnected)
+                    #endif
+                    .controlSize(.large)
+                    .accessibilityIdentifier("hako.home.connection.action")
                 }
-            } label: {
-                #if os(iOS)
-                    HStack(spacing: 8) {
-                        if showsRuntimeDuration, profile.status.isConnectedStrict, let duration = runtimeDuration {
-                            Text(duration)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                                .fixedSize()
-                                .transition(.asymmetric(
-                                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                                    removal: .move(edge: .trailing).combined(with: .opacity)
-                                ))
-                        }
-
-                        if !profile.status.isConnected {
-                            Label("Start", systemImage: "play.fill")
-                                .padding(.horizontal, 12)
-                        } else {
-                            Label("Stop", systemImage: "stop.fill")
-                        }
-                    }
-                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: profile.status.isConnectedStrict)
-                #elseif os(tvOS)
-                    if !profile.status.isConnected {
-                        Image(systemName: "play.fill")
-                    } else {
-                        Image(systemName: "stop.fill")
-                    }
-                #else
-                    HStack(spacing: 8) {
-                        if profile.status.isConnectedStrict, let duration = runtimeDuration {
-                            Text(duration)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                                .fixedSize()
-                                .transition(.asymmetric(
-                                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                                    removal: .move(edge: .trailing).combined(with: .opacity)
-                                ))
-                        }
-
-                        if !profile.status.isConnected {
-                            Label("Start", systemImage: "play.fill")
-                        } else {
-                            Label("Stop", systemImage: "stop.fill")
-                        }
-                    }
-                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: profile.status.isConnectedStrict)
-                #endif
             }
-            .labelStyle(.iconOnly)
-            #if os(iOS)
-                .modifier(PrimaryTintModifier())
-            #endif
-                .disabled(!profile.status.isEnabled)
-                .alert($alert)
+            .alert($alert)
+
                 .onReceive(timer) { _ in
                     guard !Variant.screenshotMode else { return }
                     Task { @MainActor in

@@ -30,6 +30,9 @@ final class HakoSnapshotUITests: XCTestCase {
         setupSnapshot(app)
         // A fixed language, so a captured screen is comparable run to run.
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        // And the light appearance, because that is what the reference runs in: a spacing or
+        // colour comparison against a light capture is not a comparison otherwise.
+        app.launchEnvironment["SCREENSHOT_APPEARANCE"] = "light"
         app.launch()
     }
 
@@ -123,21 +126,38 @@ final class HakoSnapshotUITests: XCTestCase {
     /// rather than only against the screen: pick a mode and the row must report itself
     /// selected. A segmented control could not be asked this question - its buttons carry no
     /// selection trait - which is part of why the page no longer uses one.
-    func test14OutboundModeSelection() {
+    /// The outbound mode control is absent unless the configuration defines modes.
+    ///
+    /// This case used to assert the opposite, and it passed - because the *fixture* hardcoded
+    /// Clash's three modes. sing-box has no built-in outbound mode: the core derives the list
+    /// from `clash_mode` actions in the reader's own rules, so a normal configuration has none.
+    /// Asserting on a fixture that invented them was asserting on nothing.
+    func test14OutboundModeIsAbsentByDefault() {
+        tab("hako.tab.home").tap()
+        XCTAssertTrue(
+            app.buttons["hako.home.groups"].waitForExistence(timeout: 15),
+            "Home must be on screen"
+        )
+        XCTAssertFalse(
+            app.staticTexts["Outbound Mode"].exists,
+            "a configuration without clash modes must not show a mode control"
+        )
+    }
+
+    /// And it is present when the configuration does define them.
+    func test14bOutboundModeWhenTheConfigurationDefinesIt() {
+        launch(state: "clashModes")
         tab("hako.tab.home").tap()
 
         let direct = app.buttons["hako.home.mode.direct"]
-        XCTAssertTrue(direct.waitForExistence(timeout: 15), "the Home page must offer the outbound modes")
+        XCTAssertTrue(
+            direct.waitForExistence(timeout: 15),
+            "a configuration that defines clash modes must offer them"
+        )
         direct.tap()
         sleep(1)
         snapshot("14_OutboundMode")
-
-        XCTAssertTrue(
-            app.buttons["hako.home.mode.direct"].isSelected,
-            "the chosen mode must report itself as selected"
-        )
-
-        // Leave the fixture on the mode it started in.
+        XCTAssertTrue(app.buttons["hako.home.mode.direct"].isSelected, "the chosen mode must be reported")
         app.buttons["hako.home.mode.rule"].tap()
         sleep(1)
         XCTAssertTrue(app.buttons["hako.home.mode.rule"].isSelected, "the mode must switch back")
@@ -272,9 +292,12 @@ final class HakoSnapshotUITests: XCTestCase {
                 "the home page must draw in full without a tunnel: \(identifier) was missing"
             )
         }
+        // Not the outbound mode: sing-box has no built-in modes, so a default configuration
+        // shows none. This assertion used to ask for one and passed, because the fixture
+        // invented Clash's three - which is the defect this case was meant to catch.
         XCTAssertTrue(
-            app.buttons["hako.home.mode.rule"].exists,
-            "the outbound mode must be offered without a tunnel"
+            app.buttons["hako.profile.add"].exists,
+            "the profile card must be offered without a tunnel"
         )
         // And it says what is missing, with the way to fix it.
         XCTAssertTrue(

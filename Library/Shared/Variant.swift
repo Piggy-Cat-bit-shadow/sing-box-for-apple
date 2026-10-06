@@ -57,6 +57,12 @@ public enum Variant {
         screenshotState == "notInstalled"
     }
 
+    /// `SCREENSHOT_STATE=clashModes` stands up the one case where sing-box has clash modes:
+    /// a configuration whose own rules define them.
+    public static var screenshotClashModes: Bool {
+        screenshotState == "clashModes"
+    }
+
     /// The raw `SCREENSHOT_STATE` value, for fixture states other than the tunnel's.
     public static var screenshotState: String {
         ProcessInfo.processInfo.environment["SCREENSHOT_STATE"] ?? ""

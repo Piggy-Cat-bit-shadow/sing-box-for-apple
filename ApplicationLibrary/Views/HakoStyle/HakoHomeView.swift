@@ -228,9 +228,12 @@ public struct HakoHomeView: View {
                     }
 
                     Spacer(minLength: HakoTheme.Spacing.compact)
-
-                    StartStopButton(showsRuntimeDuration: true)
                 }
+
+                // The action is the card's own, full width and below the state it acts on -
+                // the reference's shape. It was a compact icon button at the end of the
+                // title line, so the card's main action was its smallest element.
+                StartStopButton(showsRuntimeDuration: false)
 
                 if let detail = sessionDetail {
                     HakoStatusLine(

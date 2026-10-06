@@ -157,8 +157,12 @@ public struct HakoDestinationRow: View {
                 }
             }
         }
+        // No padding of our own on a settings page: the system's grouped list already gives
+        // every row the height the platform intends, and adding to it made a one-switch card
+        // 74pt where the reference's is 53. The painted scaffolds have no system row to rely on,
+        // so they keep theirs.
         .padding(.vertical, HakoPlatformLayout.pageUsesSystemSettingsIdiom
-            ? HakoTheme.Spacing.tight
+            ? 0
             : HakoTheme.Spacing.compact)
         .frame(minHeight: rowFloor)
         .contentShape(Rectangle())
@@ -326,6 +330,23 @@ public extension View {
             buttonStyle(.glassProminent)
         } else {
             buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+public extension View {
+    /// The card's connection action: filled to connect, tinted red to disconnect.
+    ///
+    /// The reference's `ConnectionCard` uses its primary action style for connect and a
+    /// destructive secondary for disconnect, so the button's weight says which way it goes
+    /// before its label is read.
+    @ViewBuilder
+    func hakoConnectionActionButtonStyle(isDestructive: Bool) -> some View {
+        if isDestructive {
+            buttonStyle(.bordered)
+                .tint(.red)
+        } else {
+            hakoPrimaryActionButtonStyle()
         }
     }
 }
@@ -561,7 +582,6 @@ struct HakoRowBody<Trailing: View>: View {
 /// row that both navigates and switches is the "error hit" this migration removes.
 public struct HakoToggleRow: View {
     private let title: String
-    private let subtitle: String?
     private let isOn: Binding<Bool>
     private let isEnabled: Bool
     private let identifier: String?
@@ -569,34 +589,35 @@ public struct HakoToggleRow: View {
 
     public init(
         _ title: String,
-        subtitle: String? = nil,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         identifier: String? = nil,
         onChange: ((Bool) -> Void)? = nil
     ) {
         self.title = title
-        self.subtitle = subtitle
         self.isOn = isOn
         self.isEnabled = isEnabled
         self.identifier = identifier
         self.onChange = onChange
     }
 
+    /// The platform's own toggle row.
+    ///
+    /// It was an `HStack` of a `Text`, a spacer and a `Toggle` with its labels hidden, which is
+    /// not the same row: the system's grouped list gives a labelled `Toggle` the height the
+    /// platform intends - 53pt measured - while the hand-built row came out at 74pt, so every
+    /// switch on every settings page carried 21pt of air the reference's do not.
+    ///
+    /// The reference writes `Toggle("...", isOn:)` and nothing else. So does this now: the
+    /// platform sizes it, styles its label, and reports it to VoiceOver as the switch it is.
     public var body: some View {
-        HakoRowBody(title: title, subtitle: subtitle, showsDisclosure: false) {
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-                .disabled(!isEnabled)
-                .onChangeCompat(of: isOn.wrappedValue) { newValue in
-                    onChange?(newValue)
-                }
-        }
-        // The row is one combined accessibility element, so a test cannot reach its title
-        // as a separate static text. The identifier is how a test asks the row what it says
-        // - which is what the manual's "no raw property names" check needs.
-        .accessibilityIdentifier(identifier ?? "")
-        .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
+        Toggle(title, isOn: isOn)
+            .disabled(!isEnabled)
+            .onChangeCompat(of: isOn.wrappedValue) { newValue in
+                onChange?(newValue)
+            }
+            .accessibilityIdentifier(identifier ?? "")
+            .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
     }
 }
 

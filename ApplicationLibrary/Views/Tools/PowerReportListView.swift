@@ -20,10 +20,12 @@ public struct PowerReportListView: View {
     public var body: some View {
         HakoReportScaffold(title: String(localized: "Power Report")) {
             if !isLoading {
-                HakoSettingsSection("Settings") {
+                HakoSettingsSection(
+                    String(localized: "Enable Power Report"),
+                    footnote: "Record a report for each service run."
+                ) {
                     HakoToggleRow(
                         String(localized: "Enable Power Report"),
-                        subtitle: String(localized: "Record a report for each service run."),
                         isOn: $powerReportEnabled
                     ) { newValue in
                         Task {

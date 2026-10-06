@@ -165,8 +165,20 @@ public class CommandClient: ObservableObject {
 
     public func setupMockData() {
         isConnected = true
-        clashModeList = ["rule", "global", "direct"]
-        clashMode = "rule"
+        // No clash modes here, because sing-box has none by default.
+        //
+        // `CalculateModeList` derives them *only* from `clash_mode` actions in the user's own
+        // route and DNS rules, so a normal configuration reports an empty list and the mode
+        // control never appears. Hardcoding the three Clash modes here made every capture show
+        // a card that a real reader would not have - and it was the reference's card, faithfully
+        // copied onto a client whose core does not have the concept.
+        //
+        // `Variant.screenshotClashModes` stands the state up deliberately, for the one case that
+        // is real: a configuration that defines them itself.
+        if Variant.screenshotClashModes {
+            clashModeList = ["rule", "global", "direct"]
+            clashMode = "rule"
+        }
         // The groups belong here, with the rest of the fixture, because this is the client the
         // whole app reads them from. They used to be fabricated inside `GroupListViewModel`
         // instead, so the proxy sheet had two groups while Home - reading the same client the
