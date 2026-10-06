@@ -220,6 +220,7 @@ public struct NewProfileMenuView: View {
                         ) {
                             showNewProfile = true
                         }
+                        .accessibilityIdentifier("hako.profile.createManually")
                     #else
                         // A button, not a `NavigationLink`. A link inside a form is a row, and
                         // the platform gives a row that navigates a disclosure indicator - which
@@ -235,6 +236,7 @@ public struct NewProfileMenuView: View {
                         ) {
                             showManualCreate = true
                         }
+                        .accessibilityIdentifier("hako.profile.createManually")
                     #endif
                 }
             }

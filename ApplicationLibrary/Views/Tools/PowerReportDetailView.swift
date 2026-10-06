@@ -91,6 +91,7 @@ public struct PowerReportDetailView: View {
                             } label: {
                                 Text(file.displayName)
                             }
+                            .accessibilityIdentifier("hako.report.file")
                         } else {
                             Text(file.displayName)
                         }

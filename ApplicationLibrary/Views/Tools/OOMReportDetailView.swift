@@ -85,12 +85,14 @@ public struct OOMReportDetailView: View {
                             } label: {
                                 Text(file.displayName)
                             }
+                            .accessibilityIdentifier("hako.report.file")
                         } else if file.kind == .configContent || file.kind == .goLog {
                             FormNavigationLink {
                                 ReportFileContentView(fileURL: file.fileURL, displayName: file.displayName)
                             } label: {
                                 Text(file.displayName)
                             }
+                            .accessibilityIdentifier("hako.report.file")
                         } else {
                             Text(file.displayName)
                         }

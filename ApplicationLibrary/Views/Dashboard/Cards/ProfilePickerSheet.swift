@@ -71,6 +71,7 @@ struct ProfilePickerSheet: View {
                                         await updateAllProfiles()
                                     }
                                 }
+                                .accessibilityIdentifier("hako.profile.updateAll")
                             }
                             HakoActionItem(
                                 systemImage: "plus",

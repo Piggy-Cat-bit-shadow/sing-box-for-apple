@@ -79,18 +79,23 @@ public struct CrashReportDetailView: View {
             if !isLoading, !files.isEmpty {
                 Section("Files") {
                     ForEach(files) { file in
+                        // Identified, because the read view is what distinguishes "the report
+                        // opened" from "the tap did nothing", and a case can only ask for it in
+                        // one language if it asks by the English header text.
                         if file.id == .metadata {
                             FormNavigationLink {
                                 MetadataFormView(url: file.fileURL, title: file.displayName)
                             } label: {
                                 Text(file.displayName)
                             }
+                            .accessibilityIdentifier("hako.report.file")
                         } else {
                             FormNavigationLink {
                                 ReportFileContentView(fileURL: file.fileURL, displayName: file.displayName)
                             } label: {
                                 Text(file.displayName)
                             }
+                            .accessibilityIdentifier("hako.report.file")
                         }
                     }
                 }

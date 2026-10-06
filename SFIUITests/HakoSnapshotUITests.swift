@@ -31,6 +31,13 @@ final class HakoSnapshotUITests: XCTestCase {
         // A fixed language, so a captured screen is comparable run to run - and overridable,
         // because the review document the client asked for has to be in the language the
         // client reads.
+        //
+        // To override it from the command line the variable must be prefixed with `TEST_RUNNER_`:
+        // xcodebuild forwards only those to the test runner, so `HAKO_SNAPSHOT_LANGUAGE=zh-Hans
+        // xcodebuild test` is silently ignored and the whole run captures English. That mistake
+        // was made once here, and a document claiming to be Chinese was built from it.
+        //
+        //     TEST_RUNNER_HAKO_SNAPSHOT_LANGUAGE=zh-Hans xcodebuild test ...
         let language = ProcessInfo.processInfo.environment["HAKO_SNAPSHOT_LANGUAGE"] ?? "en"
         app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", language == "en" ? "en_US" : language]
         // And the light appearance, because that is what the reference runs in: a spacing or
@@ -85,9 +92,22 @@ final class HakoSnapshotUITests: XCTestCase {
     /// the same run, and the case passed on its own. A test that fails under load is a defect
     /// in the test.
     private func tap(_ identifier: String, timeout: TimeInterval = 30) {
-        let element = app.buttons[identifier]
+        let element = elementFor(identifier)
         XCTAssertTrue(element.waitForExistence(timeout: timeout), "\(identifier) must be reachable")
         element.tap()
+    }
+
+    /// An element by identifier, whichever kind it is.
+    ///
+    /// A toolbar action group is presented as buttons on one platform and as a control that opens
+    /// them on another, and a case that asks for `buttons[id]` fails on the second for a reason
+    /// that has nothing to do with the behaviour it is testing.
+    private func elementFor(_ identifier: String) -> XCUIElement {
+        let button = app.buttons[identifier]
+        if button.exists {
+            return button
+        }
+        return app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
     // MARK: - Roots
@@ -429,7 +449,7 @@ final class HakoSnapshotUITests: XCTestCase {
         // the list is pushed too - so asserting it proved nothing, and the first version of
         // this case passed a tap that had not navigated anywhere.
         XCTAssertTrue(
-            app.staticTexts["Files"].waitForExistence(timeout: 20),
+            app.buttons["hako.report.file"].waitForExistence(timeout: 20),
             "the report must open as a read view listing its artifacts"
         )
         sleep(1)
@@ -456,7 +476,7 @@ final class HakoSnapshotUITests: XCTestCase {
 
         rows.firstMatch.tap()
         XCTAssertTrue(
-            app.staticTexts["Files"].waitForExistence(timeout: 20),
+            app.buttons["hako.report.file"].waitForExistence(timeout: 20),
             "the report must open as a read view listing its artifacts"
         )
         sleep(1)
@@ -478,7 +498,7 @@ final class HakoSnapshotUITests: XCTestCase {
 
         rows.firstMatch.tap()
         XCTAssertTrue(
-            app.staticTexts["Files"].waitForExistence(timeout: 20),
+            app.buttons["hako.report.file"].waitForExistence(timeout: 20),
             "the report must open as a read view listing its artifacts"
         )
         sleep(1)
@@ -591,7 +611,7 @@ final class HakoSnapshotUITests: XCTestCase {
         openConfigurationCentre()
         tap("hako.profile.add")
         sleep(1)
-        tap("Create Manually")
+        tap("hako.profile.createManually")
         sleep(3)
         // Captured before the assertion: when a navigation is in question, what is on the
         // screen afterwards is the evidence, and an assertion only tells you it was wrong.
@@ -628,11 +648,11 @@ final class HakoSnapshotUITests: XCTestCase {
         // The manual's configuration card carries an update-all action, and it should exist
         // exactly when there is a remote configuration to fetch.
         XCTAssertTrue(
-            app.buttons["Update All"].waitForExistence(timeout: 10),
+            app.buttons["hako.profile.updateAll"].waitForExistence(timeout: 10),
             "a page with a remote configuration must offer to update them all"
         )
 
-        let add = app.buttons["Add Configuration"]
+        let add = elementFor("hako.profile.add")
         XCTAssertTrue(add.waitForExistence(timeout: 10), "the centre must offer a way to add one")
         add.tap()
         sleep(2)
