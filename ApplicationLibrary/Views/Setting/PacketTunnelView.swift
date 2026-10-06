@@ -49,10 +49,14 @@ struct PacketTunnelView: View {
                         }
                     }
             } else {
-                routingSection
-                exclusionSection
+                routingSections
+                exclusionSections
                 resetSection
                 documentationSection
+                // The one thing that is true of the whole page rather than of one switch. Its
+                // own section with nothing but a footnote, because that is where a page-level
+                // note goes now that each switch's own explanation is its section's footnote.
+                HakoSettingsSection(footnote: "Changing any of these restarts the tunnel.") {}
             }
         }
         .alert($alert)
@@ -60,96 +64,87 @@ struct PacketTunnelView: View {
 
     // MARK: - Sections
 
-    private var routingSection: some View {
-        HakoSettingsSection(
-            String(localized: "Routing"),
-            footnote: "Changing any of these restarts the tunnel."
-        ) {
+    /// One section per setting, which is the reference's structure.
+    ///
+    /// Its tunnel page gives each switch its own caption - the setting's own name - a card
+    /// holding that one row, and the explanation as the section's footnote underneath. This page
+    /// grouped the switches into two sections and put each explanation in the row as a subtitle,
+    /// which is a different page: the row is 63pt instead of 50, and the reader has to find the
+    /// switch's name twice to work out which explanation belongs to which switch.
+    ///
+    /// The captions repeat the row titles because that is what the reference does; the footnote
+    /// is where the explanation goes.
+    private func settingSection(
+        _ title: String,
+        explanation: LocalizedStringKey,
+        identifier: String,
+        isOn: Binding<Bool>,
+        set: @escaping (Bool) async -> Void
+    ) -> some View {
+        HakoSettingsSection(title, footnote: explanation) {
             HakoToggleRow(
-                String(localized: "Include All Networks"),
-                subtitle: String(localized: "Route everything through the tunnel, except the system services the device needs to stay online."),
-                isOn: $includeAllNetworks,
-                identifier: "hako.tunnel.includeAllNetworks"
+                title,
+                isOn: isOn,
+                identifier: identifier
             ) { newValue in
                 Task {
-                    await SharedPreferences.includeAllNetworks.set(newValue)
-                    await restartService()
-                }
-            }
-
-
-            HakoToggleRow(
-                String(localized: "Enforce Routes"),
-                subtitle: String(localized: "Keep the routes the tunnel does not carry on the current network interface, overriding the system routing table."),
-                isOn: $enforceRoutes,
-                identifier: "hako.tunnel.enforceRoutes"
-            ) { newValue in
-                Task {
-                    await SharedPreferences.enforceRoutes.set(newValue)
+                    await set(newValue)
                     await restartService()
                 }
             }
         }
     }
 
-    private var exclusionSection: some View {
-        HakoSettingsSection(
-            String(localized: "Excluded Traffic"),
-            footnote: "These apply only while Include All Networks or Enforce Routes is on."
-        ) {
+    private var routingSections: some View {
+        Group {
+            settingSection(
+                String(localized: "Include All Networks"),
+                explanation: "Route everything through the tunnel, except the system services the device needs to stay online.",
+                identifier: "hako.tunnel.includeAllNetworks",
+                isOn: $includeAllNetworks
+            ) { await SharedPreferences.includeAllNetworks.set($0) }
+
+            settingSection(
+                String(localized: "Enforce Routes"),
+                explanation: "Keep the routes the tunnel does not carry on the current network interface, overriding the system routing table.",
+                identifier: "hako.tunnel.enforceRoutes",
+                isOn: $enforceRoutes
+            ) { await SharedPreferences.enforceRoutes.set($0) }
+        }
+    }
+
+    private var exclusionSections: some View {
+        Group {
             if #available(iOS 16.4, macOS 13.3, *) {
-                HakoToggleRow(
+                settingSection(
                     String(localized: "Exclude APNs"),
-                    subtitle: String(localized: "Leave Apple Push Notification traffic outside the tunnel."),
-                    isOn: $excludeAPNs,
-                    identifier: "hako.tunnel.excludeAPNs"
-                ) { newValue in
-                    Task {
-                        await SharedPreferences.excludeAPNs.set(newValue)
-                        await restartService()
-                    }
-                }
+                    explanation: "Leave Apple Push Notification traffic outside the tunnel, while Include All Networks is on.",
+                    identifier: "hako.tunnel.excludeAPNs",
+                    isOn: $excludeAPNs
+                ) { await SharedPreferences.excludeAPNs.set($0) }
 
-
-                HakoToggleRow(
+                settingSection(
                     String(localized: "Exclude Cellular Services"),
-                    subtitle: String(localized: "Leave Wi-Fi Calling, MMS, SMS and Visual Voicemail outside the tunnel."),
-                    isOn: $excludeCellularServices,
-                    identifier: "hako.tunnel.excludeCellularServices"
-                ) { newValue in
-                    Task {
-                        await SharedPreferences.excludeCellularServices.set(newValue)
-                        await restartService()
-                    }
-                }
-
+                    explanation: "Leave Wi-Fi Calling, MMS, SMS and Visual Voicemail outside the tunnel, while Include All Networks is on.",
+                    identifier: "hako.tunnel.excludeCellularServices",
+                    isOn: $excludeCellularServices
+                ) { await SharedPreferences.excludeCellularServices.set($0) }
             }
 
-            HakoToggleRow(
+            settingSection(
                 String(localized: "Exclude Local Networks"),
-                subtitle: String(localized: "Leave AirPlay, AirDrop, CarPlay and other local-network traffic outside the tunnel."),
-                isOn: $excludeLocalNetworks,
-                identifier: "hako.tunnel.excludeLocalNetworks"
-            ) { newValue in
-                Task {
-                    await SharedPreferences.excludeLocalNetworks.set(newValue)
-                    await restartService()
-                }
-            }
+                explanation: "Leave AirPlay, AirDrop, CarPlay and other local-network traffic outside the tunnel.",
+                identifier: "hako.tunnel.excludeLocalNetworks",
+                isOn: $excludeLocalNetworks
+            ) { await SharedPreferences.excludeLocalNetworks.set($0) }
 
             if #available(iOS 17.4, macOS 14.4, *) {
-
-                HakoToggleRow(
+                settingSection(
                     String(localized: "Exclude Device Communication"),
-                    subtitle: String(localized: "Leave traffic between this device and nearby devices outside the tunnel."),
-                    isOn: $excludeDeviceCommunication,
-                    identifier: "hako.tunnel.excludeDeviceCommunication"
-                ) { newValue in
-                    Task {
-                        await SharedPreferences.excludeDeviceCommunication.set(newValue)
-                        await restartService()
-                    }
-                }
+                    explanation: "Leave traffic between this device and nearby devices outside the tunnel.",
+                    identifier: "hako.tunnel.excludeDeviceCommunication",
+                    isOn: $excludeDeviceCommunication
+                ) { await SharedPreferences.excludeDeviceCommunication.set($0) }
             }
         }
     }
