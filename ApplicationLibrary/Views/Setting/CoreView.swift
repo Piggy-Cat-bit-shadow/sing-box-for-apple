@@ -105,7 +105,8 @@ public struct CoreView: View {
         ) {
             HakoToggleRow(
                 String(localized: "Disable Deprecated Warnings"),
-                isOn: $disableDeprecatedWarnings
+                isOn: $disableDeprecatedWarnings,
+                tightensVerticalPadding: true
             ) { newValue in
                 Task {
                     await SharedPreferences.disableDeprecatedWarnings.set(newValue)

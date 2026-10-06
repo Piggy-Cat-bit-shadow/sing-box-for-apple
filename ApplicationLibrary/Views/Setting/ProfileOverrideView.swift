@@ -45,7 +45,11 @@ public struct ProfileOverrideView: View {
         set: @escaping (Bool) async -> Void
     ) -> some View {
         HakoSettingsSection(title, footnote: explanation) {
-            HakoToggleRow(title, isOn: isOn) { newValue in
+            HakoToggleRow(
+                title,
+                isOn: isOn,
+                tightensVerticalPadding: true
+            ) { newValue in
                 Task {
                     await set(newValue)
                     await reloadService()

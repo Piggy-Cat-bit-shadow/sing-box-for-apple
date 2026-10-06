@@ -18,7 +18,10 @@ public struct HTTPProxyCard: View {
     }
 
     public var body: some View {
-        HakoPageSection(palette: .system) {
+        HakoPageSection(
+            footnote: "Routes this device's HTTP traffic through the tunnel.",
+            palette: .system
+        ) {
             HakoToggleRow(
                 String(localized: "System HTTP Proxy"),
                 systemImage: "network",

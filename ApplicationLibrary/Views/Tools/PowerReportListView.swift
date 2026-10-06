@@ -25,7 +25,8 @@ public struct PowerReportListView: View {
                 ) {
                     HakoToggleRow(
                         String(localized: "Enable Power Report"),
-                        isOn: $powerReportEnabled
+                        isOn: $powerReportEnabled,
+                        tightensVerticalPadding: true
                     ) { newValue in
                         Task {
                             await SharedPreferences.powerReportEnabled.set(newValue)

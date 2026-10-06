@@ -138,6 +138,12 @@ public struct HakoHomeView: View {
             // shows - the reference's header sits on the page, not in a card, and its action is a
             // fixed-size capsule rather than the row's full width.
             homeHeader
+            // The system HTTP proxy, restored here: it is a proxy entry, and the review moved it
+            // back out of the client settings page. It sits with the other cards that describe the
+            // current working mode, after the header and before the shortcuts.
+            if systemProxyAvailable {
+                httpProxyCard
+            }
             if showsConnectedCards, enabledCards.contains(.clashMode) {
                 modeSection
             }
@@ -426,6 +432,16 @@ public struct HakoHomeView: View {
         [GridItem(.adaptive(minimum: 150), spacing: HakoTheme.Spacing.cardGap)]
     }
 
+
+    /// The system HTTP proxy, as the client's own toggle row inside a painted card.
+    private var httpProxyCard: some View {
+        HTTPProxyCard(
+            systemProxyAvailable: $systemProxyAvailable,
+            systemProxyEnabled: $systemProxyEnabled
+        ) { enabled in
+            await coordinator.setSystemProxyEnabled(enabled, profile: profile)
+        }
+    }
 
     /// The shortcuts the reference design puts between the mode and the traffic.
     ///

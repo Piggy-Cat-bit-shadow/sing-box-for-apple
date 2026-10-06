@@ -11651,6 +11651,22 @@
         }
       }
     },
+    "Routes this device's HTTP traffic through the tunnel.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将本机的 HTTP 流量经由隧道转发。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將本機的 HTTP 流量經由隧道轉送。"
+          }
+        }
+      }
+    },
     "Routing": {
       "localizations": {
         "zh-Hans": {
