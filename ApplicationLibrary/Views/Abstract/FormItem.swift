@@ -116,13 +116,26 @@ public struct FormItem<Content: View>: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                HStack {
-                    Text(title)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                    Spacer()
-                    Spacer()
-                    content
+                // The platform's labelled row, which is what the reference writes too.
+                //
+                // This was an `HStack` of a `Text`, a spacer, another spacer and the control -
+                // the pre-design-system idiom, and twenty-one screens still build their rows
+                // with it. It reads as a spare line of text beside a control rather than as a
+                // row: no platform alignment, no platform height, and the two spacers were
+                // guessing at what `LabeledContent` does properly.
+                if #available(iOS 16.0, *) {
+                    LabeledContent(title) {
+                        content
+                            .labelsHidden()
+                    }
+                } else {
+                    HStack {
+                        Text(title)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                        Spacer(minLength: HakoTheme.Spacing.standard)
+                        content
+                    }
                 }
             }
         #elseif os(tvOS)

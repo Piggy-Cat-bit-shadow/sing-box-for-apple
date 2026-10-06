@@ -696,12 +696,26 @@ public struct HakoActionTileLabel: View {
         self.tint = tint
     }
 
+    /// The reference's own tile: a soft tinted panel, a tinted glyph, a tinted label.
+    ///
+    /// It was a solid saturated square with a white glyph and a neutral label - the loudest
+    /// thing on a page whose every other control is quiet, which is the "jarring button" this
+    /// client was reported for. The reference's `QuickAddDoorLabelStyle` is the other way
+    /// round: `.tint.opacity(0.11)` behind the glyph, a 52pt panel at the icon radius, and
+    /// the label in the same tint as the glyph, so the tile reads as one soft object rather
+    /// than a filled badge with a caption under it.
     public var body: some View {
-        VStack(spacing: HakoTheme.Spacing.compact) {
-            HakoIconWell(tint: tint.color, systemImage: systemImage)
+        VStack(spacing: HakoTheme.Spacing.compact - 2) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(
+                    tint.color.opacity(0.11),
+                    in: RoundedRectangle(cornerRadius: HakoTheme.Radius.icon, style: .continuous)
+                )
             Text(title)
                 .font(.footnote)
-                .foregroundStyle(.primary)
+                .foregroundStyle(tint.color)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
