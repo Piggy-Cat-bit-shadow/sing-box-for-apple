@@ -28,8 +28,11 @@ final class HakoSnapshotUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         setupSnapshot(app)
-        // A fixed language, so a captured screen is comparable run to run.
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        // A fixed language, so a captured screen is comparable run to run - and overridable,
+        // because the review document the client asked for has to be in the language the
+        // client reads.
+        let language = ProcessInfo.processInfo.environment["HAKO_SNAPSHOT_LANGUAGE"] ?? "en"
+        app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", language == "en" ? "en_US" : language]
         // And the light appearance, because that is what the reference runs in: a spacing or
         // colour comparison against a light capture is not a comparison otherwise.
         app.launchEnvironment["SCREENSHOT_APPEARANCE"] = "light"
@@ -304,9 +307,16 @@ final class HakoSnapshotUITests: XCTestCase {
             app.otherElements["hako.notice"].waitForExistence(timeout: 10),
             "the page must say that the extension is not installed"
         )
+        // The action is the card's, which is what the reference does: its notice is a line of
+        // text and its card carries the button. Two identical buttons for one action was what
+        // this asserted, and removing the duplicate is the fix.
         XCTAssertTrue(
-            app.buttons["hako.notice.action"].exists,
-            "the notice must offer to install it"
+            app.buttons["hako.home.connection.action"].exists,
+            "the card must offer the action that fixes the missing extension"
+        )
+        XCTAssertTrue(
+            app.buttons["hako.home.connection.action"].isEnabled,
+            "and it must be enabled: a client with no profile was disabling its own install"
         )
     }
 

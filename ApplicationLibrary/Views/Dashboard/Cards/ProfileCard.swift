@@ -549,7 +549,7 @@ extension ProfileCard {
     private struct OpaqueSheetBackground: ViewModifier {
         func body(content: Content) -> some View {
             if #available(iOS 16.4, *) {
-                content.presentationBackground(.regularMaterial)
+                content.presentationBackground(HakoProductPalette.system.canvas)
             } else {
                 content
             }

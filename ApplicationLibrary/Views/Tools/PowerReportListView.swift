@@ -21,7 +21,6 @@ public struct PowerReportListView: View {
         HakoReportScaffold(title: String(localized: "Power Report")) {
             if !isLoading {
                 HakoSettingsSection(
-                    String(localized: "Enable Power Report"),
                     footnote: "Record a report for each service run."
                 ) {
                     HakoToggleRow(

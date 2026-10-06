@@ -75,7 +75,7 @@ public struct ProfileActionToolbar: View {
                             await viewModel.saveProfile(profile, environments: environments)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .hakoPrimaryActionButtonStyle()
                     .disabled(viewModel.isLoading || !viewModel.isChanged)
                 }
                 .padding()

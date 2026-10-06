@@ -60,7 +60,7 @@ import SwiftUI
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             #if os(iOS)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .background(HakoProductPalette.system.card, in: RoundedRectangle(cornerRadius: HakoTheme.Radius.card, style: .continuous))
             #else
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
             #endif
@@ -78,7 +78,7 @@ import SwiftUI
                 .padding(.vertical, 6)
             }
             #if os(iOS)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .background(HakoProductPalette.system.card, in: RoundedRectangle(cornerRadius: HakoTheme.Radius.card, style: .continuous))
             #else
             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
             #endif
@@ -108,7 +108,7 @@ import SwiftUI
                     Label("Format", systemImage: "text.alignleft")
                 }
             }
-            .buttonStyle(.bordered)
+            .hakoSecondaryActionButtonStyle()
         }
 
         private var symbolButtons: some View {
@@ -120,7 +120,7 @@ import SwiftUI
                     symbolButton(symbol)
                 }
             }
-            .buttonStyle(.bordered)
+            .hakoSecondaryActionButtonStyle()
         }
 
         private var primarySymbols: [String] {

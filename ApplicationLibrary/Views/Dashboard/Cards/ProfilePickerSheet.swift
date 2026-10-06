@@ -210,14 +210,14 @@ struct ProfilePickerSheet: View {
                                     isEditing = false
                                 }
                             }
-                            .buttonStyle(.borderedProminent)
+                            .hakoPrimaryActionButtonStyle()
                         } else {
                             Button("Edit") {
                                 withAnimation {
                                     isEditing = true
                                 }
                             }
-                            .buttonStyle(.borderedProminent)
+                            .hakoPrimaryActionButtonStyle()
                         }
                     }
                     .padding()

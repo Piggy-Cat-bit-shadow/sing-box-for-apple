@@ -62,7 +62,7 @@ public struct GroupHeaderView: View {
                 #if os(macOS) || os(tvOS)
                     .buttonStyle(.plain)
                 #else
-                    .buttonStyle(.borderless)
+                    .hakoCircularIconButtonStyle()
                 #endif
                 Button {
                     listViewModel.toggleExpand(groupTag: group.tag)
@@ -74,7 +74,7 @@ public struct GroupHeaderView: View {
                 #if os(macOS) || os(tvOS)
                 .buttonStyle(.plain)
                 #else
-                .buttonStyle(.borderless)
+                .hakoCircularIconButtonStyle()
                 #endif
             }
         }
@@ -225,7 +225,10 @@ struct CardSegmentShape: Shape {
 extension View {
     func cardSegment(top: Bool, bottom: Bool) -> some View {
         modifier(CardSegmentModifier(
-            shape: CardSegmentShape(topRadius: top ? 16 : 0, bottomRadius: bottom ? 16 : 0)
+            shape: CardSegmentShape(
+                topRadius: top ? HakoTheme.Radius.card : 0,
+                bottomRadius: bottom ? HakoTheme.Radius.card : 0
+            )
         ))
     }
 }
@@ -242,9 +245,9 @@ private struct CardSegmentModifier: ViewModifier {
 
     private var backgroundColor: Color {
         #if os(iOS)
-            return Color(uiColor: .secondarySystemGroupedBackground)
+            return HakoProductPalette.system.card
         #elseif os(macOS)
-            return Color(nsColor: .textBackgroundColor)
+            return HakoProductPalette.system.card
         #elseif os(tvOS)
             switch colorScheme {
             case .dark:

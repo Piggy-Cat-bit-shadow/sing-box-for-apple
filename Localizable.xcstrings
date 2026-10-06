@@ -1142,6 +1142,22 @@
         }
       }
     },
+    "Battery use during each run": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次运行的电量消耗"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次執行的電量消耗"
+          }
+        }
+      }
+    },
     "Beta": {
       "localizations": {
         "fa": {
@@ -8224,6 +8240,22 @@
         }
       }
     },
+    "Memory use before the system killed it": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "被系统终止前的内存占用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "被系統終止前的記憶體用量"
+          }
+        }
+      }
+    },
     "Metadata": {
       "localizations": {
         "fa": {
@@ -12697,6 +12729,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "已顯示"
+          }
+        }
+      }
+    },
+    "Signals from the runs that ended early": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隧道异常退出时留下的信号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隧道異常結束時留下的訊號"
           }
         }
       }

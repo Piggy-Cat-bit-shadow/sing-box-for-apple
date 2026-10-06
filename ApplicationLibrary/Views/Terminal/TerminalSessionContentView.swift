@@ -35,7 +35,7 @@
                                 .multilineTextAlignment(.leading)
                                 .foregroundColor(.primary)
                                 .padding()
-                                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                                .background(HakoProductPalette.system.control, in: RoundedRectangle(cornerRadius: HakoTheme.Radius.control, style: .continuous))
                                 .padding(.horizontal)
                                 .frame(maxWidth: 480)
                                 .textSelection(.enabled)
@@ -50,7 +50,7 @@
                                 .multilineTextAlignment(.leading)
                                 .foregroundColor(.primary)
                                 .padding()
-                                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                                .background(HakoProductPalette.system.control, in: RoundedRectangle(cornerRadius: HakoTheme.Radius.control, style: .continuous))
                                 .padding(.horizontal)
                                 .frame(maxWidth: 480)
                                 .textSelection(.enabled)
@@ -68,10 +68,10 @@
                                     dismiss()
                                 }
                             }
-                            .buttonStyle(.borderedProminent)
+                            .hakoPrimaryActionButtonStyle()
                         }
                         .padding()
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .background(HakoProductPalette.system.card, in: RoundedRectangle(cornerRadius: HakoTheme.Radius.card, style: .continuous))
                         .padding()
                     }
                 }

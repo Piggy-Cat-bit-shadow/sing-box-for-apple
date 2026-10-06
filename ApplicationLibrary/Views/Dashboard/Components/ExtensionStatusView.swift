@@ -133,9 +133,9 @@ public struct ExtensionStatusView: View {
 
         private var backgroundColor: Color {
             #if os(iOS)
-                return Color(uiColor: .secondarySystemGroupedBackground)
+                return HakoProductPalette.system.card
             #elseif os(macOS)
-                return Color(nsColor: .textBackgroundColor)
+                return HakoProductPalette.system.card
             #elseif os(tvOS)
                 switch colorScheme {
                 case .dark:

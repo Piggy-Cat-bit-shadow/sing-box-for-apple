@@ -311,6 +311,7 @@ public struct ToolsView: View {
                     } label: {
                         reportRow(
                             title: String(localized: "Crash Report"),
+                            subtitle: String(localized: "Signals from the runs that ended early"),
                             systemImage: "ladybug.fill",
                             tint: .pink,
                             unread: environments.crashReportManager.unreadCount
@@ -339,6 +340,7 @@ public struct ToolsView: View {
                     } label: {
                         reportRow(
                             title: String(localized: "Out of Memory Report"),
+                            subtitle: String(localized: "Memory use before the system killed it"),
                             systemImage: "memorychip",
                             tint: .indigo,
                             unread: environments.oomReportManager.unreadCount
@@ -352,6 +354,7 @@ public struct ToolsView: View {
                     } label: {
                         reportRow(
                             title: String(localized: "Power Report"),
+                            subtitle: String(localized: "Battery use during each run"),
                             systemImage: "battery.50percent",
                             tint: .green,
                             unread: environments.powerReportManager.unreadCount
@@ -399,15 +402,22 @@ public struct ToolsView: View {
 
     /// A report row on the touch client: the count is the row's own badge rather than a
     /// subtitle, because it is a number that changes and the row already has its title.
+    /// A report row, built like the rows above it.
+    ///
+    /// The subtitle used to appear only when something was unread, so in the ordinary case
+    /// these three rows were a single line where Logs and Network Quality were two - the three
+    /// entries sat visibly shorter and higher than their siblings in the same card language. The
+    /// description is permanent now and the count is the badge, which is what a count is for.
     private func reportRow(
         title: String,
+        subtitle: String,
         systemImage: String,
         tint: HakoAccentRole,
         unread: Int
     ) -> some View {
         HakoDestinationRow(
             title: title,
-            subtitle: unread > 0 ? String(localized: "\(unread) unread") : nil,
+            subtitle: subtitle,
             systemImage: systemImage,
             tint: tint.color,
             badge: unread > 0 ? "\(unread)" : nil,

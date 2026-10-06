@@ -81,15 +81,15 @@ struct ProfileSelectorButton: View {
 // MARK: - View Extension
 
 extension View {
-    @ViewBuilder
+    /// The control surface, from the design system.
+    ///
+    /// This was a glass capsule on the 26 releases and a hand-mixed grey rectangle, with a
+    /// radius of 12 that no token named - a third material, for a control that sits among rows
+    /// which are neither glass nor hand-mixed grey.
     func selectorBackground() -> some View {
-        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
-            glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
-        } else {
-            background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.secondary.opacity(0.1))
-            )
-        }
+        background(
+            HakoProductPalette.system.control,
+            in: RoundedRectangle(cornerRadius: HakoTheme.Radius.control, style: .continuous)
+        )
     }
 }

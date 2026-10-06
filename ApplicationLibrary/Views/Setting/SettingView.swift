@@ -462,6 +462,21 @@ private extension SettingsPage {
     }
 
     /// The key `HakoSettingsPush` and the destination list agree on.
+    /// Opens a named settings page for the screenshot harness, which captures one page per
+    /// launch rather than driving the UI test suite: the suite relaunches the app repeatedly
+    /// and takes the simulator over, which is the wrong tool for collecting stills.
+    public init?(snapshotValue: String) {
+        switch snapshotValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "app", "clientsettings": self = .app
+        case "core": self = .core
+        case "tunnel", "packettunnel": self = .packetTunnel
+        case "ondemand", "ondemandrules": self = .onDemandRules
+        case "profileoverride", "override": self = .profileOverride
+        case "remotecontrol": self = .remoteControl
+        default: return nil
+        }
+    }
+
     var settingsKey: String {
         switch self {
         case .app: "app"

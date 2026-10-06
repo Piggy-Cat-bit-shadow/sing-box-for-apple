@@ -114,7 +114,7 @@ public struct QRSDisplayView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .hakoSecondaryActionButtonStyle()
 
                 Button {
                     dismiss()
@@ -125,7 +125,7 @@ public struct QRSDisplayView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .hakoPrimaryActionButtonStyle()
             }
             .padding(.horizontal)
         }

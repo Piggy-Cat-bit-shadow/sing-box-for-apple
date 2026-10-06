@@ -134,15 +134,13 @@ public struct HakoHomeView: View {
             // reference does exactly this when its configuration cannot be read.
             // Nothing to start is a condition of the page, not a reason for another page.
             if !tunnelIsInstalled {
+                // No button here: the card below carries the action, and two identical buttons
+                // for one action is the redundancy the reference's own notice card avoids -
+                // its notice is a line of text and the card's action is the control.
                 HakoInlineNotice(
                     title: String(localized: "Network Extension"),
-                    message: String(localized: "The VPN extension is not installed yet. Install it to start the tunnel."),
-                    actionTitle: String(localized: "Install")
-                ) {
-                    Task {
-                        await installTunnel()
-                    }
-                }
+                    message: String(localized: "The VPN extension is not installed yet. Install it to start the tunnel.")
+                )
             }
             if let profileLoadFailure {
                 HakoInlineNotice(
@@ -190,7 +188,14 @@ public struct HakoHomeView: View {
         // profiles or cannot be switched, no control on the page may act. The flag
         // lives here because the switch itself is asynchronous and this page owns the
         // control that started it.
-        .disabled(!Variant.screenshotMode && (!profile.status.isSwitchable || coordinator.reasserting))
+        // Only while the tunnel is *moving*. `isSwitchable` is connected-or-disconnected, so
+        // testing it disabled the whole page for a client that has no tunnel at all - which
+        // greyed out the install button in the notice above and left the card's action inert.
+        // A page whose only job is to offer the next step must not be disabled before the
+        // first step is taken.
+        .disabled(coordinator.reasserting
+            || profile.status == .connecting
+            || profile.status == .disconnecting)
     }
 
     // MARK: - Session
@@ -233,7 +238,9 @@ public struct HakoHomeView: View {
                 // The action is the card's own, full width and below the state it acts on -
                 // the reference's shape. It was a compact icon button at the end of the
                 // title line, so the card's main action was its smallest element.
-                StartStopButton(showsRuntimeDuration: false)
+                StartStopButton(showsRuntimeDuration: false) {
+                    await installTunnel()
+                }
 
                 if let detail = sessionDetail {
                     HakoStatusLine(

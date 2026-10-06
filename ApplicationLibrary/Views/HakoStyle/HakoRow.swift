@@ -193,6 +193,11 @@ public struct HakoDestinationRow: View {
                 Text(subtitle)
                     .font(HakoTheme.Typography.rowSubtitle(locale))
                     .foregroundStyle(.secondary)
+                    // One line on a settings page: the row height is a token, so a subtitle
+                    // that wrapped would make its row taller than the row beside it and the
+                    // page's rhythm would follow the length of its copy.
+                    .lineLimit(HakoPlatformLayout.pageUsesSystemSettingsIdiom ? 1 : 2)
+                    .truncationMode(HakoPlatformLayout.pageUsesSystemSettingsIdiom ? .tail : .middle)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -324,17 +329,44 @@ public struct HakoPushRowButtonStyle: ButtonStyle {
 public extension View {
     /// The primary action button: a filled button, or the system's prominent glass
     /// button where that language exists.
-    @ViewBuilder
+    /// The primary action, one treatment for the whole client.
+    ///
+    /// It preferred the system's prominent glass on iOS 26 and a bordered prominent button
+    /// below it, which meant the client had two primary looks: the notice's bordered button
+    /// came out blue while the card's glass button, inside a card, took a neutral tint and came
+    /// out grey - the same action, two appearances, one of them looking disabled.
     func hakoPrimaryActionButtonStyle() -> some View {
-        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
-            buttonStyle(.glassProminent)
-        } else {
-            buttonStyle(.borderedProminent)
-        }
+        buttonStyle(.borderedProminent)
+            .tint(.accentColor)
     }
 }
 
 public extension View {
+    /// The secondary action: outlined, for the action beside a primary one.
+    ///
+    /// Named so a page does not reach for `.bordered` on its own and pick its own tint - the
+    /// reason fifty-one buttons across this client used six different treatments.
+    func hakoSecondaryActionButtonStyle() -> some View {
+        buttonStyle(.bordered)
+            .tint(.accentColor)
+    }
+
+    /// The destructive action. Red, and only where the action destroys, erases or stops.
+    func hakoDestructiveActionButtonStyle() -> some View {
+        buttonStyle(.bordered)
+            .tint(.red)
+    }
+
+    /// A circular glyph control: what a toolbar's or a card's icon-only action is.
+    func hakoCircularIconButtonStyle() -> some View {
+        buttonStyle(.plain)
+            .frame(
+                width: HakoTheme.Control.minimumHitTarget,
+                height: HakoTheme.Control.minimumHitTarget
+            )
+            .background(HakoProductPalette.system.control, in: Circle())
+    }
+
     /// The card's connection action: filled to connect, tinted red to disconnect.
     ///
     /// The reference's `ConnectionCard` uses its primary action style for connect and a
@@ -346,7 +378,11 @@ public extension View {
             buttonStyle(.bordered)
                 .tint(.red)
         } else {
+            // An explicit accent: the system's prominent glass takes the inherited tint, and
+            // inside a card that tint was neutral - a grey "Install" beside the notice's blue
+            // one, for the same action.
             hakoPrimaryActionButtonStyle()
+                .tint(.accentColor)
         }
     }
 }

@@ -180,8 +180,6 @@ public enum HakoTheme {
             return 20
         }
 
-        public static let liquidGlassCard: CGFloat = 24
-
         /// The capsule around a workspace's actions and the bottom search field.
         public static let capsule: CGFloat = 17
         public static let searchField: CGFloat = 22
@@ -290,6 +288,13 @@ public enum HakoTheme {
             public static let maximumContentWidth: CGFloat = 1_120
             public static let horizontalInset: CGFloat = 56
         }
+
+        /// The icon column of a metrics block - a connection row's traffic figures, a group's
+        /// counts. Fixed so the glyphs of every row share one vertical line.
+        public static let metricSymbolColumn: CGFloat = 13
+        /// And its value column. Fixed for the same reason: a value sized to its own text moved
+        /// the column beside it, so "1.2 GB" and "0 kB" could not be read down the page.
+        public static let metricValueColumn: CGFloat = 66
 
         /// Horizontal inset of the primary pages' content column.
         public static let cardHorizontalInset: CGFloat = 20

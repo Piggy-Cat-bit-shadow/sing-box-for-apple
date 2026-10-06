@@ -65,6 +65,9 @@ public enum HakoSurfaceRole: String, CaseIterable, Sendable {
 /// Icon tint roles. The mapping is to system colours so that a role keeps its
 /// meaning under Increase Contrast and in both appearances.
 public enum HakoAccentRole: String, CaseIterable, Sendable {
+    /// The system accent, for a primary action or a selected state - and for nothing
+    /// decorative. Named so a page that wants "the main colour" does not reach for a literal.
+    case primaryAction
     case blue
     case cyan
     case green
@@ -76,6 +79,7 @@ public enum HakoAccentRole: String, CaseIterable, Sendable {
 
     public var color: Color {
         switch self {
+        case .primaryAction: .accentColor
         case .blue: .blue
         case .cyan: .cyan
         case .green: .green

@@ -199,7 +199,7 @@ public struct NewProfileMenuView: View {
                     HakoActionTile(
                         String(localized: "Import from File"),
                         systemImage: "doc.badge.plus",
-                        tint: .blue
+                        tint: HakoAccentRole.primaryAction
                     ) {
                         showFileImporter = true
                     }
@@ -207,7 +207,7 @@ public struct NewProfileMenuView: View {
                     HakoActionTile(
                         String(localized: "Scan QR Code"),
                         systemImage: "qrcode.viewfinder",
-                        tint: .teal
+                        tint: HakoAccentRole.primaryAction
                     ) {
                         showQRScanner = true
                     }
@@ -216,7 +216,7 @@ public struct NewProfileMenuView: View {
                         HakoActionTile(
                             String(localized: "Create Manually"),
                             systemImage: "square.and.pencil",
-                            tint: .indigo
+                            tint: HakoAccentRole.primaryAction
                         ) {
                             showNewProfile = true
                         }
@@ -231,7 +231,7 @@ public struct NewProfileMenuView: View {
                         HakoActionTile(
                             String(localized: "Create Manually"),
                             systemImage: "square.and.pencil",
-                            tint: .indigo
+                            tint: HakoAccentRole.primaryAction
                         ) {
                             showManualCreate = true
                         }

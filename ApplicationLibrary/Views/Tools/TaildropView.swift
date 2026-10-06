@@ -324,7 +324,7 @@ import UniformTypeIdentifiers
                             .frame(width: 44, height: 32)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.borderless)
+                    .hakoCircularIconButtonStyle()
                     .foregroundStyle(finished ? Color.secondary : Color.red)
                 }
                 if !finished {

@@ -7,28 +7,42 @@ public struct StartStopButton: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
     private let showsRuntimeDuration: Bool
 
-    public init(showsRuntimeDuration: Bool = false) {
+    /// What to do when there is no tunnel profile yet.
+    ///
+    /// The card's action is the page's action in every state, so with nothing installed it is
+    /// the install - the reference's "Repair and connect". It used to be a disabled icon-only
+    /// play triangle, which is the one thing a card's primary action must not be.
+    private let install: () async -> Void
+
+    public init(showsRuntimeDuration: Bool = false, install: @escaping () async -> Void = {}) {
         self.showsRuntimeDuration = showsRuntimeDuration
+        self.install = install
     }
 
     public var body: some View {
         Group {
             if let profile = environments.extensionProfile {
+                // Starting needs a profile; installing does not. The `.disabled` below used to
+                // wrap both branches, so a client with no profiles disabled the very action
+                // that would give it one - a grey button, looking broken, in the one state that
+                // exists to be fixed.
                 ToggleConnectionButton(showsRuntimeDuration: showsRuntimeDuration)
                     .environmentObject(profile)
+                    .disabled(environments.emptyProfiles)
             } else {
-                Button {} label: {
-                    #if os(tvOS)
-                        Image(systemName: "play.fill")
-                    #else
-                        Label("Start", systemImage: "play.fill")
-                    #endif
+                Button {
+                    Task {
+                        await install()
+                    }
+                } label: {
+                    Label("Install", systemImage: "arrow.down.circle")
+                        .frame(maxWidth: .infinity)
                 }
-                .labelStyle(.iconOnly)
-                .disabled(true)
+                .hakoConnectionActionButtonStyle(isDestructive: false)
+                .controlSize(.large)
+                .accessibilityIdentifier("hako.home.connection.action")
             }
         }
-        .disabled(environments.emptyProfiles)
     }
 
     private struct ToggleConnectionButton: View {
@@ -47,7 +61,10 @@ public struct StartStopButton: View {
             // progress line while it is working. Ours was a compact icon button beside the
             // state text, so the card's main action was the smallest thing on it.
             Group {
-                if isStarting || !profile.status.isSwitchable {
+                // Busy means *transitioning* - not "not switchable", which is also true of a
+                // client with no tunnel at all. That mistake put "Working…" in front of a
+                // reader who has nothing installed and nothing happening.
+                if isStarting || profile.status == .connecting || profile.status == .disconnecting {
                     HStack(spacing: HakoTheme.Spacing.compact) {
                         ProgressView()
                         Text("Working…")

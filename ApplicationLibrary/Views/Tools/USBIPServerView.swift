@@ -190,7 +190,7 @@ public struct USBIPServerView: View {
                             Image(systemName: "xmark.circle")
                                 .foregroundStyle(.red)
                         }
-                        .buttonStyle(.borderless)
+                        .hakoCircularIconButtonStyle()
                         .help("Stop Sharing")
                     }
                 }

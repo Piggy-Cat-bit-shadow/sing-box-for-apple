@@ -288,20 +288,36 @@ public struct HakoMetricStack: View {
     }
 
     public var body: some View {
+        // A fixed grid, not a right-aligned run of text.
+        //
+        // Each line was an icon and a value sized by their own text, so a row showing
+        // "1.2 GB" and a row showing "0 kB" put their glyphs and their digits at different x
+        // positions: the figures could not be read down the list, which is the only way a list
+        // of traffic figures is read. Both columns are fixed widths now and the digits are
+        // monospaced, so every row of every list shares one grid.
         VStack(alignment: .trailing, spacing: HakoTheme.Spacing.tight) {
             ForEach(lines) { line in
                 HStack(spacing: HakoTheme.Spacing.tight) {
                     Image(systemName: line.symbol)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .frame(
+                            width: HakoTheme.Layout.metricSymbolColumn,
+                            alignment: .trailing
+                        )
                         .accessibilityHidden(true)
                     Text(line.text)
                         .font(HakoTheme.FontRole.metric)
+                        .monospacedDigit()
                         .foregroundStyle(tint ?? .secondary)
                         // A large figure gives way before the record's name does: the
                         // alternative is a rate that pushes a host name off the row.
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
+                        .frame(
+                            width: HakoTheme.Layout.metricValueColumn,
+                            alignment: .trailing
+                        )
                 }
             }
         }
@@ -826,7 +842,7 @@ public struct HakoInlineNotice: View {
                         Text(actionTitle)
                             .font(.subheadline.weight(.semibold))
                     }
-                    .buttonStyle(.borderedProminent)
+                    .hakoPrimaryActionButtonStyle()
                     .accessibilityIdentifier("hako.notice.action")
                 }
             }

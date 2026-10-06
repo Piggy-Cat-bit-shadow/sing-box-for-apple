@@ -123,14 +123,13 @@ public extension View {
         #if os(tvOS)
             buttonStyle(ActionButtonStyle())
         #else
-            if #available(iOS 26.0, macOS 26.0, *) {
-                frame(width: 44, height: 32)
-                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 8))
-            } else {
-                frame(width: 44, height: 32)
-                    .background(Color.secondary.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
+            // The same control surface every other control uses, rather than a glass
+            // capsule on one system and a hand-mixed grey on another.
+            frame(width: 44, height: 32)
+                .background(
+                    HakoProductPalette.system.control,
+                    in: RoundedRectangle(cornerRadius: HakoTheme.Radius.control, style: .continuous)
+                )
         #endif
     }
 }
@@ -189,39 +188,21 @@ public extension View {
 }
 
 private struct CardStyleModifier: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-
     func body(content: Content) -> some View {
-        // The corner radius is a design token, not a local choice: the glass card
-        // and the painted card use the values the HAKO/Clash language assigns them,
-        // so a card in the dashboard and a card in a tool page agree.
-        if #available(iOS 26.0, macOS 26.0, tvOS 26.0, *) {
-            content
-                .glassEffect(
-                    .regular.interactive(),
-                    in: .rect(cornerRadius: HakoTheme.Radius.liquidGlassCard)
-                )
-        } else {
-            content
-                .background(backgroundColor)
-                .cornerRadius(HakoTheme.Radius.groupedSection)
-        }
+        // One card language for the whole client: an opaque card at the card radius.
+        //
+        // This used to be a glass card on the 26 releases and an opaque one below them, at a
+        // second radius token of its own - so the *same* card was two different materials
+        // depending on the system, and a page that used it read as a different app from a page
+        // that did not. The client's main surface is opaque (every settings page is a grouped
+        // list, and every painted card is opaque), so opaque is the language and every card
+        // follows it. Different material now needs a reason; "this page was written later"
+        // is not one.
+        content
+            .background(HakoProductPalette.system.card)
+            .clipShape(
+                RoundedRectangle(cornerRadius: HakoTheme.Radius.card, style: .continuous)
+            )
     }
 
-    private var backgroundColor: Color {
-        #if os(iOS)
-            return Color(uiColor: .secondarySystemGroupedBackground)
-        #elseif os(macOS)
-            return Color(nsColor: .textBackgroundColor)
-        #elseif os(tvOS)
-            switch colorScheme {
-            case .dark:
-                return Color(uiColor: .black)
-            default:
-                return Color(uiColor: .white)
-            }
-        #else
-            return Color.clear
-        #endif
-    }
 }

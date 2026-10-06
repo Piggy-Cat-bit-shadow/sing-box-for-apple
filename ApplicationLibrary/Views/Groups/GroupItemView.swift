@@ -61,7 +61,7 @@ public struct GroupItemView: View {
             #endif
         }
         #if !os(tvOS)
-        .buttonStyle(.borderless)
+        .hakoCircularIconButtonStyle()
         .background(
             RoundedRectangle(cornerRadius: HakoTheme.Radius.control, style: .continuous)
                 .fill(isSelected ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(itemBackground))

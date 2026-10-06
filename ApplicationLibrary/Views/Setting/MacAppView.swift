@@ -147,15 +147,19 @@ public struct AppView: View {
                         // something else, and a row name that named the terminal engine
                         // rather than the thing being configured. The feature is the
                         // appearance of the SSH terminal this client opens.
-                        Section("Terminal") {
+                        // The explanation was a row subtitle, which made this card's only row
+                        // 63pt where the card above it is 52 - the review's "cards sized by the
+                        // length of their copy". It is the section's footnote now, so the two
+                        // cards on this page have the same row height, and the caption is gone
+                        // with it because the row already names the setting.
+                        HakoSettingsSection(footnote: "Colours and font for SSH sessions") {
                             FormNavigationLink {
                                 GhosttyConfigurationView()
                             } label: {
                                 HakoToolRow(
                                     title: String(localized: "Terminal Appearance"),
                                     systemImage: "terminal.fill",
-                                    tint: .teal,
-                                    detail: String(localized: "Colours and font for SSH sessions")
+                                    tint: .teal
                                 )
                             }
                         }
