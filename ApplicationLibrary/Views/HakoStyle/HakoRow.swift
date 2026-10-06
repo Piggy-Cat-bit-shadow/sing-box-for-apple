@@ -620,6 +620,8 @@ struct HakoRowBody<Trailing: View>: View {
 /// row that both navigates and switches is the "error hit" this migration removes.
 public struct HakoToggleRow: View {
     private let title: String
+    private let systemImage: String?
+    private let tint: Color?
     private let isOn: Binding<Bool>
     private let isEnabled: Bool
     private let identifier: String?
@@ -627,12 +629,16 @@ public struct HakoToggleRow: View {
 
     public init(
         _ title: String,
+        systemImage: String? = nil,
+        tint: Color? = nil,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         identifier: String? = nil,
         onChange: ((Bool) -> Void)? = nil
     ) {
         self.title = title
+        self.systemImage = systemImage
+        self.tint = tint
         self.isOn = isOn
         self.isEnabled = isEnabled
         self.identifier = identifier
@@ -649,13 +655,35 @@ public struct HakoToggleRow: View {
     /// The reference writes `Toggle("...", isOn:)` and nothing else. So does this now: the
     /// platform sizes it, styles its label, and reports it to VoiceOver as the switch it is.
     public var body: some View {
+        // With an icon it is the client's own row, so it sits in the same card and on the same
+        // grid as the navigation rows beside it - the review's "the HTTP proxy row must belong to
+        // the same component system, not be a special card of its own". Without one it is the
+        // platform's toggle row, which is what a settings page wants.
+        if let systemImage, let tint {
+            HakoRowBody(
+                title: title,
+                systemImage: systemImage,
+                tint: tint,
+                showsDisclosure: false
+            ) {
+                toggle
+            }
+            .accessibilityIdentifier(identifier ?? "")
+            .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
+        } else {
+            toggle
+                .accessibilityIdentifier(identifier ?? "")
+                .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
+        }
+    }
+
+    private var toggle: some View {
         Toggle(title, isOn: isOn)
+            .labelsHidden()
             .disabled(!isEnabled)
             .onChangeCompat(of: isOn.wrappedValue) { newValue in
                 onChange?(newValue)
             }
-            .accessibilityIdentifier(identifier ?? "")
-            .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
     }
 }
 

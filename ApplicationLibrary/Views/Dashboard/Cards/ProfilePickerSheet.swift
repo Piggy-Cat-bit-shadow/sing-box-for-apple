@@ -857,6 +857,9 @@ private struct ProfilePickerRow: View {
                     }
                 } label: {
                     rowContent
+                        // The same floor a first-level destination row has, so the
+                        // configuration list and the menu it is opened from have one rhythm.
+                        .frame(minHeight: HakoTheme.Layout.destinationRowTargetHeight)
                 }
                 .buttonStyle(.plain)
                 .disabled(isEditing || isUpdating)
@@ -907,14 +910,12 @@ private struct ProfilePickerRow: View {
                 // tile the rest of the client uses for "where does this live". The previous
                 // leading checkmark said whether the row was selected, which the trailing mark
                 // now says without occupying the position that carries information.
-                HakoIconWell(
-                    tint: profile.type.hakoAccent.color,
-                    size: HakoTheme.Layout.proxyGroupIconSize,
-                    cornerRadius: HakoTheme.Layout.proxyGroupIconCornerRadius
-                ) {
-                    Image(systemName: profile.type.presentationSymbol)
-                        .font(.footnote.weight(.semibold))
-                }
+                // The first-level icon well, at the first-level size. It was the smaller
+                // proxy-group well with a hand-set glyph, which is why the configuration list
+                // read as a more compact species of list than the menu it is reached from - the
+                // review's "raise the configuration centre's rows and icons to the first-level
+                // standard".
+                HakoIconWell(tint: profile.type.hakoAccent.color, systemImage: profile.type.presentationSymbol)
 
                 VStack(alignment: .leading, spacing: HakoTheme.Typography.rowSubtitleGap(locale)) {
                     Text(profile.name)

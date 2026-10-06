@@ -13,9 +13,17 @@ public struct StartStopButton: View {
     /// the install - the reference's "Repair and connect". It used to be a disabled icon-only
     /// play triangle, which is the one thing a card's primary action must not be.
     private let install: () async -> Void
+    /// Sized to its label rather than to the card. The home's operation row puts the action beside
+    /// the configuration it acts on, and a full-width button there would push the name off the row.
+    private let isCompact: Bool
 
-    public init(showsRuntimeDuration: Bool = false, install: @escaping () async -> Void = {}) {
+    public init(
+        showsRuntimeDuration: Bool = false,
+        isCompact: Bool = false,
+        install: @escaping () async -> Void = {}
+    ) {
         self.showsRuntimeDuration = showsRuntimeDuration
+        self.isCompact = isCompact
         self.install = install
     }
 
@@ -26,7 +34,10 @@ public struct StartStopButton: View {
                 // wrap both branches, so a client with no profiles disabled the very action
                 // that would give it one - a grey button, looking broken, in the one state that
                 // exists to be fixed.
-                ToggleConnectionButton(showsRuntimeDuration: showsRuntimeDuration)
+                ToggleConnectionButton(
+                    showsRuntimeDuration: showsRuntimeDuration,
+                    isCompact: isCompact
+                )
                     .environmentObject(profile)
                     .disabled(environments.emptyProfiles)
             } else {
@@ -39,7 +50,7 @@ public struct StartStopButton: View {
                         .frame(maxWidth: .infinity)
                 }
                 .hakoConnectionActionButtonStyle(isDestructive: false)
-                .controlSize(.large)
+                .controlSize(isCompact ? .regular : .large)
                 .accessibilityIdentifier("hako.home.connection.action")
             }
         }
@@ -52,6 +63,7 @@ public struct StartStopButton: View {
         @State private var currentTime = Date()
         @State private var isStarting = false
         let showsRuntimeDuration: Bool
+        let isCompact: Bool
 
         private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -79,7 +91,12 @@ public struct StartStopButton: View {
                         }
                     } label: {
                         HStack(spacing: HakoTheme.Spacing.compact) {
-                            if profile.status.isConnectedStrict, let duration = runtimeDuration {
+                            // Only where the row has space for it. In the operation row the
+                            // action sits beside the configuration's name, and the running time
+                            // pushed the label onto a second line.
+                            if showsRuntimeDuration, !isCompact,
+                               profile.status.isConnectedStrict, let duration = runtimeDuration
+                            {
                                 Text(duration)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -94,13 +111,15 @@ public struct StartStopButton: View {
                             )
                             // Only the primary action spans the card. A secondary one sized to
                             // its own label stops reading as the page's subject.
-                            .frame(maxWidth: profile.status.isConnected ? nil : .infinity)
+                            .frame(
+                                maxWidth: profile.status.isConnected || isCompact ? nil : .infinity
+                            )
                         }
                     }
                     #if os(iOS)
                         .hakoConnectionActionButtonStyle(isDestructive: profile.status.isConnected)
                     #endif
-                    .controlSize(.large)
+                    .controlSize(isCompact ? .regular : .large)
                     .accessibilityIdentifier("hako.home.connection.action")
                 }
             }

@@ -591,6 +591,21 @@ public struct HakoProxyMemberRow: View {
         HStack(spacing: HakoTheme.Spacing.compact) {
             Button(action: onSelect) {
                 HStack(spacing: HakoTheme.Spacing.compact) {
+                    // The selection indicator: a reserved slot with a checkmark in it. This was a
+                    // rounded rectangle filled with the accent at 16% plus a 3pt bar on the
+                    // leading edge - a highlight whose extent depended on the row's own width and
+                    // which read as a fragment of a card rather than as a choice. The review asked
+                    // for a fixed slot and a mark, and for the text to start in the same place
+                    // whether or not the row is chosen.
+                    Image(systemName: "checkmark")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(
+                            isSelectable ? HakoAccentRole.primaryAction.color : Color.secondary
+                        )
+                        .frame(width: HakoTheme.Layout.selectionSlotWidth, alignment: .center)
+                        .opacity(isSelected ? 1 : 0)
+                        .accessibilityHidden(true)
+
                     VStack(alignment: .leading, spacing: 1) {
                         Text(name)
                             .font(.subheadline.weight(.semibold))
@@ -614,19 +629,7 @@ public struct HakoProxyMemberRow: View {
             .accessibilityLabel(Text(name))
             .accessibilityValue(isSelected ? Text("Selected") : Text(""))
             .accessibilityIdentifier("proxies.member.\(name)")
-            .background(
-                RoundedRectangle(cornerRadius: HakoTheme.Radius.control, style: .continuous)
-                    .fill(isSelected
-                        ? AnyShapeStyle(Color.accentColor.opacity(0.16))
-                        : AnyShapeStyle(Color.clear))
-            )
-            .overlay(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                    .fill(Color.accentColor)
-                    .frame(width: 3)
-                    .padding(.vertical, 6)
-                    .opacity(isSelected ? 1 : 0)
-            }
+
 
             if isTesting {
                 ProgressView()

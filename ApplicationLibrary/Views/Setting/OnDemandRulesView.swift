@@ -212,7 +212,7 @@ public struct OnDemandRulesView: View {
     }
 
     private var resetSection: some View {
-        HakoSettingsSection(footnote: "Returns on-demand settings to their defaults.") {
+        HakoSettingsSection {
             HakoDestructiveRow(
                 String(localized: "Reset On Demand Rules"),
                 subtitle: String(localized: "Use the defaults the client ships with."),

@@ -146,8 +146,15 @@ public struct NewProfileView: View {
                                 )
                             }
                         } label: {
-                            Label("Create", systemImage: "doc.fill.badge.plus")
+                            // The title centred in the button, the glyph beside it rather than in
+                            // front of it: a `Label` centres glyph and text as one unit, which
+                            // puts the words right of the button's centre - the review's "the
+                            // Create text must be truly centred in the clickable area".
+                            Text("Create")
                                 .frame(maxWidth: .infinity)
+                                .overlay(alignment: .leading) {
+                                    Image(systemName: "doc.fill.badge.plus")
+                                }
                         }
                         // The page's primary action, in the design system's primary treatment.
                         // `FormButton` is a bare button on the touch platforms, so this was a

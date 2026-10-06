@@ -155,8 +155,10 @@ public struct HakoHomeView: View {
                     }
                 }
             }
-            sessionCard
-            profileCard
+            // The page's first screen: which configuration is in use, and the action that
+            // starts or stops it - the reference's own order, and the review's first item.
+            // Everything below this is state; nothing below it repeats these two.
+            topOperationCard
             // How traffic is leaving the device right now, with the other cards that describe
             // the current working mode - not below the traffic totals at the foot of the page,
             // where the review found it. It is a statement about the mode, and the mode is
@@ -226,14 +228,20 @@ public struct HakoHomeView: View {
 
     // MARK: - Session
 
-    /// The first card: the tunnel's state, the profile it is running, and the one
-    /// control that starts or stops it.
+    /// The top of the page: the configuration in use and the control that starts it.
     ///
-    /// This is where the floating start control went when the second global bottom bar
-    /// was removed. It belongs here rather than on a bar: "start the tunnel" is the
-    /// page's primary action, and a primary action that follows the user onto every
-    /// other page is a bar, not a button.
-    private var sessionCard: some View {
+    /// The review asked for the two operations a reader actually comes here to perform - pick or
+    /// import a configuration, and start or stop the tunnel - to be the first thing on the page,
+    /// with nothing below repeating them. This was two cards: a session card whose action was a
+    /// full-width button, and a configuration card holding a picker and three more controls. One
+    /// profile appeared in both, and the page offered the same journey twice.
+    ///
+    /// The shape is the reference's: a row that names the configuration (with the way into the
+    /// configuration centre beside it), the primary action on the trailing side, and the state as
+    /// a line under it. Its name is the profile's, and the line under it carries the file the
+    /// profile actually reads - the review's "the current configuration must show its real file
+    /// name, not a generic placeholder".
+    private var topOperationCard: some View {
         HakoCardSurface(
             fill: HakoProductPalette.system.card,
             separator: HakoProductPalette.system.separator,
@@ -241,17 +249,36 @@ public struct HakoHomeView: View {
         ) {
             VStack(alignment: .leading, spacing: HakoTheme.Spacing.standard) {
                 HStack(alignment: .center, spacing: HakoTheme.Spacing.row) {
+                    HakoIconWell(
+                        tint: HakoAccentRole.neutral.color,
+                        systemImage: "doc.text.fill"
+                    )
+
                     VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
                         HStack(spacing: HakoTheme.Spacing.compact) {
                             Circle()
                                 .fill(sessionTint)
                                 .frame(width: 9, height: 9)
                                 .accessibilityHidden(true)
-                            Text(sessionTitle)
-                                .font(.title3.weight(.semibold))
+                            Text(selectedProfileName ?? String(localized: "No profile selected"))
+                                .font(HakoTheme.FontRole.rowPrimary)
                                 .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            // The door to the centre, beside the thing it configures - the
+                            // reference puts its add action here too.
+                            Button {
+                                showsConfigurationCentre = true
+                            } label: {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(HakoAccentRole.primaryAction.color)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(String(localized: "Profiles"))
+                            .accessibilityIdentifier("hako.profile.select")
                         }
-                        Text(selectedProfileName ?? String(localized: "No profile selected"))
+                        Text(sessionSummary)
                             .font(HakoTheme.Typography.rowSubtitle(Locale.current))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -259,13 +286,10 @@ public struct HakoHomeView: View {
                     }
 
                     Spacer(minLength: HakoTheme.Spacing.compact)
-                }
 
-                // The action is the card's own, full width and below the state it acts on -
-                // the reference's shape. It was a compact icon button at the end of the
-                // title line, so the card's main action was its smallest element.
-                StartStopButton(showsRuntimeDuration: false) {
-                    await installTunnel()
+                    StartStopButton(showsRuntimeDuration: false, isCompact: true) {
+                        await installTunnel()
+                    }
                 }
 
                 if let detail = sessionDetail {
@@ -279,6 +303,22 @@ public struct HakoHomeView: View {
             .padding(HakoTheme.Layout.cardInnerPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// The line under the configuration's name: what it reads, and what the tunnel is doing.
+    private var sessionSummary: String {
+        let state = sessionTitle
+        guard let preview = profileList.first(where: { $0.id == selectedProfileID }) else {
+            return state
+        }
+        let source: String = {
+            if let remoteURL = preview.remoteURL, !remoteURL.isEmpty {
+                return remoteURL
+            }
+            let file = (preview.path as NSString).lastPathComponent
+            return file.isEmpty ? preview.name : file
+        }()
+        return "\(state) · \(source)"
     }
 
     private var sessionTitle: String {
@@ -330,52 +370,6 @@ public struct HakoHomeView: View {
     }
 
     // MARK: - Cards
-
-    @ViewBuilder
-    /// The current configuration, and the way into the configuration centre.
-    ///
-    /// The review's first item, and it was right: this card held the whole configuration
-    /// workflow - a picker to switch, a `+` to create, an edit button and a share button, in a
-    /// card whose caption said "Profile" - while the *session* card above already named the
-    /// profile it was running. The same profile appeared twice, and four management actions sat
-    /// on a page whose job is to say what is running. Changing, importing, creating and sharing
-    /// are one subject, so they live in the centre; the home keeps the summary and the door.
-    private var profileCard: some View {
-        if enabledCards.contains(.profile) || enabledCards.isEmpty {
-            HakoPageSection(String(localized: "Profile")) {
-                Button {
-                    showsConfigurationCentre = true
-                } label: {
-                    HakoNavigationRow(
-                        title: selectedProfileName ?? String(localized: "No profile selected"),
-                        subtitle: selectedProfileSummary,
-                        systemImage: "doc.text.fill",
-                        tint: HakoAccentRole.neutral.color
-                    )
-                }
-                .buttonStyle(HakoPushRowButtonStyle())
-                // The identifier the tests and the capture harness use to reach the centre;
-                // the row that opens it changed, the way in did not.
-                .accessibilityIdentifier("hako.profile.select")
-            }
-        }
-    }
-
-    /// What the current configuration is, in one line: its kind, and where it comes from when
-    /// that is a different thing. A summary, not a control.
-    private var selectedProfileSummary: String? {
-        guard let preview = profileList.first(where: { $0.id == selectedProfileID }) else {
-            return nil
-        }
-        switch preview.type {
-        case .local:
-            return String(localized: "Local file")
-        case .remote:
-            return preview.remoteURL ?? String(localized: "Remote")
-        case .icloud:
-            return String(localized: "iCloud Drive")
-        }
-    }
 
     /// Traffic, side by side where both cards are enabled and stacked where only one is.
     ///

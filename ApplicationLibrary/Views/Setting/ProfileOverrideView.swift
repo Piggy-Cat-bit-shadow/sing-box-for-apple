@@ -77,7 +77,7 @@ public struct ProfileOverrideView: View {
     }
 
     private var resetSection: some View {
-        HakoSettingsSection(footnote: "Returns every option on this page to its default.") {
+        HakoSettingsSection {
             HakoDestructiveRow(
                 String(localized: "Reset Profile Override"),
                 subtitle: String(localized: "Use the defaults the client ships with."),

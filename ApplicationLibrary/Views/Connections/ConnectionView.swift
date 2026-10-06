@@ -128,21 +128,26 @@ public struct ConnectionView: View {
         return items
     }
 
-    /// How it is routed: the outbound chain, and the rule that chose it.
+    /// Where it went: the group that chose it, and the node that carried it.
+    ///
+    /// The whole chain was here, plus the rule that matched and the inbound it arrived on, joined
+    /// into a line long enough to be truncated on nearly every row. The review's point is that a
+    /// folded list is read to answer one question - which group, which node - and the rest is
+    /// detail. Two hops, and the row is legible at a glance.
     private var routeSummary: String {
-        var parts: [String] = []
-        if !connection.chain.isEmpty {
-            parts.append(connection.chain.reversed().joined(separator: " / "))
-        } else if !connection.outbound.isEmpty {
-            parts.append(connection.outbound)
+        let chain = Array(connection.chain.reversed())
+        let group = chain.first
+        let node = connection.outbound.isEmpty ? chain.dropFirst().first : connection.outbound
+        switch (group, node) {
+        case let (group?, node?):
+            return group == node ? group : "\(group) → \(node)"
+        case let (group?, nil):
+            return group
+        case let (nil, node?):
+            return node
+        default:
+            return ""
         }
-        if !connection.rule.isEmpty {
-            parts.append(String(localized: "Rule: \(connection.rule)"))
-        }
-        if !connection.inbound.isEmpty {
-            parts.append("\(connection.inboundType)/\(connection.inbound)")
-        }
-        return parts.joined(separator: " · ")
     }
 
     /// What it has cost, and when it started.

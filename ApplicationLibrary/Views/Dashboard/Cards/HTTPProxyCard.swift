@@ -18,20 +18,17 @@ public struct HTTPProxyCard: View {
     }
 
     public var body: some View {
-        DashboardCardView(title: "", isHalfWidth: false) {
-            HStack {
-                DashboardCardHeader(icon: "network", title: "System HTTP Proxy")
-                Spacer()
-                Toggle(isOn: $systemProxyEnabled) {}
-                    .labelsHidden()
-                #if os(macOS)
-                    .toggleStyle(.switch)
-                #endif
-                    .onChangeCompat(of: systemProxyEnabled) { newValue in
-                        Task {
-                            await onToggle(newValue)
-                        }
-                    }
+        HakoPageSection(palette: .system) {
+            HakoToggleRow(
+                String(localized: "System HTTP Proxy"),
+                systemImage: "network",
+                tint: HakoAccentRole.neutral.color,
+                isOn: $systemProxyEnabled,
+                identifier: "hako.home.httpProxy"
+            ) { newValue in
+                Task {
+                    await onToggle(newValue)
+                }
             }
         }
     }

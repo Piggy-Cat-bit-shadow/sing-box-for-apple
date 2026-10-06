@@ -121,7 +121,12 @@ public struct EditProfileView: View {
                             Task {
                                 await viewModel.saveProfile(profile, environments: environments)
                             }
-                        }.disabled(!viewModel.isChanged)
+                        }
+                        .disabled(!viewModel.isChanged)
+                        // The same primary treatment the creation page's button uses, so the
+                        // page's action looks the same before and after a configuration exists -
+                        // the review's "the two states must not maintain two button layouts".
+                        .hakoPrimaryActionButtonStyle()
                     }
                 }
             #endif
