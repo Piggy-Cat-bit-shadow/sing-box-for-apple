@@ -202,6 +202,26 @@ public struct HakoHomeView: View {
         .disabled(coordinator.reasserting
             || profile.status == .connecting
             || profile.status == .disconnecting)
+        // Outside the Form and outside the Section: a presentation attached to a `Section` is
+        // dropped, because a Section is the Form's layout container rather than a view in the
+        // hierarchy. The configuration centre is presented from the page.
+        .sheet(isPresented: $showsConfigurationCentre) {
+            // Wrapped the way the card that used to present it wrapped it: the centre is a
+            // `NavigationSheet`, and that is what gives it a title, a toolbar for its own
+            // actions, and a close control. Presented bare, its `.toolbar` had no navigation
+            // container to attach to and the sheet had no way out.
+            NavigationSheet(
+                title: String(localized: "Profiles"),
+                size: .large,
+                content: {
+                    ProfilePickerSheet(
+                        profileList: $profileList,
+                        selectedProfileID: $selectedProfileID
+                    )
+                    .environmentObject(environments)
+                }
+            )
+        }
     }
 
     // MARK: - Session
@@ -337,13 +357,6 @@ public struct HakoHomeView: View {
                 // The identifier the tests and the capture harness use to reach the centre;
                 // the row that opens it changed, the way in did not.
                 .accessibilityIdentifier("hako.profile.select")
-            }
-            .sheet(isPresented: $showsConfigurationCentre) {
-                ProfilePickerSheet(
-                    profileList: $profileList,
-                    selectedProfileID: $selectedProfileID
-                )
-                .environmentObject(environments)
             }
         }
     }

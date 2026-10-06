@@ -41,6 +41,20 @@ final class HakoSnapshotUITests: XCTestCase {
 
     private static let tabOrder = ["hako.tab.home", "hako.tab.tools", "hako.tab.more"]
 
+    /// Opens the configuration centre from the home's summary row.
+    ///
+    /// Adding a configuration used to start from a `+` on the home card, beside a picker and two
+    /// other controls. It starts from the centre now, which is where configuration management
+    /// belongs, so a case that adds one opens the centre first.
+    private func openConfigurationCentre() {
+        tab("hako.tab.home").tap()
+        tap("hako.profile.select")
+        XCTAssertTrue(
+            app.buttons["hako.nav.close"].waitForExistence(timeout: 10),
+            "the configuration centre must open from the home"
+        )
+    }
+
     private func tab(_ identifier: String) -> XCUIElement {
         let byIdentifier = app.tabBars.firstMatch.buttons[identifier]
         if byIdentifier.exists {
@@ -187,7 +201,7 @@ final class HakoSnapshotUITests: XCTestCase {
 
         // The page behind the notice is still a page.
         XCTAssertTrue(
-            app.buttons["hako.profile.add"].exists,
+            app.buttons["hako.profile.select"].exists,
             "the notice must not take the place of the page's own content"
         )
     }
@@ -299,8 +313,8 @@ final class HakoSnapshotUITests: XCTestCase {
         // shows none. This assertion used to ask for one and passed, because the fixture
         // invented Clash's three - which is the defect this case was meant to catch.
         XCTAssertTrue(
-            app.buttons["hako.profile.add"].exists,
-            "the profile card must be offered without a tunnel"
+            app.buttons["hako.profile.select"].exists,
+            "the configuration summary must be offered without a tunnel"
         )
         // And it says what is missing, with the way to fix it.
         XCTAssertTrue(
@@ -574,6 +588,7 @@ final class HakoSnapshotUITests: XCTestCase {
     /// covered by the settings-page pass.
     func test53ManualEditor() {
         tab("hako.tab.home").tap()
+        openConfigurationCentre()
         tap("hako.profile.add")
         sleep(1)
         tap("Create Manually")
@@ -631,6 +646,7 @@ final class HakoSnapshotUITests: XCTestCase {
 
     func test50AddConfiguration() {
         tab("hako.tab.home").tap()
+        openConfigurationCentre()
         tap("hako.profile.add")
         sleep(1)
         snapshot("50_AddConfiguration")

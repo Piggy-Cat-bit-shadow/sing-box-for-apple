@@ -78,6 +78,10 @@ struct ProfilePickerSheet: View {
                             ) {
                                 showNewProfile = true
                             }
+                            // The identifier the add entry point has always carried. It moved
+                            // from the home's card, where it sat beside a picker and two other
+                            // actions, to the centre, where adding a configuration belongs.
+                            .accessibilityIdentifier("hako.profile.add")
                             HakoActionItem(
                                 systemImage: editMode.isEditing ? "checkmark" : "pencil",
                                 label: editMode.isEditing
