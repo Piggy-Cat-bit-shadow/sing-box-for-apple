@@ -357,6 +357,10 @@ public struct AppView: View {
             // wears the shared chrome: the same title treatment, the same back control and
             // the same tab-bar rule as a page on the scaffold.
             .hakoNavigationChrome(title: String(localized: "Client Settings"))
+            // The review's high-priority item on this page: its one-line rows must be the size of
+            // a first-level row. The container this page uses is shared with pages that are
+            // frozen, so the metric is asked for here, on the page, rather than in the container.
+            .environment(\.hakoCompactRows, true)
     }
 
     private func loadSettings() async {

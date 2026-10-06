@@ -99,6 +99,7 @@ public extension HakoIconWell where Icon == AnyView {
 /// one behind an opacity.
 public struct HakoDestinationRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.hakoCompactRows) private var compactRows
     @Environment(\.locale) private var locale
     @Environment(\.hakoContainerDrawsDisclosure) private var containerDrawsDisclosure
 
@@ -161,10 +162,10 @@ public struct HakoDestinationRow: View {
         // every row the height the platform intends, and adding to it made a one-switch card
         // 74pt where the reference's is 53. The painted scaffolds have no system row to rely on,
         // so they keep theirs.
-        .padding(.vertical, HakoPlatformLayout.pageUsesSystemSettingsIdiom
+        .padding(.vertical, (HakoPlatformLayout.pageUsesSystemSettingsIdiom || compactRows)
             ? 0
             : HakoTheme.Spacing.compact)
-        .frame(minHeight: rowFloor)
+        .frame(minHeight: compactRows ? nil : rowFloor)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -510,6 +511,7 @@ public struct HakoNavigationRow: View {
 /// taller than its neighbours.
 struct HakoRowBody<Trailing: View>: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.hakoCompactRows) private var compactRows
     @Environment(\.locale) private var locale
     @Environment(\.hakoContainerDrawsDisclosure) private var containerDrawsDisclosure
 
@@ -571,10 +573,13 @@ struct HakoRowBody<Trailing: View>: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.vertical, HakoPlatformLayout.pageUsesSystemSettingsIdiom
-            ? HakoTheme.Spacing.tight
+        // On a page that asked for the compact metric, the platform's own row height and inset are
+        // the whole spacing. Our padding and our 44pt floor stacked on top of them, which is why a
+        // one-line settings row measured 74pt where the painted first-level pages are 57.
+        .padding(.vertical, (HakoPlatformLayout.pageUsesSystemSettingsIdiom || compactRows)
+            ? 0
             : HakoTheme.Spacing.compact)
-        .frame(minHeight: HakoPlatformLayout.pageUsesSystemSettingsIdiom
+        .frame(minHeight: (HakoPlatformLayout.pageUsesSystemSettingsIdiom || compactRows)
             ? nil
             : HakoTheme.Control.toggleRowMinHeight)
         .contentShape(Rectangle())

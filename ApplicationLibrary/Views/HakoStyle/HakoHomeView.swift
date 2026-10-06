@@ -305,20 +305,13 @@ public struct HakoHomeView: View {
         }
     }
 
-    /// The line under the configuration's name: what it reads, and what the tunnel is doing.
+    /// The line under the configuration's name: what the tunnel is doing, and nothing else.
+    ///
+    /// It read "\(state) · \(file)", which printed the configuration's name a second time
+    /// directly under the row that already showed it. The review asked for the file name to appear
+    /// once in this card; the title carries it, so this line carries the state.
     private var sessionSummary: String {
-        let state = sessionTitle
-        guard let preview = profileList.first(where: { $0.id == selectedProfileID }) else {
-            return state
-        }
-        let source: String = {
-            if let remoteURL = preview.remoteURL, !remoteURL.isEmpty {
-                return remoteURL
-            }
-            let file = (preview.path as NSString).lastPathComponent
-            return file.isEmpty ? preview.name : file
-        }()
-        return "\(state) · \(source)"
+        sessionTitle
     }
 
     private var sessionTitle: String {

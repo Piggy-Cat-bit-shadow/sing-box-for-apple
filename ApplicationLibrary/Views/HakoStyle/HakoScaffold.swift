@@ -536,6 +536,12 @@ struct HakoScaffoldBody<Content: View>: View {
             content
         }
         .hakoGroupedFormStyle()
+        // The platform gives a grouped row a floor of 44pt and its own vertical insets, which
+        // together made a one-line settings row 74pt - where the first-level pages, which are a
+        // scroll view of painted cards rather than a form, are 57. The review's highest-priority
+        // item is that a second-level page must match the first-level row, and the floor is the
+        // part of that difference this container owns. The desktop has always zeroed it.
+        .environment(\.defaultMinListRowHeight, 0)
         .background(palette.canvas)
         .hakoScrollDismissesKeyboard()
         // A `Form` is a `List`, so the container draws the disclosure indicator: the rows
@@ -659,6 +665,7 @@ public struct HakoSettingsScaffold<Content: View, Actions: View>: View {
 
     public var body: some View {
         HakoScaffoldBody(palette: palette, content: content)
+            .environment(\.hakoCompactRows, true)
             .hakoNavigationChrome(title: title, leading: leading) {
                 actions
             }

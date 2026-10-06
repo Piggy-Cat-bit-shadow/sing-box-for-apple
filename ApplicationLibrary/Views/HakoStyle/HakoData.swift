@@ -620,7 +620,9 @@ public struct HakoProxyMemberRow: View {
                     Spacer(minLength: HakoTheme.Spacing.tight)
                 }
                 .padding(.vertical, HakoTheme.Spacing.compact)
-                .padding(.leading, HakoTheme.Spacing.row)
+                // Narrower than the standard row inset: the selection slot is a column of its own
+                // and the two together left a wider gap before the name than the review wanted.
+                .padding(.leading, HakoTheme.Spacing.compact)
                 .padding(.trailing, HakoTheme.Spacing.compact)
                 .contentShape(Rectangle())
             }
@@ -857,7 +859,10 @@ public struct HakoInlineNotice: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
-        .padding(.vertical, HakoTheme.Spacing.standard)
+        // The review's item on the warning areas: the same content, less air. It was a full
+        // `standard` above and below, which left the notice floating between the title bar and the
+        // card below it rather than reading as one block with them.
+        .padding(.vertical, HakoTheme.Spacing.compact)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("hako.notice")
     }

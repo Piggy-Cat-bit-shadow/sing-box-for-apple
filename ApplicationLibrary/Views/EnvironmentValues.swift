@@ -82,3 +82,20 @@ public extension EnvironmentValues {
         }
     }
 }
+
+/// Whether the page's rows take the compact metric their neighbouring first-level page uses.
+///
+/// A second-level settings page sits inside a `Form`, and the platform gives each row a 44pt floor
+/// plus ~15pt of its own inset above and below. Our own row padding and floor then stacked on top
+/// of that, which is why a one-line settings row measured 74pt where the painted first-level pages
+/// are 57. The pages the review named set this; every other page keeps the platform's treatment.
+private struct HakoCompactRowsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+public extension EnvironmentValues {
+    var hakoCompactRows: Bool {
+        get { self[HakoCompactRowsKey.self] }
+        set { self[HakoCompactRowsKey.self] = newValue }
+    }
+}

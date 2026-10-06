@@ -292,7 +292,7 @@ public enum HakoTheme {
         /// The leading selection slot of a row that can be chosen. Reserved whether or not the row
         /// is the chosen one, so every row's text begins at the same place and choosing a row does
         /// not move anything.
-        public static let selectionSlotWidth: CGFloat = 22
+        public static let selectionSlotWidth: CGFloat = 15
 
         /// The icon column of a metrics block - a connection row's traffic figures, a group's
         /// counts. Fixed so the glyphs of every row share one vertical line.
