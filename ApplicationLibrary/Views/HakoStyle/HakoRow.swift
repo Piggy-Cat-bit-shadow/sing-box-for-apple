@@ -526,8 +526,6 @@ struct HakoRowBody<Trailing: View>: View {
     /// container does not draw one. `false` suppresses it outright, which is what a row
     /// whose trailing element is a control needs.
     var showsDisclosure: Bool?
-    /// No padding and no floor of our own: the platform's row is the whole spacing.
-    var tightensVerticalPadding: Bool = false
     /// A view that replaces the trailing disclosure - a toggle, a picker, a mark.
     @ViewBuilder var trailing: () -> Trailing
 
@@ -540,7 +538,6 @@ struct HakoRowBody<Trailing: View>: View {
         badge: String? = nil,
         badgeEmphasis: HakoStatusBadge.Emphasis = .neutral,
         showsDisclosure: Bool? = nil,
-        tightensVerticalPadding: Bool = false,
         @ViewBuilder trailing: @escaping () -> Trailing = { EmptyView() }
     ) {
         self.title = title
@@ -551,7 +548,6 @@ struct HakoRowBody<Trailing: View>: View {
         self.badge = badge
         self.badgeEmphasis = badgeEmphasis
         self.showsDisclosure = showsDisclosure
-        self.tightensVerticalPadding = tightensVerticalPadding
         self.trailing = trailing
     }
 
@@ -578,12 +574,11 @@ struct HakoRowBody<Trailing: View>: View {
             }
         }
         // On a page that asked for the compact metric, the platform's own row height and inset are
-        // the whole spacing. Our padding and our 44pt floor stacked on top of them, which is why a
-        // one-line settings row measured 74pt where the painted first-level pages are 57.
-        .padding(.vertical, (HakoPlatformLayout.pageUsesSystemSettingsIdiom || compactRows || tightensVerticalPadding)
+        // the whole spacing: our padding and our floor stacked on top of them.
+        .padding(.vertical, (HakoPlatformLayout.pageUsesSystemSettingsIdiom || compactRows)
             ? 0
             : HakoTheme.Spacing.compact)
-        .frame(minHeight: (HakoPlatformLayout.pageUsesSystemSettingsIdiom || compactRows || tightensVerticalPadding)
+        .frame(minHeight: (HakoPlatformLayout.pageUsesSystemSettingsIdiom || compactRows)
             ? nil
             : HakoTheme.Control.toggleRowMinHeight)
         .contentShape(Rectangle())
@@ -635,13 +630,6 @@ public struct HakoToggleRow: View {
     private let isEnabled: Bool
     private let identifier: String?
     private let onChange: ((Bool) -> Void)?
-    /// Whether this row gives up the platform's row inset as well as its own padding.
-    ///
-    /// A local parameter, not a change to the shared metric: the four settings pages the review
-    /// named want their switch rows tighter than a form row is by default, and a token that
-    /// applied everywhere would move pages it had already accepted.
-    private let tightensVerticalPadding: Bool
-
     public init(
         _ title: String,
         systemImage: String? = nil,
@@ -649,7 +637,6 @@ public struct HakoToggleRow: View {
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         identifier: String? = nil,
-        tightensVerticalPadding: Bool = false,
         onChange: ((Bool) -> Void)? = nil
     ) {
         self.title = title
@@ -658,7 +645,6 @@ public struct HakoToggleRow: View {
         self.isOn = isOn
         self.isEnabled = isEnabled
         self.identifier = identifier
-        self.tightensVerticalPadding = tightensVerticalPadding
         self.onChange = onChange
     }
 
@@ -679,35 +665,36 @@ public struct HakoToggleRow: View {
     /// blank space on the right". `HakoRowBody` draws the name and the trailing control, which is
     /// also what the reference's settings rows do.
     public var body: some View {
-        HakoRowBody(
-            title: title,
-            systemImage: systemImage,
-            tint: tint,
-            showsDisclosure: false,
-            tightensVerticalPadding: tightensVerticalPadding
-        ) {
-            toggle
+        Group {
+            if systemImage != nil, tint != nil {
+                // With an icon it is the client's own row, which is what the home's proxy card
+                // uses: an icon well, the setting's name, and the switch on the trailing side.
+                HakoRowBody(
+                    title: title,
+                    systemImage: systemImage,
+                    tint: tint,
+                    showsDisclosure: false
+                ) {
+                    toggle
+                }
+            } else {
+                // Without one it is the platform's own toggle row, which is what the reference
+                // writes: `Section { Toggle("Name", isOn:) } footer: { Text(explanation) }`. The
+                // height is the platform's, which is the point - the review's last note is that a
+                // hand-set height was never 1:1 with the reference, because the reference does not
+                // set one. Our own padding, floor and row-inset overrides are gone with it.
+                Toggle(title, isOn: isOn)
+                    .disabled(!isEnabled)
+                    .onChangeCompat(of: isOn.wrappedValue) { newValue in
+                        onChange?(newValue)
+                    }
+            }
         }
         .accessibilityIdentifier(identifier ?? "")
         .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
-        // The platform's own inset above and below a row, reduced for this row only. It is the
-        // remaining half of the vertical space once our padding is gone, and the review asked for
-        // the card to be as tight as its own content.
-        .listRowInsets(
-            tightensVerticalPadding
-                // `compact` rather than `tight`: with the row's own padding gone, this is what
-                // puts the card at the control's minimum hit target (44pt) - the floor below
-                // which a row stops being comfortably tappable, and the design system's own rule.
-                ? EdgeInsets(
-                    top: HakoTheme.Spacing.compact,
-                    leading: HakoTheme.Spacing.standard,
-                    bottom: HakoTheme.Spacing.compact,
-                    trailing: HakoTheme.Spacing.standard
-                )
-                : EdgeInsets()
-        )
     }
 
+    /// The trailing control of our own row, where the row draws the name.
     private var toggle: some View {
         Toggle(title, isOn: isOn)
             .labelsHidden()

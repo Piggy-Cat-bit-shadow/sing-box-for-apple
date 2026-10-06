@@ -85,8 +85,7 @@ struct PacketTunnelView: View {
             HakoToggleRow(
                 title,
                 isOn: isOn,
-                identifier: identifier,
-                tightensVerticalPadding: true
+                identifier: identifier
             ) { newValue in
                 Task {
                     await set(newValue)
