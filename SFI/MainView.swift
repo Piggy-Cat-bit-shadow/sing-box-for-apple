@@ -226,6 +226,7 @@ struct MainView: View {
                     showGroups = false
                 }
             }
+            .onAppear { applyScreenshotFixture() }
             .onChangeCompat(of: buttonState.showConnectionsButton) { newValue in
                 if !newValue {
                     showConnections = false
@@ -282,6 +283,33 @@ struct MainView: View {
             .environment(\.ghosttyConfigEditor, ghosttyConfigEditor)
             .handlesExternalEvents(preferring: [], allowing: ["*"])
             .onOpenURL(perform: openURL)
+    }
+
+    /// Opens the page, sheet or settings sub-page the screenshot harness asked for.
+    ///
+    /// `SCREENSHOT_PAGE` already chose a first-level page through `NavigationPage`; this
+    /// extends it to the pages that are not tabs and to the sheets, so every screen in the
+    /// client can be captured with one launch and no interaction.
+    private func applyScreenshotFixture() {
+        guard Variant.screenshotMode,
+              let raw = ProcessInfo.processInfo.environment["SCREENSHOT_PAGE"]?
+              .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        else {
+            return
+        }
+        switch raw {
+        case "proxies", "groups":
+            selection = .dashboard
+            showGroups = true
+        case "activity", "connections":
+            selection = .dashboard
+            showConnections = true
+        default:
+            if let page = SettingsPage(snapshotValue: raw) {
+                selection = .settings
+                pendingSettingsPage = page
+            }
+        }
     }
 
     /// The one place a programmatic navigation decision is written back to `selection`.
