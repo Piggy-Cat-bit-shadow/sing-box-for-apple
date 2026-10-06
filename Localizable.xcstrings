@@ -73,6 +73,38 @@
         }
       }
     },
+    "A report is recorded for each service run.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次运行服务都会记录一份报告。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次執行服務都會記錄一份報告。"
+          }
+        }
+      }
+    },
+    "A report is recorded when the device runs out of memory while the service is running.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务运行期间设备内存不足时，会记录一份报告。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服務執行期間裝置記憶體不足時，會記錄一份報告。"
+          }
+        }
+      }
+    },
     "A report is saved for each service run": {
       "localizations": {
         "fa": {
@@ -97,6 +129,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "每次服務運行都會儲存一份報告"
+          }
+        }
+      }
+    },
+    "A report is saved for each service run.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次运行服务都会保存一份报告。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次執行服務都會儲存一份報告。"
           }
         }
       }
@@ -313,6 +361,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增設定檔後即可啟動"
+          }
+        }
+      }
+    },
+    "Add a remote server to control this client from another device.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加远程服务器，即可用另一台设备控制此客户端。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增遠端伺服器，即可用另一台裝置控制此用戶端。"
           }
         }
       }
@@ -1570,6 +1634,22 @@
         }
       }
     },
+    "Changing any of these reloads the running service.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改其中任何一项都会重新加载正在运行的服务。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改其中任何一項都會重新載入正在執行的服務。"
+          }
+        }
+      }
+    },
     "Changing any of these restarts the tunnel.": {
       "localizations": {
         "zh-Hans": {
@@ -1811,6 +1891,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "清除日誌"
+          }
+        }
+      }
+    },
+    "Clear all logs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清空全部日志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清空全部日誌"
           }
         }
       }
@@ -2531,6 +2627,22 @@
         }
       }
     },
+    "Connections appear here while the service routes traffic.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务转发流量时，连接会显示在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服務轉送流量時，連線會顯示在這裡。"
+          }
+        }
+      }
+    },
     "Content": {
       "comment": "Title for the terminal text selection sheet",
       "localizations": {
@@ -2704,6 +2816,70 @@
         }
       }
     },
+    "Could not create the OpenConnect browser response.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建 OpenConnect 浏览器响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立 OpenConnect 瀏覽器回應。"
+          }
+        }
+      }
+    },
+    "Could not create the OpenConnect browser result.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建 OpenConnect 浏览器结果。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立 OpenConnect 瀏覽器結果。"
+          }
+        }
+      }
+    },
+    "Could not create the OpenConnect form response.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建 OpenConnect 表单响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立 OpenConnect 表單回應。"
+          }
+        }
+      }
+    },
+    "Could not create the OpenConnect form values.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建 OpenConnect 表单值。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立 OpenConnect 表單值。"
+          }
+        }
+      }
+    },
     "Crash Report": {
       "localizations": {
         "fa": {
@@ -2734,6 +2910,22 @@
     },
     "Crash Trigger": {
       "shouldTranslate": false
+    },
+    "Crash reports recorded on this device appear here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机记录的崩溃报告会显示在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機記錄的當機報告會顯示在這裡。"
+          }
+        }
+      }
     },
     "Create": {
       "localizations": {
@@ -5170,6 +5362,22 @@
       },
       "shouldTranslate": false
     },
+    "Failed to create shared documents URL": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建共享文档 URL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立共享文件 URL"
+          }
+        }
+      }
+    },
     "Failed to decode QRS data": {
       "localizations": {
         "fa": {
@@ -5198,6 +5406,22 @@
         }
       }
     },
+    "Failed to get file provider manager": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法获取文件提供程序管理器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法取得檔案提供者管理器"
+          }
+        }
+      }
+    },
     "Failed to read dropped file": {
       "localizations": {
         "fa": {
@@ -5222,6 +5446,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "讀取拖放檔案失敗"
+          }
+        }
+      }
+    },
+    "Failed to read report file": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取报告文件失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取報告檔案失敗"
           }
         }
       }
@@ -5362,6 +5602,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "檔案不是有效的 UTF-8 文字"
+          }
+        }
+      }
+    },
+    "File provider domain not found": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到文件提供程序域"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到檔案提供者網域"
           }
         }
       }
@@ -5690,6 +5946,22 @@
         }
       }
     },
+    "From Apple TV": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 Apple TV"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自 Apple TV"
+          }
+        }
+      }
+    },
     "From Outbound": {
       "localizations": {
         "fa": {
@@ -5714,6 +5986,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "來自出站"
+          }
+        }
+      }
+    },
+    "From this device": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自本机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自本機"
           }
         }
       }
@@ -6353,121 +6641,6 @@
         }
       }
     },
-    "If this property is true when the **includeAllNetworks** property is false, the system scopes the included routes to the VPN and the excluded routes to the current primary network interface. This property supersedes the system routing table and scoping operations by apps.\n\nIf you set both the **enforceRoutes** and **excludeLocalNetworks** properties to true, the system excludes network connections to hosts on the local network.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3689459-enforceroutes)": {
-      "localizations": {
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true when the **includeAllNetworks** property is false, the system scopes the included routes to the VPN and the excluded routes to the current primary network interface. This property supersedes the system routing table and scoping operations by apps.\n\nIf you set both the **enforceRoutes** and **excludeLocalNetworks** properties to true, the system excludes network connections to hosts on the local network.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3689459-enforceroutes)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true when the **includeAllNetworks** property is false, the system scopes the included routes to the VPN and the excluded routes to the current primary network interface. This property supersedes the system routing table and scoping operations by apps.\n\nIf you set both the **enforceRoutes** and **excludeLocalNetworks** properties to true, the system excludes network connections to hosts on the local network.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3689459-enforceroutes)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true when the **includeAllNetworks** property is false, the system scopes the included routes to the VPN and the excluded routes to the current primary network interface. This property supersedes the system routing table and scoping operations by apps.\n\nIf you set both the **enforceRoutes** and **excludeLocalNetworks** properties to true, the system excludes network connections to hosts on the local network.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3689459-enforceroutes)"
-          }
-        }
-      },
-      "shouldTranslate": false
-    },
-    "If this property is true, the system excludes Apple Push Notification services (APNs) traffic, but only when the **includeAllNetworks** property is also true.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140516-excludeapns)": {
-      "localizations": {
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system excludes Apple Push Notification services (APNs) traffic, but only when the **includeAllNetworks** property is also true.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140516-excludeapns)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system excludes Apple Push Notification services (APNs) traffic, but only when the **includeAllNetworks** property is also true.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140516-excludeapns)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system excludes Apple Push Notification services (APNs) traffic, but only when the **includeAllNetworks** property is also true.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140516-excludeapns)"
-          }
-        }
-      },
-      "shouldTranslate": false
-    },
-    "If this property is true, the system excludes cellular services — such as Wi-Fi Calling, MMS, SMS, and Visual Voicemail — but only when the **includeAllNetworks** property is also true. This property doesn't impact services that use the cellular network only — such as VoLTE — which the system automatically excludes.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140517-excludecellularservices)": {
-      "localizations": {
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system excludes cellular services — such as Wi-Fi Calling, MMS, SMS, and Visual Voicemail — but only when the **includeAllNetworks** property is also true. This property doesn't impact services that use the cellular network only — such as VoLTE — which the system automatically excludes.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140517-excludecellularservices)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system excludes cellular services — such as Wi-Fi Calling, MMS, SMS, and Visual Voicemail — but only when the **includeAllNetworks** property is also true. This property doesn't impact services that use the cellular network only — such as VoLTE — which the system automatically excludes.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140517-excludecellularservices)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system excludes cellular services — such as Wi-Fi Calling, MMS, SMS, and Visual Voicemail — but only when the **includeAllNetworks** property is also true. This property doesn't impact services that use the cellular network only — such as VoLTE — which the system automatically excludes.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140517-excludecellularservices)"
-          }
-        }
-      },
-      "shouldTranslate": false
-    },
-    "If this property is true, the system excludes network connections to hosts on the local network — such as AirPlay, AirDrop, and CarPlay — but only when the **includeAllNetworks** or **enforceRoutes** property is also true.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3143658-excludelocalnetworks)": {
-      "localizations": {
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system excludes network connections to hosts on the local network — such as AirPlay, AirDrop, and CarPlay — but only when the **includeAllNetworks** or **enforceRoutes** property is also true.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3143658-excludelocalnetworks)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system excludes network connections to hosts on the local network — such as AirPlay, AirDrop, and CarPlay — but only when the **includeAllNetworks** or **enforceRoutes** property is also true.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3143658-excludelocalnetworks)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system excludes network connections to hosts on the local network — such as AirPlay, AirDrop, and CarPlay — but only when the **includeAllNetworks** or **enforceRoutes** property is also true.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3143658-excludelocalnetworks)"
-          }
-        }
-      },
-      "shouldTranslate": false
-    },
-    "If this property is true, the system routes network traffic through the tunnel except traffic for designated system services necessary for maintaining expected device functionality. You can exclude some types of traffic using the **excludeAPNs**, **excludeLocalNetworks**, and **excludeCellularServices** properties in combination with this property.\n\nwhen enabled, the default TUN stack is changed to `gvisor`, and the `system` and `mixed` stacks are not available.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3131931-includeallnetworks)": {
-      "localizations": {
-        "fa": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system routes network traffic through the tunnel except traffic for designated system services necessary for maintaining expected device functionality. You can exclude some types of traffic using the **excludeAPNs**, **excludeLocalNetworks**, and **excludeCellularServices** properties in combination with this property.\n\nwhen enabled, the default TUN stack is changed to `gvisor`, and the `system` and `mixed` stacks are not available.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3131931-includeallnetworks)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system routes network traffic through the tunnel except traffic for designated system services necessary for maintaining expected device functionality. You can exclude some types of traffic using the **excludeAPNs**, **excludeLocalNetworks**, and **excludeCellularServices** properties in combination with this property.\n\nwhen enabled, the default TUN stack is changed to `gvisor`, and the `system` and `mixed` stacks are not available.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3131931-includeallnetworks)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "If this property is true, the system routes network traffic through the tunnel except traffic for designated system services necessary for maintaining expected device functionality. You can exclude some types of traffic using the **excludeAPNs**, **excludeLocalNetworks**, and **excludeCellularServices** properties in combination with this property.\n\nwhen enabled, the default TUN stack is changed to `gvisor`, and the `system` and `mixed` stacks are not available.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3131931-includeallnetworks)"
-          }
-        }
-      },
-      "shouldTranslate": false
-    },
     "Ignore": {
       "localizations": {
         "fa": {
@@ -6948,6 +7121,22 @@
         }
       }
     },
+    "Invalid IP address": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 地址无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 位址無效"
+          }
+        }
+      }
+    },
     "Invalid QR code": {
       "localizations": {
         "fa": {
@@ -6972,6 +7161,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "無效的二維碼"
+          }
+        }
+      }
+    },
+    "Invalid report manifest": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "报告清单无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告清單無效"
+          }
+        }
+      }
+    },
+    "Invalid report transfer message": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "报告传输消息无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告傳輸訊息無效"
           }
         }
       }
@@ -7717,6 +7938,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "日誌和配置檔案可能包含隱私內容，不應該被公開發佈。"
+          }
+        }
+      }
+    },
+    "Logs will appear here as the service writes them.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务写入日志后，日志会显示在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服務寫入日誌後，日誌會顯示在這裡。"
           }
         }
       }
@@ -8753,6 +8990,22 @@
         }
       }
     },
+    "No connection matches what you typed.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有符合输入的连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合輸入的連線。"
+          }
+        }
+      }
+    },
     "No connection rules. Add rules to specify which domains trigger VPN connection.": {
       "localizations": {
         "fa": {
@@ -8777,6 +9030,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "無連接規則。添加規則以指定哪些域名觸發 VPN 連接。"
+          }
+        }
+      }
+    },
+    "No crash reports": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有崩溃报告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有當機報告"
           }
         }
       }
@@ -8837,8 +9106,21 @@
         }
       }
     },
-    "No documentation.\n\n[Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/excludedevicecommunication)": {
-      "shouldTranslate": false
+    "No group or node matches what you typed.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有符合输入的代理组或节点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合輸入的代理組或節點。"
+          }
+        }
+      }
     },
     "No local devices available": {
       "localizations": {
@@ -8880,6 +9162,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "沒有符合項目"
+          }
+        }
+      }
+    },
+    "No memory reports": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有内存不足报告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有記憶體不足報告"
+          }
+        }
+      }
+    },
+    "No power reports": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有电源报告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有電源報告"
           }
         }
       }
@@ -10237,6 +10551,22 @@
         }
       }
     },
+    "Proxy groups appear here once the core has loaded a configuration that has them.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内核加载包含代理组的配置后，代理组会显示在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核心載入包含代理組的設定後，代理組會顯示在這裡。"
+          }
+        }
+      }
+    },
     "QRS": {
       "localizations": {
         "fa": {
@@ -10528,6 +10858,22 @@
         }
       }
     },
+    "Record a report for each service run.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次运行服务时记录一份报告。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次執行服務時記錄一份報告。"
+          }
+        }
+      }
+    },
     "Recurring support through GitHub": {
       "localizations": {
         "zh-Hans": {
@@ -10767,6 +11113,38 @@
         }
       }
     },
+    "Report is empty": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "报告为空"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告為空"
+          }
+        }
+      }
+    },
+    "Report transfer was incomplete": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "报告传输不完整"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告傳輸不完整"
+          }
+        }
+      }
+    },
     "Reports": {
       "localizations": {
         "fa": {
@@ -10807,6 +11185,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "報告記錄在本機，除非你主動分享，否則不會離開本機。"
+          }
+        }
+      }
+    },
+    "Reports recorded when the device ran out of memory appear here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备内存不足时记录的报告会显示在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置記憶體不足時記錄的報告會顯示在這裡。"
           }
         }
       }
@@ -11056,6 +11450,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "將本頁所有選項回復為預設值。"
+          }
+        }
+      }
+    },
+    "Returns on-demand settings to their defaults.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将按需设置恢复为默认值。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將按需設定還原為預設值。"
           }
         }
       }
@@ -12567,6 +12977,22 @@
         }
       }
     },
+    "Start sing-box to see its logs.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动 sing-box 即可查看日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟動 sing-box 即可查看日誌。"
+          }
+        }
+      }
+    },
     "Start the VPN connection when conditions match.": {
       "localizations": {
         "fa": {
@@ -13427,6 +13853,118 @@
         }
       }
     },
+    "The authentication page attempted to open an invalid URL.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "认证页面尝试打开无效的 URL。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認證頁面嘗試開啟無效的 URL。"
+          }
+        }
+      }
+    },
+    "The authentication page attempted to open an unsupported popup URL.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "认证页面尝试打开不支持的弹出 URL。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認證頁面嘗試開啟不支援的彈出 URL。"
+          }
+        }
+      }
+    },
+    "The authentication page closed before authentication completed.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "认证页面在认证完成前关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認證頁面在認證完成前關閉。"
+          }
+        }
+      }
+    },
+    "The authentication page opened too many popup windows.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "认证页面打开的弹出窗口过多。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認證頁面開啟的彈出視窗過多。"
+          }
+        }
+      }
+    },
+    "The authentication request contains an invalid completion mode.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "认证请求包含无效的完成模式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認證請求包含無效的完成模式。"
+          }
+        }
+      }
+    },
+    "The authentication request contains an invalid or unsupported URL.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "认证请求包含无效或不支持的 URL。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認證請求包含無效或不支援的 URL。"
+          }
+        }
+      }
+    },
+    "The authentication web page stopped unexpectedly. Close it and try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "认证网页意外停止。请关闭后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認證網頁意外停止。請關閉後重試。"
+          }
+        }
+      }
+    },
     "The manual for the core this client runs": {
       "localizations": {
         "zh-Hans": {
@@ -13587,6 +14125,22 @@
         }
       }
     },
+    "These options belong to a beta build and may change or disappear.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些选项属于测试版功能，可能随时变更或移除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些選項屬於測試版功能，可能隨時變更或移除。"
+          }
+        }
+      }
+    },
     "This Device": {
       "localizations": {
         "fa": {
@@ -13683,6 +14237,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "此輔助服務爲 `process_name` 和 `process_path` 路由規則提供進程查找功能，並管理工作目錄。"
+          }
+        }
+      }
+    },
+    "This report has no content.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此报告没有内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此報告沒有內容。"
           }
         }
       }
@@ -14217,6 +14787,22 @@
         }
       }
     },
+    "Unexpected report transfer message": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "意外的报告传输消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "意外的報告傳輸訊息"
+          }
+        }
+      }
+    },
     "Unified": {
       "localizations": {
         "fa": {
@@ -14453,6 +15039,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新通道"
+          }
+        }
+      }
+    },
+    "Update profile %@ failed: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新配置 %@ 失败：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新設定 %@ 失敗：%@"
+          }
+        }
+      }
+    },
+    "Updated profile %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已更新配置 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已更新設定 %@"
           }
         }
       }
@@ -14992,6 +15610,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "通道自行連線與中斷的方式"
+          }
+        }
+      }
+    },
+    "Where the core keeps its data, its caches and the configuration it is running.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内核在此保存数据、缓存以及正在运行的配置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核心在此儲存資料、快取以及正在執行的設定。"
           }
         }
       }
@@ -15584,6 +16218,22 @@
         }
       },
       "shouldTranslate": false
+    },
+    "stop service before destroying working directory": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先停止服务，再清空工作目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先停止服務，再清空工作目錄"
+          }
+        }
+      }
     },
     "to %@": {
       "localizations": {

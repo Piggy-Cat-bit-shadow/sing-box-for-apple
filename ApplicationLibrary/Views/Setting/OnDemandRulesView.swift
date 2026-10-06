@@ -109,10 +109,12 @@ public struct OnDemandRulesView: View {
     }
 
     private var modeSection: some View {
-        HakoSettingsSection(
-            String(localized: "Mode"),
-            footnote: LocalizedStringKey(mode.description)
-        ) {
+        // No footnote here. It was the *selected mode's own description*, which is already the
+        // subtitle of the row that is selected, so the page said the same sentence twice - and
+        // it cost a line of height under a card whose rows each carry their own explanation.
+        // The section below keeps its footnote: the order the rules are evaluated in is not
+        // said anywhere else.
+        HakoSettingsSection(String(localized: "Mode")) {
             HakoSelectionRow(
                 title: OnDemandMode.disabled.name,
                 subtitle: OnDemandMode.disabled.description,
