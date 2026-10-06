@@ -6,7 +6,6 @@ public enum DashboardCard: String, CaseIterable, Identifiable, Codable, Hashable
     case connections
     case uploadTraffic
     case downloadTraffic
-    case httpProxy
     case clashMode
     case profile
 
@@ -24,8 +23,6 @@ public enum DashboardCard: String, CaseIterable, Identifiable, Codable, Hashable
             return "Upload"
         case .downloadTraffic:
             return "Download"
-        case .httpProxy:
-            return "System HTTP Proxy"
         case .clashMode:
             // The card grid still called this by the reference client's name. The page it
             // opens has said "Outbound Mode" since the migration, so the two disagreed.
@@ -45,8 +42,6 @@ public enum DashboardCard: String, CaseIterable, Identifiable, Codable, Hashable
             return "arrow.up.circle.fill"
         case .downloadTraffic:
             return "arrow.down.circle.fill"
-        case .httpProxy:
-            return "network"
         case .clashMode:
             return "circle.grid.2x2.fill"
         case .profile:
@@ -58,7 +53,7 @@ public enum DashboardCard: String, CaseIterable, Identifiable, Codable, Hashable
         switch self {
         case .status, .connections, .uploadTraffic, .downloadTraffic:
             return true
-        case .httpProxy, .clashMode, .profile:
+        case .clashMode, .profile:
             return false
         }
     }
@@ -68,6 +63,6 @@ public enum DashboardCard: String, CaseIterable, Identifiable, Codable, Hashable
     }
 
     public static var defaultOrder: [DashboardCard] {
-        [.uploadTraffic, .downloadTraffic, .status, .connections, .httpProxy, .clashMode, .profile]
+        [.uploadTraffic, .downloadTraffic, .status, .connections, .clashMode, .profile]
     }
 }

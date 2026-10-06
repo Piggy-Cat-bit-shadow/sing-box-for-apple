@@ -112,9 +112,10 @@ public struct ConnectionView: View {
             } trailing: {
                 HakoMetricStack(metrics, tint: connection.closedAt == nil ? .primary : .secondary)
             }
-            // The review's item on this list: it is read as a list, and the gap under each record
-            // was `row`. `compact` still separates two records without the list feeling airy.
-            .padding(.vertical, style == .standalone ? HakoTheme.Spacing.standard : HakoTheme.Spacing.compact)
+            // The review's item on this list, twice over: it is read as a list, and the gap under
+            // each record was `row`, then `compact`. `tight` still separates two records - the
+            // divider does the separating - without the list feeling airy.
+            .padding(.vertical, style == .standalone ? HakoTheme.Spacing.standard : HakoTheme.Spacing.tight)
             .padding(.horizontal, style == .standalone ? HakoTheme.Spacing.standard : 0)
             .foregroundStyle(Color.textColor)
         #endif

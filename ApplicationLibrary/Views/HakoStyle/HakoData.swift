@@ -297,7 +297,9 @@ public struct HakoMetricStack: View {
         // monospaced, so every row of every list shares one grid.
         VStack(alignment: .trailing, spacing: HakoTheme.Spacing.tight) {
             ForEach(lines) { line in
-                HStack(spacing: HakoTheme.Spacing.tight) {
+                // No gap between the glyph and its figure: the review asked for the symbol
+                // column to sit closer to the numbers, and the two are one reading unit.
+                HStack(spacing: 0) {
                     Image(systemName: line.symbol)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -732,7 +734,7 @@ public struct HakoActionTileLabel: View {
                 .frame(maxWidth: .infinity, minHeight: 52)
                 .background(
                     tint.color.opacity(0.11),
-                    in: RoundedRectangle(cornerRadius: HakoTheme.Radius.icon, style: .continuous)
+                    in: RoundedRectangle(cornerRadius: HakoTheme.Radius.tile, style: .continuous)
                 )
             Text(title)
                 .font(.footnote)

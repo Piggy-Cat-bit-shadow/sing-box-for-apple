@@ -12,8 +12,6 @@ public struct DashboardView: View {
     @AppStorage("hako.hasPresentedInstallOnLaunch") private var hasPresentedInstall = false
 
     #if os(iOS)
-        @State private var showCardManagement = false
-        @State private var remoteServers: [RemoteServer] = []
     #endif
 
     #if os(macOS)
@@ -32,28 +30,9 @@ public struct DashboardView: View {
                     Task { await coordinator.reload() }
                 #endif
             }
-        #if os(iOS)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    othersMenu
-                }
-            }
-            .onAppear {
-                Task { await reloadRemoteServers() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .remoteServersUpdated)) { _ in
-                Task { await reloadRemoteServers() }
-            }
-            .sheet(isPresented: $showCardManagement, onDismiss: {
-                Task { await cardConfiguration.reload() }
-            }, content: {
-                if #available(iOS 16.0, *) {
-                    CardManagementSheet().presentationDetents([.large]).presentationDragIndicator(.visible)
-                } else {
-                    CardManagementSheet()
-                }
-            })
-        #endif
+        // The home's top-right control moved to the tools page whole, on the review's
+        // instruction: the home is the tunnel's page, and a second-level management menu does not
+        // belong on it. Its remote-server state went with it.
         #if os(tvOS)
             .navigationDestination(item: $environments.pendingImportRemoteProfile) { request in
                 NewProfileView(.init(name: request.name, url: request.url))
@@ -82,25 +61,6 @@ public struct DashboardView: View {
         }
         #endif
     }
-
-    #if os(iOS)
-        private var othersMenu: some View {
-            Menu {
-                Button {
-                    showCardManagement = true
-                } label: {
-                    Label("Home Cards", systemImage: "square.grid.2x2")
-                }
-                RemoteControlMenuItems(servers: remoteServers)
-            } label: {
-                Label("Others", systemImage: "line.3.horizontal.circle")
-            }
-        }
-
-        private func reloadRemoteServers() async {
-            remoteServers = await (try? RemoteServerManager.list()) ?? []
-        }
-    #endif
 
     private func importRemoteProfileSheet(for request: ImportRemoteProfileRequest) -> some View {
         NavigationSheet(title: "Import Profile", onDismiss: {

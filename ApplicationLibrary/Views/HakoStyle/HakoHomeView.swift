@@ -131,41 +131,13 @@ public struct HakoHomeView: View {
 
     public var body: some View {
         HakoRootScaffold {
-            // A condition the page found rather than one the user caused. It is reported
-            // where it stands, above everything, and the rest of the page still draws: the
-            // reference does exactly this when its configuration cannot be read.
-            // Nothing to start is a condition of the page, not a reason for another page.
-            if !tunnelIsInstalled {
-                // No button here: the card below carries the action, and two identical buttons
-                // for one action is the redundancy the reference's own notice card avoids -
-                // its notice is a line of text and the card's action is the control.
-                HakoInlineNotice(
-                    title: String(localized: "Network Extension"),
-                    message: String(localized: "The VPN extension is not installed yet. Install it to start the tunnel.")
-                )
-            }
-            if let profileLoadFailure {
-                HakoInlineNotice(
-                    title: String(localized: "Profiles"),
-                    message: profileLoadFailure,
-                    actionTitle: String(localized: "Retry")
-                ) {
-                    Task {
-                        await retryProfileLoad()
-                    }
-                }
-            }
-            // The page's first screen: which configuration is in use, and the action that
-            // starts or stops it - the reference's own order, and the review's first item.
-            // Everything below this is state; nothing below it repeats these two.
-            topOperationCard
-            // How traffic is leaving the device right now, with the other cards that describe
-            // the current working mode - not below the traffic totals at the foot of the page,
-            // where the review found it. It is a statement about the mode, and the mode is
-            // decided at the top of this page.
-            if enabledCards.contains(.httpProxy), systemProxyAvailable {
-                httpProxyCard
-            }
+            // The page's first screen, and the reference's own shape for it: a header row on the
+            // canvas carrying the configuration's name and the one action that starts or stops it,
+            // with the page's condition, if it has one, as a line under it. It was a white card
+            // holding the same two things, which is the difference the review's reference image
+            // shows - the reference's header sits on the page, not in a card, and its action is a
+            // fixed-size capsule rather than the row's full width.
+            homeHeader
             if showsConnectedCards, enabledCards.contains(.clashMode) {
                 modeSection
             }
@@ -228,81 +200,97 @@ public struct HakoHomeView: View {
 
     // MARK: - Session
 
-    /// The top of the page: the configuration in use and the control that starts it.
+    /// The top of the page: which configuration is in use, and the action that starts it.
     ///
-    /// The review asked for the two operations a reader actually comes here to perform - pick or
-    /// import a configuration, and start or stop the tunnel - to be the first thing on the page,
-    /// with nothing below repeating them. This was two cards: a session card whose action was a
-    /// full-width button, and a configuration card holding a picker and three more controls. One
-    /// profile appeared in both, and the page offered the same journey twice.
-    ///
-    /// The shape is the reference's: a row that names the configuration (with the way into the
-    /// configuration centre beside it), the primary action on the trailing side, and the state as
-    /// a line under it. Its name is the profile's, and the line under it carries the file the
-    /// profile actually reads - the review's "the current configuration must show its real file
-    /// name, not a generic placeholder".
-    private var topOperationCard: some View {
-        HakoCardSurface(
-            fill: HakoProductPalette.system.card,
-            separator: HakoProductPalette.system.separator,
-            cornerRadius: HakoTheme.Radius.groupedSection
-        ) {
-            VStack(alignment: .leading, spacing: HakoTheme.Spacing.standard) {
-                HStack(alignment: .center, spacing: HakoTheme.Spacing.row) {
-                    HakoIconWell(
-                        tint: HakoAccentRole.neutral.color,
-                        systemImage: "doc.text.fill"
-                    )
-
-                    VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
-                        HStack(spacing: HakoTheme.Spacing.compact) {
-                            Circle()
-                                .fill(sessionTint)
-                                .frame(width: 9, height: 9)
-                                .accessibilityHidden(true)
-                            Text(selectedProfileName ?? String(localized: "No profile selected"))
-                                .font(HakoTheme.FontRole.rowPrimary)
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            // The door to the centre, beside the thing it configures - the
-                            // reference puts its add action here too.
-                            Button {
-                                showsConfigurationCentre = true
-                            } label: {
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.title3)
-                                    .foregroundStyle(HakoAccentRole.primaryAction.color)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(String(localized: "Profiles"))
-                            .accessibilityIdentifier("hako.profile.select")
-                        }
-                        Text(sessionSummary)
-                            .font(HakoTheme.Typography.rowSubtitle(Locale.current))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-
-                    Spacer(minLength: HakoTheme.Spacing.compact)
-
-                    StartStopButton(showsRuntimeDuration: false, isCompact: true) {
-                        await installTunnel()
-                    }
-                }
-
-                if let detail = sessionDetail {
-                    HakoStatusLine(
-                        detail.title,
-                        detail: detail.value,
-                        tint: detail.emphasis
-                    )
-                }
+    /// Structure, type and metrics are the reference's `profileAndPrimaryAction` at commit
+    /// 62aa2f2f: a row of `HStack(spacing: Spacing.row)` holding a profile button and a fixed-size
+    /// primary action, with the profile's name at `title2.weight(.bold)`, the accessory beside it
+    /// at `title3`, and the action a `Control.minimumHitTarget`-tall capsule 104pt wide, tinted by
+    /// what it will do. The header is padding on the page's canvas, not a card.
+    private var homeHeader: some View {
+        VStack(alignment: .leading, spacing: HakoTheme.Spacing.compact) {
+            HStack(alignment: .center, spacing: HakoTheme.Spacing.row) {
+                profileButton
+                Spacer(minLength: HakoTheme.Spacing.compact)
+                primaryAction
             }
-            .padding(HakoTheme.Layout.cardInnerPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // The page's condition, as a line under the header - the reference's error and notice
+            // rows, which carry no card of their own either.
+            if let condition {
+                Text(condition)
+                    .font(.subheadline)
+                    .foregroundStyle(HakoAccentRole.orange.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("hako.home.condition")
+            }
+
+            if let detail = sessionDetail {
+                HakoStatusLine(detail.title, detail: detail.value, tint: detail.emphasis)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The configuration's name and the way into the configuration centre, as one control.
+    private var profileButton: some View {
+        Button {
+            showsConfigurationCentre = true
+        } label: {
+            HStack(spacing: HakoTheme.Spacing.compact) {
+                Image(systemName: "sparkles.rectangle.stack.fill")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(HakoAccentRole.primaryAction.color)
+                    .accessibilityHidden(true)
+
+                Circle()
+                    .fill(sessionTint)
+                    .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+
+                Text(selectedProfileName ?? String(localized: "No profile selected"))
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+
+                Image(systemName: "plus.circle.fill")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(HakoAccentRole.primaryAction.color)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel(Text(selectedProfileName ?? String(localized: "No profile selected")))
+        .accessibilityHint(Text("Opens Profiles"))
+        .accessibilityIdentifier("hako.profile.select")
+    }
+
+    /// What the page's one action is, and what it says.
+    ///
+    /// The reference reads this from the connection snapshot and offers three states - a
+    /// connect, a disconnect, and a retry while the configuration cannot be read - so the same
+    /// control carries all of them instead of a notice growing a button of its own.
+    private var primaryAction: some View {
+        StartStopButton(showsRuntimeDuration: false, isCompact: true) {
+            await installTunnel()
+        }
+        // The reference fixes this at 104pt because its labels are one word; the same width in
+        // Chinese truncated "断开连接" to "断开…". The reference's *minimum* is kept and the button
+        // may grow to fit its own title.
+        .frame(minWidth: 104, minHeight: HakoTheme.Control.minimumHitTarget)
+    }
+
+    /// The condition the page is in, if it is in one: nothing installed, or a configuration that
+    /// cannot be read. One line, in one place, with the action beside it in the header.
+    private var condition: String? {
+        if !tunnelIsInstalled {
+            return String(localized: "The VPN extension is not installed yet. Install it to start the tunnel.")
+        }
+        return profileLoadFailure
     }
 
     /// The line under the configuration's name: what the tunnel is doing, and nothing else.
@@ -438,14 +426,6 @@ public struct HakoHomeView: View {
         [GridItem(.adaptive(minimum: 150), spacing: HakoTheme.Spacing.cardGap)]
     }
 
-    private var httpProxyCard: some View {
-        HTTPProxyCard(
-            systemProxyAvailable: $systemProxyAvailable,
-            systemProxyEnabled: $systemProxyEnabled
-        ) { enabled in
-            await coordinator.setSystemProxyEnabled(enabled, profile: profile)
-        }
-    }
 
     /// The shortcuts the reference design puts between the mode and the traffic.
     ///

@@ -134,6 +134,8 @@ public struct NewProfileView: View {
                 }
             }
             #if os(iOS) || os(tvOS)
+                // No card: the review asked for the primary button to sit on the page's own
+                // background rather than inside a white row that exists only to hold it.
                 Section {
                     if !viewModel.isSaving {
                         FormButton {
@@ -163,8 +165,11 @@ public struct NewProfileView: View {
                         // primary style".
                         .hakoPrimaryActionButtonStyle()
                         .controlSize(.large)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                     } else {
                         ProgressView()
+                            .listRowBackground(Color.clear)
                     }
                 }
             #endif

@@ -211,11 +211,16 @@ final class HakoSnapshotUITests: XCTestCase {
         launch(state: "profileError")
         tab("hako.tab.home").tap()
 
-        let notice = app.otherElements["hako.notice"]
-        XCTAssertTrue(notice.waitForExistence(timeout: 15), "an unreadable configuration must be reported")
+        // The condition is a line in the page's header - the reference's own shape - and the
+        // retry is the header's action, not a button the notice grew.
+        let condition = app.staticTexts["hako.home.condition"]
         XCTAssertTrue(
-            app.buttons["hako.notice.action"].exists,
-            "the notice must offer a way to try again"
+            condition.waitForExistence(timeout: 15),
+            "an unreadable configuration must be reported"
+        )
+        XCTAssertTrue(
+            app.buttons["hako.home.connection.action"].exists,
+            "the header must offer a way to try again"
         )
         snapshot("15_ProfileLoadFailure")
 
@@ -338,7 +343,7 @@ final class HakoSnapshotUITests: XCTestCase {
         )
         // And it says what is missing, with the way to fix it.
         XCTAssertTrue(
-            app.otherElements["hako.notice"].waitForExistence(timeout: 10),
+            app.staticTexts["hako.home.condition"].waitForExistence(timeout: 10),
             "the page must say that the extension is not installed"
         )
         // The action is the card's, which is what the reference does: its notice is a line of

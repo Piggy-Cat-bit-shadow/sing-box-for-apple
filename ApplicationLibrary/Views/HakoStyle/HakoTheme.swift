@@ -162,6 +162,10 @@ public enum HakoTheme {
     public enum Radius {
         public static let control: CGFloat = 8
         public static let icon: CGFloat = 9
+        /// The inner panel of an action tile, inside the card that holds it. Around half the
+        /// card's own radius, which is how a nested surface reads as the same language rather
+        /// than as a different one - the review's "the tiles' corners should join the container's".
+        public static let tile: CGFloat = 14
 
         /// Cards grew a rounded-rectangle language in the 26 releases. The older
         /// radius is kept for the systems this client still supports, because the

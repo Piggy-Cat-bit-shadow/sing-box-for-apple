@@ -657,29 +657,26 @@ public struct HakoToggleRow: View {
     /// platform intends - 53pt measured - while the hand-built row came out at 74pt, so every
     /// switch on every settings page carried 21pt of air the reference's do not.
     ///
-    /// The reference writes `Toggle("...", isOn:)` and nothing else. So does this now: the
-    /// platform sizes it, styles its label, and reports it to VoiceOver as the switch it is.
+    /// The client's own row: the setting's name on the leading side, its switch on the trailing
+    /// side, and one explanation - the footnote under the card.
+    ///
+    /// It wrote `Toggle(theTitle, isOn:)` and hid the label, on the reasoning that the platform's
+    /// toggle row is what a settings page wants. On iOS the label it hid was the *only* place the
+    /// setting's name appeared, so every switch on every settings page rendered as a bare control
+    /// on the left with an empty row beside it - the review's "a Toggle on the left and a large
+    /// blank space on the right". `HakoRowBody` draws the name and the trailing control, which is
+    /// also what the reference's settings rows do.
     public var body: some View {
-        // With an icon it is the client's own row, so it sits in the same card and on the same
-        // grid as the navigation rows beside it - the review's "the HTTP proxy row must belong to
-        // the same component system, not be a special card of its own". Without one it is the
-        // platform's toggle row, which is what a settings page wants.
-        if let systemImage, let tint {
-            HakoRowBody(
-                title: title,
-                systemImage: systemImage,
-                tint: tint,
-                showsDisclosure: false
-            ) {
-                toggle
-            }
-            .accessibilityIdentifier(identifier ?? "")
-            .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
-        } else {
+        HakoRowBody(
+            title: title,
+            systemImage: systemImage,
+            tint: tint,
+            showsDisclosure: false
+        ) {
             toggle
-                .accessibilityIdentifier(identifier ?? "")
-                .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
         }
+        .accessibilityIdentifier(identifier ?? "")
+        .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
     }
 
     private var toggle: some View {

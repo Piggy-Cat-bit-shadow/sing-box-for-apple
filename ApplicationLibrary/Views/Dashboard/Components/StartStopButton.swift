@@ -118,6 +118,12 @@ public struct StartStopButton: View {
                     }
                     #if os(iOS)
                         .hakoConnectionActionButtonStyle(isDestructive: profile.status.isConnected)
+                        // The reference's home capsule: `buttonBorderShape(.capsule)`, tinted by
+                        // what the action will do - green to disconnect a running tunnel, the
+                        // accent otherwise. Its size is set by the header, which fixes it at the
+                        // reference's 104pt by the control's minimum hit target.
+                        .buttonBorderShape(.capsule)
+                        .tint(profile.status.isConnected ? .green : .accentColor)
                     #endif
                     .controlSize(isCompact ? .regular : .large)
                     .accessibilityIdentifier("hako.home.connection.action")

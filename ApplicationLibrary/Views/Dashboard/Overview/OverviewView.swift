@@ -86,8 +86,6 @@ public struct OverviewView: View {
         switch card {
         case .status, .connections, .uploadTraffic, .downloadTraffic, .clashMode:
             return Variant.screenshotMode || profile.status.isConnected
-        case .httpProxy:
-            return (Variant.screenshotMode || profile.status.isConnectedStrict) && systemProxyAvailable
         case .profile:
             return true
         }
@@ -108,13 +106,6 @@ public struct OverviewView: View {
         case .downloadTraffic:
             DownloadTrafficCard()
                 .environmentObject(environments.commandClient)
-        case .httpProxy:
-            HTTPProxyCard(
-                systemProxyAvailable: $systemProxyAvailable,
-                systemProxyEnabled: $systemProxyEnabled
-            ) { enabled in
-                await coordinator.setSystemProxyEnabled(enabled, profile: profile)
-            }
         case .clashMode:
             ClashModeCard()
                 .environmentObject(environments.commandClient)

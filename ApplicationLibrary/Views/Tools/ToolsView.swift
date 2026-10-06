@@ -19,6 +19,8 @@ public struct ToolsView: View {
         @State private var showOOMReportList = false
         @State private var showPowerReportList = false
         @State private var remoteServers: [RemoteServer] = []
+        /// The home-layout sheet, moved here with the control that opened it.
+        @State private var showCardManagement = false
     #endif
     #if !os(tvOS)
         @EnvironmentObject private var sendManager: TaildropSendManager
@@ -56,11 +58,16 @@ public struct ToolsView: View {
         #if os(iOS)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    if !remoteServers.isEmpty {
-                        othersMenu
-                    }
+                    othersMenu
                 }
             }
+            .sheet(isPresented: $showCardManagement, content: {
+                if #available(iOS 16.0, *) {
+                    CardManagementSheet().presentationDetents([.large]).presentationDragIndicator(.visible)
+                } else {
+                    CardManagementSheet()
+                }
+            })
             .onAppear {
                 Task { await reloadRemoteServers() }
             }
@@ -431,8 +438,18 @@ public struct ToolsView: View {
     }
 
     #if os(iOS)
+        /// The page's own actions, plus the entry the home used to carry.
+        ///
+        /// The review moved the home's top-right control here whole: the home is the tunnel's
+        /// page and no longer offers a second-level management menu. Its remote-control half was
+        /// already here, so only the home-layout half arrived.
         private var othersMenu: some View {
             Menu {
+                Button {
+                    showCardManagement = true
+                } label: {
+                    Label("Home Cards", systemImage: "square.grid.2x2")
+                }
                 RemoteControlMenuItems(servers: remoteServers)
             } label: {
                 Label("Others", systemImage: "line.3.horizontal.circle")

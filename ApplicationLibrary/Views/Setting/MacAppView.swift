@@ -1,4 +1,5 @@
 import Library
+import Libbox
 import SwiftUI
 
 #if os(macOS)
@@ -34,14 +35,24 @@ public struct AppView: View {
         @State private var systemExtensionInstalled = false
         @State private var helperStatusLoaded = false
         @State private var rootHelperRegistrationStatus: SMAppService.Status = .notRegistered
-        @EnvironmentObject private var environments: ExtensionEnvironments
         @EnvironmentObject private var updateManager: UpdateManager
         @State private var updateTrack: UpdateTrack = .stable
         @State private var githubToken = ""
         @State private var checkUpdateEnabled = false
     #endif
 
+    /// Provided on every platform: the system proxy's off-path restarts the tunnel, and that
+    /// needs the profile. It used to be declared inside the desktop-only block, because only the
+    /// desktop used it here.
+    @EnvironmentObject private var environments: ExtensionEnvironments
     @State private var alert: AlertState?
+    /// The system HTTP proxy, migrated here from the home.
+    ///
+    /// It is a client setting - it configures how this device's traffic leaves, not what the home
+    /// is doing - and the review asked for it to stop occupying the home's first screen. The read
+    /// and the write are the same ones the home's card used.
+    @State private var systemProxyAvailable = false
+    @State private var systemProxyEnabled = false
 
     public init() {}
     public var body: some View {
@@ -142,6 +153,27 @@ public struct AppView: View {
                     }
 
                     #if !os(tvOS)
+                        // The migrated setting: the same row language the rest of this page uses,
+                        // with its explanation as the section's footnote.
+                        HakoSettingsSection(
+                            footnote: "Routes this device's HTTP traffic through the tunnel."
+                        ) {
+                            HakoToggleRow(
+                                String(localized: "System HTTP Proxy"),
+                                systemImage: "network",
+                                tint: HakoAccentRole.neutral.color,
+                                isOn: Binding(
+                                    get: { systemProxyEnabled },
+                                    set: { newValue in
+                                        Task { await setSystemProxy(newValue) }
+                                    }
+                                ),
+                                isEnabled: systemProxyAvailable,
+                                identifier: "hako.settings.httpProxy"
+                            )
+                        }
+                        .onAppear { Task { await loadSystemProxy() } }
+
                         // This section used to be headed "Tailscale" and hold one row
                         // called "Ghostty Configuration": a section name that named
                         // something else, and a row name that named the terminal engine
@@ -361,6 +393,33 @@ public struct AppView: View {
             // a first-level row. The container this page uses is shared with pages that are
             // frozen, so the metric is asked for here, on the page, rather than in the container.
             .environment(\.hakoCompactRows, true)
+    }
+
+    /// Reads the proxy's availability and state, the way the home's card did.
+    private func loadSystemProxy() async {
+        do {
+            let status = try LibboxNewStandaloneCommandClient()!.getSystemProxyStatus()
+            systemProxyAvailable = status.available
+            systemProxyEnabled = status.enabled
+        } catch {
+            // Not available is the honest state: the control disables itself.
+            systemProxyAvailable = false
+        }
+    }
+
+    /// Writes it, including the restart the tunnel needs when the proxy is switched off.
+    private func setSystemProxy(_ enabled: Bool) async {
+        do {
+            await SharedPreferences.systemProxyEnabled.set(enabled)
+            if enabled {
+                try LibboxNewStandaloneCommandClient()!.setSystemProxyEnabled(enabled)
+            } else if let profile = environments.extensionProfile {
+                try await profile.restart()
+            }
+            await loadSystemProxy()
+        } catch {
+            alert = AlertState(action: "update system proxy settings", error: error)
+        }
     }
 
     private func loadSettings() async {
