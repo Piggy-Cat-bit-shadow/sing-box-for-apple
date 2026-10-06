@@ -165,6 +165,11 @@ import SwiftUI
                 selectedProfileID: $coordinator.selectedProfileID,
                 systemProxyAvailable: $coordinator.systemProxyAvailable,
                 systemProxyEnabled: $coordinator.systemProxyEnabled,
+                tunnelIsInstalled: environments.extensionProfile != nil,
+                installTunnel: {
+                    try? await ExtensionProfile.install()
+                    await environments.reload()
+                },
                 profileLoadFailure: coordinator.profileLoadError,
                 retryProfileLoad: {
                     await coordinator.reload()

@@ -8663,6 +8663,22 @@
         }
       }
     },
+    "Network Extension": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络扩展"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路擴充功能"
+          }
+        }
+      }
+    },
     "Network Quality": {
       "localizations": {
         "fa": {
@@ -9386,6 +9402,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "未連線"
+          }
+        }
+      }
+    },
+    "Not Installed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未安装"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未安裝"
           }
         }
       }
@@ -13865,6 +13897,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法讀取或儲存 VPN 設定。"
+          }
+        }
+      }
+    },
+    "The VPN extension is not installed yet. Install it to start the tunnel.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未安装 VPN 扩展。安装后即可启动隧道。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未安裝 VPN 擴充功能。安裝後即可啟動隧道。"
           }
         }
       }

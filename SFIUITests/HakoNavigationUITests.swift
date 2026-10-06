@@ -428,7 +428,7 @@ final class HakoNavigationUITests: XCTestCase {
         // More's destinations, each of which already had its own case: this asserts the part
         // that case does not - that the row is enabled and hittable, not merely present.
         tab("hako.tab.more").tap()
-        for key in ["onDemandRules", "packetTunnel", "profileOverride", "app", "core", "remoteControl", "sponsors"] {
+        for key in ["onDemandRules", "packetTunnel", "profileOverride", "app", "core", "remoteControl"] {
             let row = app.buttons["hako.more.\(key)"]
             XCTAssertTrue(row.waitForExistence(timeout: 15), "hako.more.\(key) must be on More")
             XCTAssertTrue(row.isEnabled, "hako.more.\(key) must be enabled")
@@ -508,7 +508,7 @@ final class HakoNavigationUITests: XCTestCase {
 
         // Every More destination, one at a time.
         tab("hako.tab.more").tap()
-        for key in ["onDemandRules", "packetTunnel", "profileOverride", "app", "core", "remoteControl", "sponsors"] {
+        for key in ["onDemandRules", "packetTunnel", "profileOverride", "app", "core", "remoteControl"] {
             let row = app.buttons["hako.more.\(key)"]
             guard row.waitForExistence(timeout: 5) else {
                 XCTFail("hako.more.\(key) must be listed on the More page")

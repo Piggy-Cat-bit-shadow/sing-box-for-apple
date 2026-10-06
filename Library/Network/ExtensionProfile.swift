@@ -36,6 +36,19 @@ public class ExtensionProfile: ObservableObject {
         isMock = true
     }
 
+    /// A profile for a client that has no tunnel profile yet.
+    ///
+    /// Home renders with this rather than being replaced by an install page: the page is the same
+    /// page, and its session card reports that there is nothing to start. `install()` is what
+    /// creates the real one. The reference never reaches this state - it provisions a bundled
+    /// profile on first run - but ours creates the tunnel through the install flow, and a page
+    /// that needs a tunnel before it can be read is a page a new user cannot read.
+    ///
+    /// `.invalid` is the honest status: there is no configuration.
+    public static var notInstalled: ExtensionProfile {
+        ExtensionProfile(mockStatus: .invalid, mockConnectedDate: nil)
+    }
+
     private static var _mock: ExtensionProfile?
     private static var _mockDisconnected: ExtensionProfile?
 

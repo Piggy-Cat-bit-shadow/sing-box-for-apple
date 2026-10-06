@@ -100,7 +100,9 @@ final class HakoSnapshotUITests: XCTestCase {
     func test13MoreScrolledToBottom() {
         tab("hako.tab.more").tap()
 
-        let last = app.buttons["hako.more.sponsors"]
+        // A `Link` is exposed as a link, not as a button - the row that leaves the app is not
+        // the same kind of element as the row that pushes, even though they look alike.
+        let last = app.descendants(matching: .any)["hako.more.sourceCode"]
         XCTAssertTrue(last.waitForExistence(timeout: 15), "the About section must be on the More page")
 
         for _ in 0 ..< 8 {
@@ -241,6 +243,47 @@ final class HakoSnapshotUITests: XCTestCase {
         XCTAssertTrue(
             tab("hako.tab.tools").waitForExistence(timeout: 15),
             "the remote dashboard must still be inside this client's shell"
+        )
+    }
+
+    /// Home with no tunnel profile at all.
+    ///
+    /// The page must still be the whole page - that is what the reference does, and what this
+    /// client did not do: it replaced the home with an install button, so a new reader saw a
+    /// button where the product should have been. The install flow takes the screen once, on the
+    /// first launch, and after that it is one of the things the page offers.
+    func test18HomeWithoutATunnel() {
+        launch(state: "notInstalled")
+        tab("hako.tab.home").tap()
+
+        // The one-time install flow, which is allowed to take the screen exactly once.
+        if app.buttons["Install Network Extension"].waitForExistence(timeout: 10) {
+            snapshot("18_InstallOnFirstLaunch")
+            app.buttons["hako.nav.close"].tap()
+            sleep(2)
+        }
+
+        snapshot("18_HomeWithoutATunnel")
+
+        // Everything is still there: the shortcuts, the mode control, the session card.
+        for identifier in ["hako.home.groups", "hako.home.connections", "hako.home.logs"] {
+            XCTAssertTrue(
+                app.buttons[identifier].waitForExistence(timeout: 10),
+                "the home page must draw in full without a tunnel: \(identifier) was missing"
+            )
+        }
+        XCTAssertTrue(
+            app.buttons["hako.home.mode.rule"].exists,
+            "the outbound mode must be offered without a tunnel"
+        )
+        // And it says what is missing, with the way to fix it.
+        XCTAssertTrue(
+            app.otherElements["hako.notice"].waitForExistence(timeout: 10),
+            "the page must say that the extension is not installed"
+        )
+        XCTAssertTrue(
+            app.buttons["hako.notice.action"].exists,
+            "the notice must offer to install it"
         )
     }
 

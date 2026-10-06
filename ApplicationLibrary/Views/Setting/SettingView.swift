@@ -77,7 +77,7 @@ public extension Notification.Name {
 
 public enum SettingsPage: Hashable {
     case app
-    case core, packetTunnel, onDemandRules, profileOverride, remoteControl, sponsors
+    case core, packetTunnel, onDemandRules, profileOverride, remoteControl
 }
 
 public struct SettingView: View {
@@ -283,8 +283,6 @@ public struct SettingView: View {
                         ProfileOverrideView()
                     case .remoteControl:
                         RemoteControlView()
-                    case .sponsors:
-                        SponsorsView()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -316,28 +314,9 @@ public struct SettingView: View {
                     ))
                 }
                 .buttonStyle(HakoPushRowButtonStyle())
-                HakoRowDivider()
-                RequestReviewButton {
-                    rowLabel(aboutDestination(
-                        title: String(localized: "Rate on the App Store"),
-                        subtitle: nil,
-                        systemImage: "text.bubble.fill",
-                        accent: .pink
-                    ))
-                }
-                // Without an explicit style the button tints its own label, which made this
-                // the only row in About whose title was accent blue.
-                .buttonStyle(HakoPushRowButtonStyle())
-                HakoRowDivider()
-                NavigationLink {
-                    sponsorsDestination.content()
-                } label: {
-                    rowLabel(sponsorsDestination)
-                }
-                .buttonStyle(HakoPushRowButtonStyle())
                 // The last row of the longest root page: the bottom-safe-area check needs
                 // something to ask about once the page is scrolled to its end.
-                .accessibilityIdentifier("hako.more.sponsors")
+                .accessibilityIdentifier("hako.more.sourceCode")
             }
         }
 
@@ -388,22 +367,7 @@ public struct SettingView: View {
                         Text("Releases")
                     }
                 }
-                RequestReviewButton {
-                    Label("Rate on the App Store", systemImage: "text.bubble.fill")
-                }
                 #if os(macOS)
-                    // Sponsors is part of the About section on the desktop, because that
-                    // is where the platform's own settings windows put it, and because
-                    // the desktop only offers it on the system-extension build.
-                    if Variant.useSystemExtension {
-                        FormNavigationLink(value: sponsorsDestination.page) {
-                            HakoToolRow(
-                                title: sponsorsDestination.title,
-                                systemImage: sponsorsDestination.systemImage,
-                                tint: sponsorsDestination.accent
-                            )
-                        }
-                    }
                     #if JAILBREAK
                         FormNavigationLink {
                             JailbreakView()
@@ -419,23 +383,6 @@ public struct SettingView: View {
             groups
         }
     #endif
-
-    /// The sponsorship page.
-    ///
-    /// It lives in About rather than in a group of its own: a section with a single row is
-    /// what the reference avoids, and the sponsorship page belongs beside the other entries
-    /// that leave the client. The touch client links to it; the desktop and the focus
-    /// platform push it by value.
-    private var sponsorsDestination: Destination {
-        Destination(
-            pageKey: "sponsors",
-            title: String(localized: "Sponsors"),
-            subtitle: String(localized: "Support the project"),
-            systemImage: "heart.fill",
-            accent: .pink,
-            content: { AnyView(SponsorsView()) }
-        )
-    }
 
     // MARK: - The map
 
@@ -511,7 +458,7 @@ private extension SettingsPage {
     }
 
     static var allSettingsKeys: [SettingsPage] {
-        [.app, .core, .packetTunnel, .onDemandRules, .profileOverride, .remoteControl, .sponsors]
+        [.app, .core, .packetTunnel, .onDemandRules, .profileOverride, .remoteControl]
     }
 
     /// The key `HakoSettingsPush` and the destination list agree on.
@@ -523,7 +470,6 @@ private extension SettingsPage {
         case .onDemandRules: "onDemandRules"
         case .profileOverride: "profileOverride"
         case .remoteControl: "remoteControl"
-        case .sponsors: "sponsors"
         }
     }
 }

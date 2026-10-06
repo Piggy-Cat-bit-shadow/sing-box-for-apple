@@ -49,6 +49,14 @@ public enum Variant {
         ProcessInfo.processInfo.environment["SCREENSHOT_STATE"] == "disconnected"
     }
 
+    /// `SCREENSHOT_STATE=notInstalled` leaves the client with no tunnel profile at all.
+    ///
+    /// That is the state a new reader is in, and the one the home page must survive: the page is
+    /// the page, and the install flow is something it offers rather than something it becomes.
+    public static var screenshotTunnelNotInstalled: Bool {
+        screenshotState == "notInstalled"
+    }
+
     /// The raw `SCREENSHOT_STATE` value, for fixture states other than the tunnel's.
     public static var screenshotState: String {
         ProcessInfo.processInfo.environment["SCREENSHOT_STATE"] ?? ""

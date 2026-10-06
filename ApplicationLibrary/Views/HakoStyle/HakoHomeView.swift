@@ -89,6 +89,12 @@ public struct HakoHomeView: View {
     @State private var liveGroupCount = 0
     @State private var liveConnectionCount = 0
 
+    /// Whether a tunnel profile exists at all.
+    ///
+    /// When it does not, the page still draws - that is the point - and says so where the reader
+    /// is already looking, with the action that fixes it.
+    private let tunnelIsInstalled: Bool
+    private let installTunnel: () async -> Void
     /// Why the configuration list could not be read, if it could not be.
     private let profileLoadFailure: String?
     private let retryProfileLoad: () async -> Void
@@ -104,10 +110,14 @@ public struct HakoHomeView: View {
         selectedProfileID: Binding<Int64>,
         systemProxyAvailable: Binding<Bool>,
         systemProxyEnabled: Binding<Bool>,
+        tunnelIsInstalled: Bool = true,
+        installTunnel: @escaping () async -> Void = {},
         profileLoadFailure: String? = nil,
         retryProfileLoad: @escaping () async -> Void = {},
         cardConfiguration: DashboardCardConfiguration
     ) {
+        self.tunnelIsInstalled = tunnelIsInstalled
+        self.installTunnel = installTunnel
         self.profileLoadFailure = profileLoadFailure
         self.retryProfileLoad = retryProfileLoad
         _profileList = profileList
@@ -122,6 +132,18 @@ public struct HakoHomeView: View {
             // A condition the page found rather than one the user caused. It is reported
             // where it stands, above everything, and the rest of the page still draws: the
             // reference does exactly this when its configuration cannot be read.
+            // Nothing to start is a condition of the page, not a reason for another page.
+            if !tunnelIsInstalled {
+                HakoInlineNotice(
+                    title: String(localized: "Network Extension"),
+                    message: String(localized: "The VPN extension is not installed yet. Install it to start the tunnel."),
+                    actionTitle: String(localized: "Install")
+                ) {
+                    Task {
+                        await installTunnel()
+                    }
+                }
+            }
             if let profileLoadFailure {
                 HakoInlineNotice(
                     title: String(localized: "Profiles"),
@@ -230,6 +252,7 @@ public struct HakoHomeView: View {
         case .disconnecting: String(localized: "Stopping")
         case .reasserting: String(localized: "Reasserting")
         case .disconnected: String(localized: "Stopped")
+        case .invalid: String(localized: "Not Installed")
         default: String(localized: "Unknown")
         }
     }
@@ -253,6 +276,12 @@ public struct HakoHomeView: View {
         }
         if environments.emptyProfiles {
             return (String(localized: "Add a profile to start"), nil, .warning)
+        }
+        // Before the switchable check: `.invalid` is not switchable either, and it is not
+        // switching - there is no configuration to switch. The notice above the card says what
+        // to do about it; this line must not claim progress that is not happening.
+        if profile.status == .invalid {
+            return nil
         }
         if !profile.status.isSwitchable {
             return (String(localized: "Switching…"), nil, .info)

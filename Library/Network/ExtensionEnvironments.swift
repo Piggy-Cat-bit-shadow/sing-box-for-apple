@@ -282,7 +282,9 @@ public class ExtensionEnvironments: ObservableObject {
             extensionProfileLoading = false
             // A named state, because the manual's snapshot list includes Home with the
             // tunnel stopped and the fixture is otherwise always connected.
-            extensionProfile = Variant.screenshotDisconnectedTunnel ? .mockDisconnected : .mock
+            extensionProfile = Variant.screenshotTunnelNotInstalled
+                ? nil
+                : (Variant.screenshotDisconnectedTunnel ? .mockDisconnected : .mock)
             commandClient.setupMockData()
         }
     }
