@@ -24,8 +24,6 @@ public struct AppView: View {
 
     @State private var isLoading = true
     @State private var selectedLanguage: String?
-    @State private var cacheSize: Int64 = 0
-    @State private var cacheSizeText = ""
 
     #if os(macOS)
         @State private var startAtLogin = false
@@ -74,13 +72,51 @@ public struct AppView: View {
                             }
                         }
                     #else
-                        Picker("Language", selection: $selectedLanguage) {
-                            ForEach(Self.supportedLanguages, id: \.code) { language in
-                                Text(language.name).tag(language.code)
+                        // The three rows the review merged into this one card, in its order.
+                        HakoSettingsSection {
+                            // The language picker stays the menu it was on this platform, inside the
+                            // client's own row: the current language is still the value on the
+                            // right, and the choosing still happens in place.
+                            HakoRowBody(
+                                title: String(localized: "Language"),
+                                systemImage: "globe",
+                                tint: HakoAccentRole.neutral.color,
+                                showsDisclosure: false
+                            ) {
+                                Picker("Language", selection: $selectedLanguage) {
+                                    ForEach(Self.supportedLanguages, id: \.code) { language in
+                                        Text(language.name).tag(language.code)
+                                    }
+                                }
+                                .labelsHidden()
+                                .onChangeCompat(of: selectedLanguage) { newValue in
+                                    updateLanguage(newValue)
+                                }
                             }
-                        }
-                        .onChangeCompat(of: selectedLanguage) { newValue in
-                            updateLanguage(newValue)
+
+                            FormNavigationLink {
+                                GhosttyConfigurationView()
+                            } label: {
+                                HakoNavigationRow(
+                                    title: String(localized: "Terminal Appearance"),
+                                    subtitle: String(localized: "Colours and font for SSH sessions"),
+                                    systemImage: "terminal.fill",
+                                    tint: HakoAccentRole.neutral.color
+                                )
+                            }
+
+                            FormButton {
+                                showCardManagement = true
+                            } label: {
+                                HakoNavigationRow(
+                                    title: String(localized: "Home Cards"),
+                                    subtitle: String(localized: "What the home shows, and which device this client controls."),
+                                    systemImage: "square.grid.2x2",
+                                    tint: HakoAccentRole.neutral.color
+                                )
+                            }
+                            .buttonStyle(HakoPushRowButtonStyle())
+                            .accessibilityIdentifier("hako.settings.homeCards")
                         }
                     #endif
 
@@ -121,80 +157,16 @@ public struct AppView: View {
 
                     #endif
 
-                    FormTextItem("Cache Size", cacheSizeText)
-                    if cacheSize > 0 {
-                        FormButton(role: .destructive) {
-                            Task.detached {
-                                let cacheDir = FilePath.cacheDirectory
-                                let workingDir = FilePath.workingDirectory
-                                if let contents = try? FileManager.default.contentsOfDirectory(
-                                    at: cacheDir,
-                                    includingPropertiesForKeys: nil
-                                ) {
-                                    for item in contents {
-                                        if item.lastPathComponent == workingDir.lastPathComponent {
-                                            continue
-                                        }
-                                        try? FileManager.default.removeItem(at: item)
-                                    }
-                                }
-                                await MainActor.run {
-                                    cacheSize = 0
-                                    cacheSizeText = ByteCountFormatter.string(fromByteCount: 0, countStyle: .file)
-                                }
-                            }
-                        } label: {
-                            Label("Clear Cache", systemImage: "trash")
-                                .foregroundColor(.red)
-                        }
-                    }
-
-                    #if !os(tvOS)
-                        // This section used to be headed "Tailscale" and hold one row
-                        // called "Ghostty Configuration": a section name that named
-                        // something else, and a row name that named the terminal engine
-                        // rather than the thing being configured. The feature is the
-                        // appearance of the SSH terminal this client opens.
-                        // The explanation was a row subtitle, which made this card's only row
-                        // 63pt where the card above it is 52 - the review's "cards sized by the
-                        // length of their copy". It is the section's footnote now, so the two
-                        // cards on this page have the same row height, and the caption is gone
-                        // with it because the row already names the setting.
-                        HakoSettingsSection(footnote: "Colours and font for SSH sessions") {
-                            FormNavigationLink {
-                                GhosttyConfigurationView()
-                            } label: {
-                                HakoToolRow(
-                                    title: String(localized: "Terminal Appearance"),
-                                    systemImage: "terminal.fill",
-                                    tint: HakoAccentRole.neutral
-                                )
-                            }
-                        }
-                    #endif
+                    // Cache Size and Clear Cache lived here. The review moved both to 核心, where
+                    // the client's own figures are read and its maintenance actions are taken;
+                    // this page is about how the client looks and speaks.
 
                     // The menu the tools page used to carry. Its contents were the home-layout
                     // sheet and the remote control picker; both are settings, so both arrive on
                     // this page, in its own row language, with the menu's behaviour kept item for
                     // item - the sheet still opens, the active server still carries a checkmark,
                     // and the local device is still the way out of remote control.
-                    HakoSettingsSection(footnote: "What the home shows, and which device this client controls.") {
-                        FormButton {
-                            showCardManagement = true
-                        } label: {
-                            HakoToolRow(
-                                title: String(localized: "Home Cards"),
-                                systemImage: "square.grid.2x2",
-                                tint: HakoAccentRole.neutral
-                            )
-                        }
-                        // The page's other rows are black because they are navigation links, which
-                        // this page styles with the push-row style; a plain `Button` keeps the
-                        // platform's accent tint on its whole label, which is the blue the review
-                        // saw. The same style, for the same reason.
-                        .buttonStyle(HakoPushRowButtonStyle())
-                        .accessibilityIdentifier("hako.settings.homeCards")
-
+                    HakoSettingsSection {
                         // The picker the menu showed only when there was somewhere to switch to,
                         // which is what its `if !servers.isEmpty` did.
                         if !remoteServers.isEmpty {
@@ -496,7 +468,6 @@ public struct AppView: View {
                 helperStatusLoaded = true
             }
         #endif
-        refreshCacheSize()
     }
 
     #if os(tvOS)
@@ -710,32 +681,4 @@ public struct AppView: View {
 
     #endif
 
-    private func refreshCacheSize() {
-        Task.detached {
-            let total = Self.calculateDirSize(FilePath.cacheDirectory)
-            let working = Self.calculateDirSize(FilePath.workingDirectory)
-            let size = max(total - working, 0)
-            await MainActor.run {
-                cacheSize = size
-                cacheSizeText = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
-            }
-        }
-    }
-
-    private static func calculateDirSize(_ dir: URL) -> Int64 {
-        guard let enumerator = FileManager.default.enumerator(
-            at: dir,
-            includingPropertiesForKeys: [.fileSizeKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return 0
-        }
-        var size: Int64 = 0
-        for case let fileURL as URL in enumerator {
-            if let fileSize = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
-                size += Int64(fileSize)
-            }
-        }
-        return size
-    }
 }

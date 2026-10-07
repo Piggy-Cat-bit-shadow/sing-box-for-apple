@@ -6245,6 +6245,38 @@
         }
       }
     },
+    "Group: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "组：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組：%@"
+          }
+        }
+      }
+    },
+    "Group: %@ · Node: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "组：%@ · 节点：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組：%@ · 節點：%@"
+          }
+        }
+      }
+    },
     "Groups": {
       "localizations": {
         "fa": {
@@ -9435,6 +9467,22 @@
         }
       }
     },
+    "Node: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "节点：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點：%@"
+          }
+        }
+      }
+    },
     "Nodes": {
       "localizations": {
         "zh-Hans": {
@@ -11239,6 +11287,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "遠端錯誤：%@"
+          }
+        }
+      }
+    },
+    "Removes what the client has cached. The working directory is kept.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除客户端缓存的内容，工作目录会保留。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除客戶端快取的內容，工作目錄會保留。"
           }
         }
       }

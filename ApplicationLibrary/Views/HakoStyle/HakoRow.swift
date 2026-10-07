@@ -710,6 +710,24 @@ public struct HakoToggleRow: View {
 /// One component so every destructive control in the client is red, is a row, and is
 /// disabled in the same way, rather than three pages inventing three treatments for
 /// the same promise.
+public extension View {
+    /// The row metric of a first-level card, for a settings row that must match it.
+    ///
+    /// A grouped form insets its rows itself - about fifteen points above and below - where a
+    /// painted card pads them by `Spacing.compact`; the same row therefore stands fourteen points
+    /// taller on a settings page than on 更多, which is the difference the review named on the
+    /// three reset cards and the on-demand modes. This asks for the card's metric on the rows the
+    /// review named, rather than changing the metric under every other page.
+    func hakoStandardRowInsets() -> some View {
+        listRowInsets(EdgeInsets(
+            top: HakoTheme.Spacing.compact,
+            leading: HakoTheme.Spacing.standard,
+            bottom: HakoTheme.Spacing.compact,
+            trailing: HakoTheme.Spacing.standard
+        ))
+    }
+}
+
 public struct HakoDestructiveRow: View {
     private let title: String
     private let subtitle: String?
@@ -744,6 +762,9 @@ public struct HakoDestructiveRow: View {
             }
         }
         .buttonStyle(HakoPushRowButtonStyle())
+        // Every user of this row is a reset card - the three the review named - so it takes the
+        // first-level metric here rather than at each call site.
+        .hakoStandardRowInsets()
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
     }

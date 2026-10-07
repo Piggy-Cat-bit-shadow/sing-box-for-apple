@@ -176,8 +176,11 @@ public struct ConnectionListView: View {
             return HakoDataCard(palette: .system) {
                 ForEach(Array(connections.enumerated()), id: \.element.id) { index, connection in
                     ConnectionView(connection, style: .groupedRow)
+                    // The record's own text boundary, both sides: the row no longer leads with an
+                    // icon, so the divider runs the full width of the card's content area - equal
+                    // insets - and the last record has none after it.
                     if index != connections.count - 1 {
-                        HakoRowDivider(leadingInset: HakoTheme.Layout.proxyGroupIconSize + HakoTheme.Spacing.row)
+                        HakoRowDivider(leadingInset: 0, trailingInset: 0)
                     }
                 }
             }

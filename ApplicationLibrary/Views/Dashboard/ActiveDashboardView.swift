@@ -166,9 +166,18 @@ import SwiftUI
                 systemProxyAvailable: $coordinator.systemProxyAvailable,
                 systemProxyEnabled: $coordinator.systemProxyEnabled,
                 tunnelIsInstalled: environments.extensionProfile != nil,
+                // The same action the removed page called, with the error it used to report:
+                // `try?` swallowed a failed install, so a system-authorisation refusal left the
+                // page looking as though nothing had been pressed.
                 installTunnel: {
-                    try? await ExtensionProfile.install()
-                    await environments.reload()
+                    do {
+                        try await ExtensionProfile.install()
+                        await environments.reload()
+                    } catch {
+                        await MainActor.run {
+                            coordinator.alert = AlertState(action: "install network extension", error: error)
+                        }
+                    }
                 },
                 profileLoadFailure: coordinator.profileLoadError,
                 retryProfileLoad: {

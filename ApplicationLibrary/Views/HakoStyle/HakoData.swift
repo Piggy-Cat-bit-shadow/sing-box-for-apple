@@ -69,29 +69,71 @@ public struct HakoBadge: View {
 public struct HakoBadgeRow: View {
     private let badges: [String]
     private let role: HakoBadgeRole
-    private let maximumVisible: Int
 
-    public init(_ badges: [String], role: HakoBadgeRole = .status, maximumVisible: Int = 3) {
+    public init(_ badges: [String], role: HakoBadgeRole = .status) {
         self.badges = badges
         self.role = role
-        self.maximumVisible = maximumVisible
     }
 
     public var body: some View {
-        let visible = Array(badges.prefix(maximumVisible))
-        let overflow = badges.count - visible.count
-
-        HStack(spacing: HakoTheme.Spacing.tight) {
-            ForEach(Array(visible.enumerated()), id: \.offset) { _, badge in
+        // Every badge, on as many lines as it takes.
+        //
+        // This row kept to one line and folded whatever did not fit into a "+N" chip. The
+        // review's item is that a badge here is a field - the network, the protocol, the inbound
+        // it arrived on, whether the connection is still open - and a count of hidden fields is
+        // the one thing the row must not show: the reader cannot tell which ones are missing.
+        // The row has room underneath, so it wraps.
+        HakoFlowLayout(spacing: HakoTheme.Spacing.tight) {
+            ForEach(Array(badges.enumerated()), id: \.offset) { _, badge in
                 HakoBadge(badge, role: role)
             }
-            if overflow > 0 {
-                HakoBadge("+\(overflow)", role: .category)
-            }
         }
-        .lineLimit(1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(badges.joined(separator: ", ")))
+    }
+}
+
+/// Lays its children out in a row and wraps to the next line when they run out of width.
+///
+/// The badge row's own container, because a `HStack` cannot wrap and a grid would make every
+/// column as wide as the widest chip.
+struct HakoFlowLayout: Layout {
+    var spacing: CGFloat = HakoTheme.Spacing.tight
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let available = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + spacing + size.width > available {
+                x = 0
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+            x += (x > 0 ? spacing : 0) + size.width
+            lineHeight = max(lineHeight, size.height)
+        }
+        return CGSize(width: available == .infinity ? x : available, height: y + lineHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var lineHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + spacing + size.width > bounds.maxX {
+                x = bounds.minX
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+            if x > bounds.minX { x += spacing }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width
+            lineHeight = max(lineHeight, size.height)
+        }
     }
 }
 
@@ -221,7 +263,11 @@ public struct HakoDataRow<Leading: View, Trailing: View>: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .truncationMode(.tail)
-                        .lineLimit(2)
+                        // One line, truncated at the end: the review asked for the route to stay
+                        // clear of the figures column, and a route that wraps takes the room the
+                        // figures are read in. The named parts (group, node) are what matters,
+                        // and they are at the front.
+                        .lineLimit(1)
                         .layoutPriority(1)
                         .textSelection(.enabled)
                 }
@@ -731,6 +777,10 @@ public struct HakoActionTileLabel: View {
         VStack(spacing: HakoTheme.Spacing.compact - 2) {
             Image(systemName: systemImage)
                 .font(.title3)
+                // The review asked for the glyph and the label in the page's own foreground: the
+                // tile is a card-sized button now, not a coloured badge, and the tint is left to
+                // the panel behind the glyph.
+                .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, minHeight: 52)
                 .background(
                     tint.color.opacity(0.11),
@@ -738,7 +788,7 @@ public struct HakoActionTileLabel: View {
                 )
             Text(title)
                 .font(.footnote)
-                .foregroundStyle(tint.color)
+                .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)

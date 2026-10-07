@@ -29,8 +29,6 @@ public struct ProfileOverrideView: View {
                     }
             } else {
                 routingSections
-                // Page-level rather than per-switch, so it keeps its own footnote section.
-                HakoSettingsSection(footnote: "Changing any of these reloads the running service.") {}
                 resetSection
             }
         }
@@ -80,7 +78,10 @@ public struct ProfileOverrideView: View {
     }
 
     private var resetSection: some View {
-        HakoSettingsSection {
+        // The page's own footnote, under the reset card rather than above it: the review's item
+        // is that it read as the caption of the three switches it sat beneath, when it is about
+        // the page - changing any of them, including the reset, reloads the service.
+        HakoSettingsSection(footnote: "Changing any of these reloads the running service.") {
             HakoDestructiveRow(
                 String(localized: "Reset Profile Override"),
                 subtitle: String(localized: "Use the defaults the client ships with."),

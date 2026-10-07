@@ -915,7 +915,11 @@ private struct ProfilePickerRow: View {
                 // read as a more compact species of list than the menu it is reached from - the
                 // review's "raise the configuration centre's rows and icons to the first-level
                 // standard".
-                HakoIconWell(tint: profile.type.hakoAccent.color, systemImage: profile.type.presentationSymbol)
+                // The review's item: the type icon was indigo, cyan or teal - one colour per
+                // kind of profile - which made a list of identically shaped rows read as four
+                // categories. The kind is already said in words beside it; the icon is the
+                // client's neutral one, like every other row's.
+                HakoIconWell(tint: HakoAccentRole.neutral.color, systemImage: profile.type.presentationSymbol)
 
                 VStack(alignment: .leading, spacing: HakoTheme.Typography.rowSubtitleGap(locale)) {
                     Text(profile.name)

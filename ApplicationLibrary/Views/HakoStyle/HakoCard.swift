@@ -171,17 +171,25 @@ public struct HakoSettingsSection<Content: View>: View {
 /// second line beside one is the "double divider" the manual names.
 public struct HakoRowDivider: View {
     private let leadingInset: CGFloat?
+    private let trailingInset: CGFloat?
 
-    public init(leadingInset: CGFloat? = HakoTheme.Layout.destinationRowDividerInset) {
+    public init(
+        leadingInset: CGFloat? = HakoTheme.Layout.destinationRowDividerInset,
+        trailingInset: CGFloat? = nil
+    ) {
         self.leadingInset = leadingInset
+        self.trailingInset = trailingInset
     }
 
     public var body: some View {
         if !HakoPlatformLayout.pageUsesSystemSettingsIdiom {
             if let leadingInset {
-                Divider().padding(.leading, leadingInset)
+                Divider()
+                    .padding(.leading, leadingInset)
+                    .padding(.trailing, trailingInset ?? 0)
             } else {
                 Divider()
+                    .padding(.trailing, trailingInset ?? 0)
             }
         }
     }

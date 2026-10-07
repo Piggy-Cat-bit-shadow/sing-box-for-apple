@@ -7,9 +7,7 @@ public struct DashboardView: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
     @StateObject private var coordinator = DashboardViewModel()
     @StateObject private var cardConfiguration = DashboardCardConfiguration()
-    @State private var showInstall = false
     /// Persisted, so the install flow takes the screen once and never again.
-    @AppStorage("hako.hasPresentedInstallOnLaunch") private var hasPresentedInstall = false
 
     #if os(iOS)
     #endif
@@ -111,25 +109,10 @@ public struct DashboardView: View {
                         }
                     #endif
                 }
-                .onAppear {
-                    // First launch only: the one time the install flow takes the screen. After
-                    // that the page is the page, and the install lives on it.
-                    guard environments.extensionProfile == nil, !hasPresentedInstall else {
-                        return
-                    }
-                    hasPresentedInstall = true
-                    showInstall = true
-                }
-                .sheet(isPresented: $showInstall) {
-                    NavigationSheet(title: String(localized: "Install Network Extension")) {
-                        FormView {
-                            InstallProfileButton {
-                                await environments.reload()
-                                showInstall = false
-                            }
-                        }
-                    }
-                }
+                // The one-time "Install Network Extension" page lived here, and the review
+                // removed it: it existed to hold a button that did what the home's own install
+                // button already does, so it asked the reader to press install twice. The
+                // install itself is unchanged and still lives on the home.
         }
     }
 

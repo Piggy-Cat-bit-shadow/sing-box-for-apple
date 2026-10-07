@@ -161,13 +161,21 @@ public struct ConnectionView: View {
         let chain = Array(connection.chain.reversed())
         let group = chain.first
         let node = connection.outbound.isEmpty ? chain.dropFirst().first : connection.outbound
+        // Named, not arrowed.
+        //
+        // The review asked for the group and the node to be readable as what they are: "a → b"
+        // leaves the reader to work out which is which, and on a direct connection it read as a
+        // node that does not exist. The names are the core's own - nothing is invented for a
+        // direct route.
         switch (group, node) {
         case let (group?, node?):
-            return group == node ? group : "\(group) → \(node)"
+            return group == node
+                ? String(localized: "Group: \(group)")
+                : String(localized: "Group: \(group) · Node: \(node)")
         case let (group?, nil):
-            return group
+            return String(localized: "Group: \(group)")
         case let (nil, node?):
-            return node
+            return String(localized: "Node: \(node)")
         default:
             return ""
         }

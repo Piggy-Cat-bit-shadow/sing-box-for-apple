@@ -157,13 +157,12 @@ public struct GroupListView: View {
                     value: "\(filteredGroups.reduce(0) { $0 + $1.items.count })",
                     symbol: "circle.grid.2x2.fill"
                 )
-                if !viewModel.testingGroups.isEmpty {
-                    HakoSummaryMetric(
-                        String(localized: "Testing"),
-                        value: "\(viewModel.testingGroups.count)",
-                        symbol: "bolt.fill"
-                    )
-                }
+                // The review's item on this page: a test used to add a third metric here - a
+                // "Testing" label and its count - and take it away again when the test ended,
+                // which pushed the card's two real figures sideways for as long as the test ran
+                // and read as two controls appearing out of nowhere. The card is the page's
+                // summary and its shape does not depend on what is happening; the group rows
+                // themselves already say which group is being tested.
             }
         }
     }

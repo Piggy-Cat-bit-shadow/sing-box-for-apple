@@ -128,6 +128,8 @@ public struct OnDemandRulesView: View {
             ) {
                 select(.disabled)
             }
+            // The review's item: the same metric as the reset card below it, and as 更多.
+            .hakoStandardRowInsets()
 
 
             HakoSelectionRow(
@@ -138,6 +140,8 @@ public struct OnDemandRulesView: View {
             ) {
                 select(.alwaysOn)
             }
+            // The review's item: the same metric as the reset card below it, and as 更多.
+            .hakoStandardRowInsets()
 
 
             HakoSelectionRow(
@@ -148,6 +152,8 @@ public struct OnDemandRulesView: View {
             ) {
                 select(.enabled)
             }
+            // The review's item: the same metric as the reset card below it, and as 更多.
+            .hakoStandardRowInsets()
         }
     }
 

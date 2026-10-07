@@ -20,6 +20,16 @@ public struct CoreView: View {
     @State private var version = ""
     @State private var dataSize: String?
     @State private var dataSizeLoaded = false
+    /// The client's cache, read and cleared here now.
+    ///
+    /// The review moved both the figure and the action off the client settings page: this is the
+    /// page that reports the client's own state and offers its maintenance, and the cache is one
+    /// of the client's figures. The implementation is the one that page used - the same
+    /// directory, the same subtraction of the working directory, the same removal - so there is
+    /// one cache state, not two.
+    @State private var cacheSize: Int64 = 0
+    @State private var cacheSizeText = ""
+    @State private var cacheSizeLoaded = false
 
     #if os(macOS)
         @State private var helperUnavailable = false
@@ -51,6 +61,7 @@ public struct CoreView: View {
             }
             Task {
                 await refreshWorkingDirectorySize()
+                await refreshCacheSize()
             }
         }
         .onChangeCompat(of: scenePhase) { newValue in
@@ -63,10 +74,64 @@ public struct CoreView: View {
         }
     }
 
+    private func refreshCacheSize() async {
+        let cacheDirectory = FilePath.cacheDirectory
+        let workingDirectory = FilePath.workingDirectory
+        let size = await Task.detached {
+            max(Self.directorySize(cacheDirectory) - Self.directorySize(workingDirectory), 0)
+        }.value
+        cacheSize = size
+        cacheSizeText = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+        cacheSizeLoaded = true
+    }
+
+    /// The removal the client settings page performed, unchanged.
+    private func clearCache() async {
+        let cacheDirectory = FilePath.cacheDirectory
+        let workingDirectory = FilePath.workingDirectory
+        await Task.detached {
+            if let contents = try? FileManager.default.contentsOfDirectory(
+                at: cacheDirectory,
+                includingPropertiesForKeys: nil
+            ) {
+                for item in contents where item.lastPathComponent != workingDirectory.lastPathComponent {
+                    try? FileManager.default.removeItem(at: item)
+                }
+            }
+        }.value
+        await refreshCacheSize()
+    }
+
+    private nonisolated static func directorySize(_ directory: URL) -> Int64 {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+        var size: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            if let fileSize = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                size += Int64(fileSize)
+            }
+        }
+        return size
+    }
+
     private var versionSection: some View {
         HakoSettingsSection {
             HakoMetricRow(String(localized: "Version"), value: version, systemImage: "shippingbox.fill", tint: .neutral)
             dataSizeRow
+            // The figure is read off disk, so the row says it is coming rather than showing an
+            // empty value for the moment it takes - the same shape the data size row uses.
+            if cacheSizeLoaded {
+                HakoMetricRow(String(localized: "Cache Size"), value: cacheSizeText, systemImage: "externaldrive.fill", tint: .neutral)
+            } else {
+                HakoValueRow(String(localized: "Cache Size")) {
+                    ProgressView()
+                }
+            }
         }
     }
 
@@ -154,6 +219,19 @@ public struct CoreView: View {
                     .hakoContainerDrawsDisclosure(true)
                 }
             #endif
+
+            // Second of the three: the client's own housekeeping sits between the two that are
+            // about the directory, because that is what it acts on.
+            HakoDestructiveRow(
+                String(localized: "Clear Cache"),
+                subtitle: String(localized: "Removes what the client has cached. The working directory is kept."),
+                systemImage: "trash.fill",
+                isEnabled: cacheSize > 0
+            ) {
+                Task {
+                    await clearCache()
+                }
+            }
 
             HakoDestructiveRow(
                 String(localized: "Erase Working Directory"),
