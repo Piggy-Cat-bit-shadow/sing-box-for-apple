@@ -15741,7 +15741,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "首页显示什么，以及本客户端控制哪台设备。"
+            "value": "配置首页展示内容，并指定本客户端控制的设备。"
           }
         },
         "zh-Hant": {
