@@ -188,6 +188,11 @@ public struct AppView: View {
                                 tint: HakoAccentRole.neutral
                             )
                         }
+                        // The page's other rows are black because they are navigation links, which
+                        // this page styles with the push-row style; a plain `Button` keeps the
+                        // platform's accent tint on its whole label, which is the blue the review
+                        // saw. The same style, for the same reason.
+                        .buttonStyle(HakoPushRowButtonStyle())
                         .accessibilityIdentifier("hako.settings.homeCards")
 
                         // The picker the menu showed only when there was somewhere to switch to,
@@ -203,6 +208,7 @@ public struct AppView: View {
                                     isActive: environments.remoteServer == nil
                                 )
                             }
+                            .buttonStyle(HakoPushRowButtonStyle())
                             .accessibilityIdentifier("hako.settings.remoteControl.local")
 
                             ForEach(remoteServers) { server in
@@ -217,6 +223,7 @@ public struct AppView: View {
                                         isActive: environments.remoteServer?.id == server.id
                                     )
                                 }
+                                .buttonStyle(HakoPushRowButtonStyle())
                                 .accessibilityIdentifier("hako.settings.remoteControl.server")
                             }
 
@@ -233,6 +240,7 @@ public struct AppView: View {
                                     tint: HakoAccentRole.neutral
                                 )
                             }
+                            .buttonStyle(HakoPushRowButtonStyle())
                             .accessibilityIdentifier("hako.settings.remoteControl.manage")
                         }
                     }
