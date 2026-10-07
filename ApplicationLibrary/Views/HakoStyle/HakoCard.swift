@@ -157,11 +157,7 @@ public struct HakoSettingsSection<Content: View>: View {
             }
         } footer: {
             if let footnote {
-                // Same colour as the painted card's footnote: the review's item is that the
-                // explanation under a card reads black, not grey. The platform's own footer
-                // style is secondary, so it is asked for here.
                 Text(footnote)
-                    .foregroundStyle(.primary)
             }
         }
     }

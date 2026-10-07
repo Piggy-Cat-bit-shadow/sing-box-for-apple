@@ -297,10 +297,7 @@ public struct HakoFootnote: View {
     public var body: some View {
         Text(text)
             .font(HakoTheme.FontRole.footnote)
-            // The review asked for the footnote to be black rather than grey. `.primary` is that
-            // in the light appearance, and it keeps the text legible in the dark one, where a
-            // literal black would not be.
-            .foregroundStyle(.primary)
+            .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, isInset && !HakoPlatformLayout.pageUsesSystemSettingsIdiom
