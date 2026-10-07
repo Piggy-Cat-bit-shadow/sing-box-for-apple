@@ -121,16 +121,60 @@ public struct ConnectionView: View {
     }
 
     /// What the connection is: its network, its protocol, the inbound it arrived on, and its state.
+    ///
+    /// The group and the node are not repeated here - they are the route lines above - and the
+    /// protocol is a chip rather than the string the core reports for it.
     private var badges: [String] {
         var items = [connection.network.uppercased()]
-        if !connection.protocolName.isEmpty {
-            items.append(connection.protocolName)
+        if let protocolBadge {
+            items.append(protocolBadge)
         }
         if let mode = inboundMode {
             items.append(mode)
         }
         items.append(connection.closedAt == nil ? String(localized: "Active") : String(localized: "Closed"))
         return items
+    }
+
+    /// The protocol, as a chip, in the client's own vocabulary.
+    ///
+    /// The core reports the sniffed protocol, and the review's capture carried
+    /// "shadowsocks-2022-blake3-aes-256-gcm" as a chip the width of the row - its trace is
+    /// `Connection.protocolName`, which for a shadowsocks-2022 outbound is the method list. A
+    /// chip is a label: a protocol this client knows is named the way it names it, and a value it
+    /// does not recognise is an internal identifier, which is not a reader's field and is not
+    /// shown. Nothing here invents a name, and nothing is taken from `outboundType` or from the
+    /// node.
+    private var protocolBadge: String? {
+        let raw = connection.protocolName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !raw.isEmpty else { return nil }
+        let known: [(prefix: String, name: String)] = [
+            ("shadowsocks-2022", "SS2022"),
+            ("shadowsocks", "Shadowsocks"),
+            ("shadowtls", "ShadowTLS"),
+            ("hysteria2", "Hysteria2"),
+            ("hysteria", "Hysteria"),
+            ("wireguard", "WireGuard"),
+            ("vmess", "VMess"),
+            ("vless", "VLESS"),
+            ("trojan", "Trojan"),
+            ("anytls", "AnyTLS"),
+            ("https", "HTTPS"),
+            ("http", "HTTP"),
+            ("socks", "SOCKS"),
+            ("tuic", "TUIC"),
+            ("quic", "QUIC"),
+            ("tls", "TLS"),
+            ("ssh", "SSH"),
+            ("dns", "DNS"),
+            ("tor", "Tor"),
+        ]
+        for entry in known where raw.hasPrefix(entry.prefix) {
+            return entry.name
+        }
+        return nil
     }
 
     /// The inbound this connection arrived on, as the core reported it.
@@ -159,24 +203,52 @@ public struct ConnectionView: View {
     /// detail. Two hops, and the row is legible at a glance.
     private var routeSummary: String {
         let chain = Array(connection.chain.reversed())
-        let group = chain.first
-        let node = connection.outbound.isEmpty ? chain.dropFirst().first : connection.outbound
-        // The two names, and nothing around them.
+        let node = connection.outbound.isEmpty ? chain.first : connection.outbound
+        // The group is the hop the route was chosen in, which is not the hop it left by: the
+        // first name in the chain that is not the node. The core lists the outbound's own tag in
+        // the chain as well, so taking the chain's head blindly named the node twice and the
+        // review's four-layer row lost its second line.
+        let group = chain.first { $0 != node }
+        // Four layers, and this is the middle two: the destination is the row's title above,
+        // and the chips are below.
         //
-        // They were labelled "组：… · 节点：…" for one round, and the review's note on the capture
-        // is that the labels are noise: the row is a route, its two halves are read as the group
-        // and the node whatever they are called, and a direct connection only ever has one name.
-        // The names are the core's own; nothing is invented for a direct route.
+        //   destination
+        //   组：<the group that chose the route>
+        //   节点：<the outbound that carried it>
+        //   TCP · protocol · TUN · 活动
+        //
+        // The names are the core's own - `chain` for the group, `outbound` for the node - and
+        // nothing is invented when the connection is direct: it says so and stops. `outboundType`
+        // is not a name (it is the outbound's kind) and is not used here.
+        if isDirect {
+            return String(localized: "Direct")
+        }
         switch (group, node) {
         case let (group?, node?):
-            return group == node ? group : "\(group) · \(node)"
+            // One name when there is only one: a route whose group and node are the same string
+            // is one hop, and printing it twice reads as a mistake.
+            return group == node
+                ? String(localized: "Node: \(node)")
+                : String(localized: "Group: \(group)\nNode: \(node)")
         case let (group?, nil):
-            return group
+            return String(localized: "Group: \(group)")
         case let (nil, node?):
-            return node
+            return String(localized: "Node: \(node)")
         default:
             return ""
         }
+    }
+
+    /// Whether this connection went straight out.
+    ///
+    /// The review asked that a direct connection not be given a group and a node it does not
+    /// have: the route area says 直连 and nothing else.
+    private var isDirect: Bool {
+        let outbound = connection.outbound.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !outbound.isEmpty {
+            return outbound.lowercased() == "direct"
+        }
+        return (connection.chain.last ?? "").lowercased() == "direct"
     }
 
     /// What it has cost, and when it started.

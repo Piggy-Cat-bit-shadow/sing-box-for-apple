@@ -396,8 +396,12 @@ final class HakoSnapshotUITests: XCTestCase {
     func test23Core() {
         tab("hako.tab.more").tap()
         tap("hako.more.core")
-        sleep(1)
+        // The review asked for the cache row in both of its states. The figure is read off disk,
+        // so the row shows its spinner first and the value a moment later: the first capture is
+        // taken as the page opens, the second once it has settled.
         snapshot("23_Core")
+        sleep(4)
+        snapshot("23b_CoreCacheLoaded")
     }
 
     /// Profile Override, which the same restructuring touched.

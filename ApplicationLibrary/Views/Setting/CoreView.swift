@@ -61,7 +61,6 @@ public struct CoreView: View {
             }
             Task {
                 await refreshWorkingDirectorySize()
-                await refreshCacheSize()
             }
         }
         .onChangeCompat(of: scenePhase) { newValue in
@@ -130,7 +129,11 @@ public struct CoreView: View {
                 HakoMetricRow(String(localized: "Cache Size"), value: cacheSizeText, systemImage: "externaldrive.fill", tint: .neutral)
                     .hakoStandardRowMetric()
             } else {
-                HakoValueRow(String(localized: "Cache Size")) {
+                HakoCardLineTrailing(
+                    String(localized: "Cache Size"),
+                    systemImage: "externaldrive.fill",
+                    tint: .neutral
+                ) {
                     ProgressView()
                 }
                 .hakoStandardRowMetric()
@@ -144,7 +147,11 @@ public struct CoreView: View {
             HakoMetricRow(String(localized: "Data Size"), value: dataSize, systemImage: "internaldrive.fill", tint: .neutral)
                 .hakoStandardRowMetric()
         } else if !dataSizeLoaded {
-            HakoValueRow(String(localized: "Data Size")) {
+            HakoCardLineTrailing(
+                String(localized: "Data Size"),
+                systemImage: "internaldrive.fill",
+                tint: .neutral
+            ) {
                 ProgressView()
             }
             .hakoStandardRowMetric()
@@ -267,6 +274,10 @@ public struct CoreView: View {
             }
             await loadSettingsBackground()
         }
+        // The cache figure is read here, not in the page's `onAppear`: that runs while the page is
+        // still loading its settings and returns at the guard, and it never runs again - so the
+        // cache row kept its spinner for as long as the page was open.
+        await refreshCacheSize()
     }
 
     private nonisolated func loadSettingsBackground() async {

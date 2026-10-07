@@ -6261,6 +6261,22 @@
         }
       }
     },
+    "Group: %@\nNode: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "组：%@\n节点：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組：%@\n節點：%@"
+          }
+        }
+      }
+    },
     "Group: %@ · Node: %@": {
       "localizations": {
         "zh-Hans": {

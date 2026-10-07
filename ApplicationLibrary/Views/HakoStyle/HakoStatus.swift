@@ -197,6 +197,53 @@ public struct HakoCardLine: View {
     }
 }
 
+/// The same line with its trailing slot taken by a view.
+///
+/// `HakoCardLine` prints a value; this is for the moment before there is one. The review's item
+/// on the core information card is that the cache row's spinner sat in a row of its own shape -
+/// no icon well, no label treatment - so the third line of a three-line card did not look like
+/// the other two. The label here is the same label, and only the trailing slot differs.
+public struct HakoCardLineTrailing<Trailing: View>: View {
+    private let title: String
+    private let systemImage: String?
+    private let tint: HakoAccentRole?
+    private let trailing: Trailing
+
+    public init(
+        _ title: String,
+        systemImage: String? = nil,
+        tint: HakoAccentRole? = nil,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.tint = tint
+        self.trailing = trailing()
+    }
+
+    public var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
+            if let systemImage {
+                Label {
+                    Text(title)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: systemImage)
+                        .foregroundStyle(tint?.color ?? .secondary)
+                }
+            } else {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: HakoTheme.Spacing.compact)
+            trailing
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// A measured figure, on its own.
 ///
 /// A latency, a rate, a byte count: monospaced so a column of them lines up, and
