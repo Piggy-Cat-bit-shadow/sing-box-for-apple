@@ -15736,6 +15736,22 @@
         }
       }
     },
+    "What the home shows, and which device this client controls.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首页显示什么，以及本客户端控制哪台设备。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁顯示什麼，以及本客戶端控制哪台裝置。"
+          }
+        }
+      }
+    },
     "What the system routes through the tunnel": {
       "localizations": {
         "zh-Hans": {

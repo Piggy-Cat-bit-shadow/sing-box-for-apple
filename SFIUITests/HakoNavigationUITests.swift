@@ -242,7 +242,10 @@ final class HakoNavigationUITests: XCTestCase {
         XCTAssertTrue(search.waitForExistence(timeout: 30), "the Connections workspace must appear")
 
         app.navigationBars.buttons["hako.nav.close"].tap()
-        XCTAssertFalse(search.waitForExistence(timeout: 10), "and must dismiss")
+        // A dismissal is animated, and a suite that is running case after case gives it less
+        // room than a single run does: ten seconds passed in isolation and timed out under the
+        // full suite. The assertion is about the outcome, not about how quickly it arrives.
+        XCTAssertFalse(search.waitForExistence(timeout: 30), "and must dismiss")
     }
 
     // MARK: - The root tab belongs to the roots
@@ -407,10 +410,10 @@ final class HakoNavigationUITests: XCTestCase {
             tab("hako.tab.home").tap()
         }
 
-        // Tools' destinations: six pushes.
+        // Tools' destinations: five pushes. Logs was the sixth until the review removed it: the
+        // home already offers that page, and the tools page was the second door to it.
         tab("hako.tab.tools").tap()
         for identifier in [
-            "hako.tools.logs",
             "hako.tools.networkQuality",
             "hako.tools.stun",
             "hako.tools.crashReports",

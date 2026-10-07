@@ -18,9 +18,6 @@ public struct ToolsView: View {
         @State private var showCrashReportList = false
         @State private var showOOMReportList = false
         @State private var showPowerReportList = false
-        @State private var remoteServers: [RemoteServer] = []
-        /// The home-layout sheet, moved here with the control that opened it.
-        @State private var showCardManagement = false
     #endif
     #if !os(tvOS)
         @EnvironmentObject private var sendManager: TaildropSendManager
@@ -55,26 +52,9 @@ public struct ToolsView: View {
             .modifier(ConnectionLifecycleObserver(profile: environments.extensionProfile, remoteServerID: environments.remoteServer?.id, onActive: { usbipProviderViewModel.start() }, onInactive: { usbipProviderViewModel.cancel() }))
         #endif
             .alert($tailscaleViewModel.alert)
-        #if os(iOS)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    othersMenu
-                }
-            }
-            .sheet(isPresented: $showCardManagement, content: {
-                if #available(iOS 16.0, *) {
-                    CardManagementSheet().presentationDetents([.large]).presentationDragIndicator(.visible)
-                } else {
-                    CardManagementSheet()
-                }
-            })
-            .onAppear {
-                Task { await reloadRemoteServers() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .remoteServersUpdated)) { _ in
-                Task { await reloadRemoteServers() }
-            }
-        #endif
+        // The top-right menu lived here. It held the home-layout sheet and the remote control
+        // picker, and the review's item is that neither belongs in a root page's chrome: both are
+        // settings, and both are on the client settings page now.
         #if !os(tvOS)
         .background {
             NavigationDestinationCompat(isPresented: Binding(
@@ -138,28 +118,12 @@ public struct ToolsView: View {
     /// it is not something to show a user who came here to test their connection.
     @ViewBuilder
     private var sections: some View {
-        sessionSection
+        // The session section held one row - Logs - and the home already offers it, so the review
+        // removed the duplicate rather than the row: an empty "Current Session" card would be a
+        // worse answer than no card.
         endpointSection
         networkToolsSection
         diagnosticsSection
-    }
-
-    /// What the tunnel is doing right now.
-    private var sessionSection: some View {
-        HakoPageSection(String(localized: "Current Session")) {
-            Button {
-                selection.wrappedValue = .logs
-            } label: {
-                HakoDestinationRow(
-                    title: String(localized: "Logs"),
-                    subtitle: String(localized: "What the core is writing as it runs"),
-                    systemImage: "list.bullet.rectangle",
-                    tint: HakoAccentRole.neutral.color
-                )
-            }
-            .buttonStyle(HakoPushRowButtonStyle())
-            .accessibilityIdentifier("hako.tools.logs")
-        }
     }
 
     /// Live endpoints reported by the core: a Tailscale node, a VPN gateway.
@@ -174,15 +138,15 @@ public struct ToolsView: View {
                     } label: {
                         HStack {
                             Group {
-                                HakoToolRow(
+                                HakoNavigationRow(
                                     title: tailscaleViewModel.endpoints.count == 1
                                         ? String(localized: "Tailscale")
                                         : String(localized: "Tailscale: \(endpoint.endpointTag)"),
-                                    systemImage: "point.3.filled.connected.trianglepath.dotted",
-                                    tint: HakoAccentRole.neutral,
-                                    detail: endpoint.unreadFileCount > 0
+                                    subtitle: endpoint.unreadFileCount > 0
                                         ? String(localized: "\(endpoint.unreadFileCount) unread")
-                                        : nil
+                                        : nil,
+                                    systemImage: "point.3.filled.connected.trianglepath.dotted",
+                                    tint: HakoAccentRole.neutral.color
                                 )
                             }
                             #if !os(tvOS)
@@ -224,12 +188,12 @@ public struct ToolsView: View {
                     FormNavigationLink {
                         OpenConnectEndpointView(viewModel: openConnectViewModel, endpointTag: endpoint.endpointTag)
                     } label: {
-                        HakoToolRow(
+                        HakoNavigationRow(
                             title: openConnectViewModel.endpoints.count == 1
                                 ? String(localized: "OpenConnect")
                                 : String(localized: "OpenConnect: \(endpoint.endpointTag)"),
                             systemImage: "network.badge.shield.half.filled",
-                            tint: HakoAccentRole.neutral
+                            tint: HakoAccentRole.neutral.color
                         )
                     }
                 }
@@ -239,12 +203,12 @@ public struct ToolsView: View {
                     FormNavigationLink {
                         OpenVPNEndpointView(viewModel: openVPNViewModel, endpointTag: endpoint.endpointTag)
                     } label: {
-                        HakoToolRow(
+                        HakoNavigationRow(
                             title: openVPNViewModel.endpoints.count == 1
                                 ? String(localized: "OpenVPN")
                                 : String(localized: "OpenVPN: \(endpoint.endpointTag)"),
                             systemImage: "network.badge.shield.half.filled",
-                            tint: HakoAccentRole.neutral
+                            tint: HakoAccentRole.neutral.color
                         )
                     }
                 }
@@ -259,12 +223,12 @@ public struct ToolsView: View {
                             USBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
                         #endif
                     } label: {
-                        HakoToolRow(
+                        HakoNavigationRow(
                             title: usbipViewModel.servers.count == 1
                                 ? String(localized: "USB/IP")
                                 : String(localized: "USB/IP: \(server.serverTag)"),
                             systemImage: "externaldrive.connected.to.line.below",
-                            tint: HakoAccentRole.neutral
+                            tint: HakoAccentRole.neutral.color
                         )
                     }
                 }
@@ -279,11 +243,11 @@ public struct ToolsView: View {
             FormNavigationLink {
                 NetworkQualityView()
             } label: {
-                HakoToolRow(
+                HakoNavigationRow(
                     title: String(localized: "Network Quality"),
+                    subtitle: String(localized: "Throughput and responsiveness"),
                     systemImage: "network",
-                    tint: HakoAccentRole.neutral,
-                    detail: String(localized: "Throughput and responsiveness")
+                    tint: HakoAccentRole.neutral.color
                 )
             }
             .accessibilityIdentifier("hako.tools.networkQuality")
@@ -291,11 +255,11 @@ public struct ToolsView: View {
             FormNavigationLink {
                 STUNTestView()
             } label: {
-                HakoToolRow(
+                HakoNavigationRow(
                     title: String(localized: "STUN & NAT"),
+                    subtitle: String(localized: "UDP reachability and NAT behaviour"),
                     systemImage: "arrow.triangle.swap",
-                    tint: HakoAccentRole.neutral,
-                    detail: String(localized: "UDP reachability and NAT behaviour")
+                    tint: HakoAccentRole.neutral.color
                 )
             }
             .accessibilityIdentifier("hako.tools.stun")
@@ -373,33 +337,33 @@ public struct ToolsView: View {
                     FormNavigationLink {
                         CrashReportListView()
                     } label: {
-                        HakoToolRow(
+                        HakoNavigationRow(
                             title: String(localized: "Crash Report"),
+                            subtitle: unreadDetail(environments.crashReportManager.unreadCount),
                             systemImage: "ladybug.fill",
-                            tint: HakoAccentRole.neutral,
-                            detail: unreadDetail(environments.crashReportManager.unreadCount)
+                            tint: HakoAccentRole.neutral.color
                         )
                     }
                     HakoRowDivider()
                     FormNavigationLink {
                         OOMReportListView()
                     } label: {
-                        HakoToolRow(
+                        HakoNavigationRow(
                             title: String(localized: "Out of Memory Report"),
+                            subtitle: unreadDetail(environments.oomReportManager.unreadCount),
                             systemImage: "memorychip",
-                            tint: HakoAccentRole.neutral,
-                            detail: unreadDetail(environments.oomReportManager.unreadCount)
+                            tint: HakoAccentRole.neutral.color
                         )
                     }
                     HakoRowDivider()
                     FormNavigationLink {
                         PowerReportListView()
                     } label: {
-                        HakoToolRow(
+                        HakoNavigationRow(
                             title: String(localized: "Power Report"),
+                            subtitle: unreadDetail(environments.powerReportManager.unreadCount),
                             systemImage: "battery.50percent",
-                            tint: HakoAccentRole.neutral,
-                            detail: unreadDetail(environments.powerReportManager.unreadCount)
+                            tint: HakoAccentRole.neutral.color
                         )
                     }
                 #endif
@@ -422,7 +386,7 @@ public struct ToolsView: View {
         tint: HakoAccentRole,
         unread: Int
     ) -> some View {
-        HakoDestinationRow(
+        HakoNavigationRow(
             title: title,
             subtitle: subtitle,
             systemImage: systemImage,
@@ -436,30 +400,6 @@ public struct ToolsView: View {
     private func unreadDetail(_ count: Int) -> String? {
         count > 0 ? String(localized: "\(count) unread") : nil
     }
-
-    #if os(iOS)
-        /// The page's own actions, plus the entry the home used to carry.
-        ///
-        /// The review moved the home's top-right control here whole: the home is the tunnel's
-        /// page and no longer offers a second-level management menu. Its remote-control half was
-        /// already here, so only the home-layout half arrived.
-        private var othersMenu: some View {
-            Menu {
-                Button {
-                    showCardManagement = true
-                } label: {
-                    Label("Home Cards", systemImage: "square.grid.2x2")
-                }
-                RemoteControlMenuItems(servers: remoteServers)
-            } label: {
-                Label("Others", systemImage: "line.3.horizontal.circle")
-            }
-        }
-
-        private func reloadRemoteServers() async {
-            remoteServers = await (try? RemoteServerManager.list()) ?? []
-        }
-    #endif
 
     #if !os(tvOS)
         private func resolveTaildropNavigation() {

@@ -402,6 +402,18 @@ final class HakoSnapshotUITests: XCTestCase {
         tap("hako.more.app")
         sleep(1)
         snapshot("24_ClientSettings")
+        // The rows the tools page's menu was migrated into sit at the foot of this page, so the
+        // capture of the page as it opens does not show them.
+        app.swipeUp()
+        sleep(1)
+        snapshot("24b_ClientSettingsMigrated")
+    }
+
+    func test44NetworkQuality() {
+        tab("hako.tab.tools").tap()
+        tap("hako.tools.networkQuality")
+        sleep(1)
+        snapshot("44_NetworkQuality")
     }
 
     // MARK: - Reports

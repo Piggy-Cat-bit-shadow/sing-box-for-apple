@@ -61,9 +61,20 @@ public struct NetworkQualityView: View {
                         Text(viewModel.configURL)
                     }
                 #else
-                    FormItem("URL") {
+                    // The review's item on this page. `FormItem` is the platform's labelled row,
+                    // and for a value this long the platform answers by putting it on its own
+                    // line, indented - the row the review described as "an extra level of
+                    // indentation". A URL is a paragraph, not a figure: it gets a plain row of
+                    // its own, the title at the card's leading edge like every other row here,
+                    // and the field's text left-aligned so a URL that wraps starts every line in
+                    // the same place instead of each line right-aligning against the one above.
+                    HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
+                        Text("URL")
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                        Spacer(minLength: HakoTheme.Spacing.compact)
                         TextField(text: $viewModel.configURL) {}
-                            .multilineTextAlignment(.trailing)
+                            .multilineTextAlignment(.leading)
                             .autocorrectionDisabled()
                         #if os(iOS)
                             .textInputAutocapitalization(.never)

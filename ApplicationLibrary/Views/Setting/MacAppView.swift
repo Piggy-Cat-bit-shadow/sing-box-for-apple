@@ -46,6 +46,10 @@ public struct AppView: View {
     /// desktop used it here.
     @EnvironmentObject private var environments: ExtensionEnvironments
     @State private var alert: AlertState?
+    /// The tools page's top-right menu, moved here whole: its home-layout sheet and the remote
+    /// control picker. The review's item is that a root page's chrome is not where either belongs.
+    @State private var remoteServers: [RemoteServer] = []
+    @State private var showCardManagement = false
 
     public init() {}
     public var body: some View {
@@ -168,6 +172,70 @@ public struct AppView: View {
                             }
                         }
                     #endif
+
+                    // The menu the tools page used to carry. Its contents were the home-layout
+                    // sheet and the remote control picker; both are settings, so both arrive on
+                    // this page, in its own row language, with the menu's behaviour kept item for
+                    // item - the sheet still opens, the active server still carries a checkmark,
+                    // and the local device is still the way out of remote control.
+                    HakoSettingsSection(footnote: "What the home shows, and which device this client controls.") {
+                        FormButton {
+                            showCardManagement = true
+                        } label: {
+                            HakoToolRow(
+                                title: String(localized: "Home Cards"),
+                                systemImage: "square.grid.2x2",
+                                tint: HakoAccentRole.neutral
+                            )
+                        }
+                        .accessibilityIdentifier("hako.settings.homeCards")
+
+                        // The picker the menu showed only when there was somewhere to switch to,
+                        // which is what its `if !servers.isEmpty` did.
+                        if !remoteServers.isEmpty {
+                            HakoRowDivider()
+                            FormButton {
+                                environments.exitRemoteControl()
+                            } label: {
+                                remoteControlRow(
+                                    title: String(localized: "Local Device"),
+                                    systemImage: "iphone",
+                                    isActive: environments.remoteServer == nil
+                                )
+                            }
+                            .accessibilityIdentifier("hako.settings.remoteControl.local")
+
+                            ForEach(remoteServers) { server in
+                                HakoRowDivider()
+                                FormButton {
+                                    guard environments.remoteServer?.id != server.id else { return }
+                                    environments.enterRemoteControl(server)
+                                } label: {
+                                    remoteControlRow(
+                                        title: server.displayName,
+                                        systemImage: "server.rack",
+                                        isActive: environments.remoteServer?.id == server.id
+                                    )
+                                }
+                                .accessibilityIdentifier("hako.settings.remoteControl.server")
+                            }
+
+                            HakoRowDivider()
+                            FormButton {
+                                NotificationCenter.default.post(
+                                    name: .navigateToSettingsPage,
+                                    object: SettingsPage.remoteControl
+                                )
+                            } label: {
+                                HakoToolRow(
+                                    title: String(localized: "Manage Servers..."),
+                                    systemImage: "slider.horizontal.3",
+                                    tint: HakoAccentRole.neutral
+                                )
+                            }
+                            .accessibilityIdentifier("hako.settings.remoteControl.manage")
+                        }
+                    }
 
                     #if os(macOS)
                         if Variant.useSystemExtension {
@@ -365,6 +433,39 @@ public struct AppView: View {
             // a first-level row. The container this page uses is shared with pages that are
             // frozen, so the metric is asked for here, on the page, rather than in the container.
             .environment(\.hakoCompactRows, true)
+            .sheet(isPresented: $showCardManagement, content: {
+                if #available(iOS 16.0, *) {
+                    CardManagementSheet().presentationDetents([.large]).presentationDragIndicator(.visible)
+                } else {
+                    CardManagementSheet()
+                }
+            })
+            .onAppear {
+                Task { await reloadRemoteServers() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .remoteServersUpdated)) { _ in
+                Task { await reloadRemoteServers() }
+            }
+    }
+
+    /// A remote control row: the name, and a checkmark when it is the one in use.
+    private func remoteControlRow(title: String, systemImage: String, isActive: Bool) -> some View {
+        HakoRowBody(
+            title: title,
+            systemImage: systemImage,
+            tint: HakoAccentRole.neutral.color,
+            showsDisclosure: false
+        ) {
+            if isActive {
+                Image(systemName: "checkmark")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+        }
+    }
+
+    private func reloadRemoteServers() async {
+        remoteServers = await (try? RemoteServerManager.list()) ?? []
     }
 
     private func loadSettings() async {

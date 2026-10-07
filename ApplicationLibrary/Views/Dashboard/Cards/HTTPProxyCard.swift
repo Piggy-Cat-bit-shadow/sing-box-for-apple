@@ -33,6 +33,10 @@ public struct HTTPProxyCard: View {
                     await onToggle(newValue)
                 }
             }
+            // The review's item: this row sits directly above the 代理/连接/日志 card and the two
+            // have to read as one rhythm. Those rows are two lines and come out at the page's
+            // first-level height; this one is a single line, so it takes that height as its floor.
+            .frame(minHeight: HakoTheme.Layout.firstLevelRowHeight)
         }
     }
 }

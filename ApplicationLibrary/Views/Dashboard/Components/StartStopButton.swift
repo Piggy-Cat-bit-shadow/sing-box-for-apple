@@ -47,7 +47,11 @@ public struct StartStopButton: View {
                     }
                 } label: {
                     Label("Install", systemImage: "arrow.down.circle")
-                        .frame(maxWidth: .infinity)
+                        // The compact form is the home's capsule, and a capsule that spans the
+                        // page is not the same control as the connect/stop one beside it: the
+                        // review asked for one visual scale for all three states. The full-width
+                        // form remains for the pages that use the button as a page action.
+                        .frame(maxWidth: isCompact ? nil : .infinity)
                 }
                 .hakoConnectionActionButtonStyle(isDestructive: false)
                 .controlSize(isCompact ? .regular : .large)

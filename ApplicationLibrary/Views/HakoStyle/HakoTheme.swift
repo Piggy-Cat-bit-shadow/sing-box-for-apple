@@ -272,6 +272,14 @@ public enum HakoTheme {
         /// is the sum of the reference implementation's parts, and rounding it moves
         /// every row on the page.
         public static let destinationRowTargetHeight: CGFloat = 62.7
+
+        /// What a row in a first-level card actually renders at on the touch platforms.
+        ///
+        /// Measured rather than derived: the rows beside it - 代理, 连接, 日志 on the home,
+        /// the navigation rows on 更多 - are two lines tall (a title and a subtitle) and come
+        /// out here, so a one-line row in the same card takes this as its floor and the two
+        /// cards read as one rhythm. The review asked for exactly that on the home's proxy row.
+        public static let firstLevelRowHeight: CGFloat = 57
         /// The icon tile of a list row that is not a primary destination: a profile, a proxy
         /// group, a member inside one.
         ///

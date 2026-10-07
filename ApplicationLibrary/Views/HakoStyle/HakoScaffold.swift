@@ -624,7 +624,10 @@ public struct HakoRootScaffold<Content: View>: View {
                 content
             }
             .padding(.horizontal, HakoTheme.Layout.cardHorizontalInset)
-            .padding(.top, HakoTheme.Spacing.standard)
+            // The gap between the page title and its first card. It was `standard`, which read as
+            // slack next to the cards' own density; the review asked the three first-level pages
+            // to start on one rhythm, and this scaffold is used by exactly those three.
+            .padding(.top, HakoTheme.Spacing.compact)
             .padding(.bottom, HakoTheme.Layout.rootTabClearance)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

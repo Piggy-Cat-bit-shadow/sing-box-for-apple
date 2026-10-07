@@ -103,12 +103,11 @@ public struct ConnectionView: View {
                 badgeRole: .category,
                 titleIsMonospaced: connection.ipVersion == 6
             ) {
-                HakoIconWell(
-                    tint: connectionAccent.color,
-                    systemImage: connectionSymbol,
-                    size: HakoTheme.Layout.proxyGroupIconSize,
-                    cornerRadius: HakoTheme.Layout.proxyGroupIconCornerRadius
-                )
+                // The review removed the leading icon: every row led with the same shape in one of
+                // four colours, which is decoration on a list that is read for its text, and it
+                // pushed the destination off the left edge. The row is its text now, and the mode
+                // chip below says what the icon was trying to say.
+                EmptyView()
             } trailing: {
                 HakoMetricStack(metrics, tint: connection.closedAt == nil ? .primary : .secondary)
             }
@@ -121,14 +120,35 @@ public struct ConnectionView: View {
         #endif
     }
 
-    /// What the connection is: its network, its protocol and its state.
+    /// What the connection is: its network, its protocol, the inbound it arrived on, and its state.
     private var badges: [String] {
         var items = [connection.network.uppercased()]
         if !connection.protocolName.isEmpty {
             items.append(connection.protocolName)
         }
+        if let mode = inboundMode {
+            items.append(mode)
+        }
         items.append(connection.closedAt == nil ? String(localized: "Active") : String(localized: "Closed"))
         return items
+    }
+
+    /// The inbound this connection arrived on, as the core reported it.
+    ///
+    /// The review asked for a TUN/Mixed chip that is never guessed, so this reads the field the
+    /// connection was built with: `Connection.inboundType` comes straight from the core's
+    /// `inboundType`, the same value the connection's detail page shows as "Inbound Type".
+    /// The two names the review asked for are the two this client actually runs - the tun and the
+    /// mixed inbound - and anything else is shown as the core names it rather than mapped onto a
+    /// vocabulary this client does not own.
+    private var inboundMode: String? {
+        let raw = connection.inboundType.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+        switch raw.lowercased() {
+        case "tun": return "TUN"
+        case "mixed": return "Mixed"
+        default: return raw.prefix(1).uppercased() + raw.dropFirst()
+        }
     }
 
     /// Where it went: the group that chose it, and the node that carried it.
