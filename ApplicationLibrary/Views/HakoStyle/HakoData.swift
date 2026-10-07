@@ -263,11 +263,10 @@ public struct HakoDataRow<Leading: View, Trailing: View>: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .truncationMode(.tail)
-                        // Two lines at most - the group and the node - each truncated at the end
-                        // so the labels survive and only the tails are lost. The text column is
-                        // bounded by the figures column beside it, so a long name cannot reach
-                        // the numbers.
-                        .lineLimit(2)
+                        // One line, truncated at the end: the route is "group → node" and a
+                        // second line would take the room the figures beside it are read in. The
+                        // text column is bounded by that column, so a long name cannot reach it.
+                        .lineLimit(1)
                         .layoutPriority(1)
                         .textSelection(.enabled)
                 }

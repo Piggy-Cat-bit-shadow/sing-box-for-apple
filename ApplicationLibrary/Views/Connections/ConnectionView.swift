@@ -209,17 +209,11 @@ public struct ConnectionView: View {
         // the chain as well, so taking the chain's head blindly named the node twice and the
         // review's four-layer row lost its second line.
         let group = chain.first { $0 != node }
-        // Four layers, and this is the middle two: the destination is the row's title above,
-        // and the chips are below.
-        //
-        //   destination
-        //   组：<the group that chose the route>
-        //   节点：<the outbound that carried it>
-        //   TCP · protocol · TUN · 活动
-        //
-        // The names are the core's own - `chain` for the group, `outbound` for the node - and
-        // nothing is invented when the connection is direct: it says so and stops. `outboundType`
-        // is not a name (it is the outbound's kind) and is not used here.
+        // The route, as one line: the group it was chosen in, an arrow, the outbound that
+        // carried it - `proxy-b → proxy-a`. The names are the core's own: `chain` for the group,
+        // `outbound` for the node. `outboundType` is the outbound's kind rather than a name and is
+        // not used here, and a connection that went straight out says 直连 and stops, because it
+        // has neither of the two names to print.
         if isDirect {
             return String(localized: "Direct")
         }
@@ -227,13 +221,11 @@ public struct ConnectionView: View {
         case let (group?, node?):
             // One name when there is only one: a route whose group and node are the same string
             // is one hop, and printing it twice reads as a mistake.
-            return group == node
-                ? String(localized: "Node: \(node)")
-                : String(localized: "Group: \(group)\nNode: \(node)")
+            return group == node ? node : "\(group) → \(node)"
         case let (group?, nil):
-            return String(localized: "Group: \(group)")
+            return group
         case let (nil, node?):
-            return String(localized: "Node: \(node)")
+            return node
         default:
             return ""
         }
