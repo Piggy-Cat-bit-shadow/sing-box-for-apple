@@ -93,6 +93,7 @@ public struct AppView: View {
                                     updateLanguage(newValue)
                                 }
                             }
+                            .hakoStandardRowMetric()
 
                             FormNavigationLink {
                                 GhosttyConfigurationView()
@@ -104,6 +105,7 @@ public struct AppView: View {
                                     tint: HakoAccentRole.neutral.color
                                 )
                             }
+                            .hakoStandardRowMetric()
 
                             FormButton {
                                 showCardManagement = true
@@ -116,6 +118,7 @@ public struct AppView: View {
                                 )
                             }
                             .buttonStyle(HakoPushRowButtonStyle())
+                            .hakoStandardRowMetric()
                             .accessibilityIdentifier("hako.settings.homeCards")
                         }
                     #endif

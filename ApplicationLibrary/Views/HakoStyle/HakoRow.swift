@@ -718,13 +718,19 @@ public extension View {
     /// taller on a settings page than on 更多, which is the difference the review named on the
     /// three reset cards and the on-demand modes. This asks for the card's metric on the rows the
     /// review named, rather than changing the metric under every other page.
-    func hakoStandardRowInsets() -> some View {
-        listRowInsets(EdgeInsets(
-            top: HakoTheme.Spacing.compact,
-            leading: HakoTheme.Spacing.standard,
-            bottom: HakoTheme.Spacing.compact,
-            trailing: HakoTheme.Spacing.standard
-        ))
+    func hakoStandardRowMetric() -> some View {
+        // The floor as well as the insets. The insets alone made a two-line row the height of
+        // 更多's and left a one-line row thirteen points shorter - `Spacing.compact` above and
+        // below is 16, and 更多's rows are 57 because their content is two lines. The review
+        // measured the two side by side and asked for the lower one's rhythm; the floor is the
+        // height 更多's rows actually come out at, which `firstLevelRowHeight` records.
+        frame(minHeight: HakoTheme.Layout.firstLevelRowHeight)
+            .listRowInsets(EdgeInsets(
+                top: 0,
+                leading: HakoTheme.Spacing.standard,
+                bottom: 0,
+                trailing: HakoTheme.Spacing.standard
+            ))
     }
 }
 
@@ -732,6 +738,7 @@ public struct HakoDestructiveRow: View {
     private let title: String
     private let subtitle: String?
     private let systemImage: String
+    private let tint: Color
     private let isEnabled: Bool
     private let action: () -> Void
 
@@ -739,12 +746,14 @@ public struct HakoDestructiveRow: View {
         _ title: String,
         subtitle: String? = nil,
         systemImage: String = "trash.fill",
+        tint: Color = .red,
         isEnabled: Bool = true,
         action: @escaping () -> Void
     ) {
         self.title = title
         self.subtitle = subtitle
         self.systemImage = systemImage
+        self.tint = tint
         self.isEnabled = isEnabled
         self.action = action
     }
@@ -755,7 +764,7 @@ public struct HakoDestructiveRow: View {
                 title: title,
                 subtitle: subtitle,
                 systemImage: systemImage,
-                tint: .red,
+                tint: tint,
                 showsDisclosure: false
             ) {
                 EmptyView()
@@ -764,7 +773,7 @@ public struct HakoDestructiveRow: View {
         .buttonStyle(HakoPushRowButtonStyle())
         // Every user of this row is a reset card - the three the review named - so it takes the
         // first-level metric here rather than at each call site.
-        .hakoStandardRowInsets()
+        .hakoStandardRowMetric()
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : HakoTheme.Opacity.disabled)
     }

@@ -122,15 +122,18 @@ public struct CoreView: View {
     private var versionSection: some View {
         HakoSettingsSection {
             HakoMetricRow(String(localized: "Version"), value: version, systemImage: "shippingbox.fill", tint: .neutral)
+                .hakoStandardRowMetric()
             dataSizeRow
             // The figure is read off disk, so the row says it is coming rather than showing an
             // empty value for the moment it takes - the same shape the data size row uses.
             if cacheSizeLoaded {
                 HakoMetricRow(String(localized: "Cache Size"), value: cacheSizeText, systemImage: "externaldrive.fill", tint: .neutral)
+                    .hakoStandardRowMetric()
             } else {
                 HakoValueRow(String(localized: "Cache Size")) {
                     ProgressView()
                 }
+                .hakoStandardRowMetric()
             }
         }
     }
@@ -139,10 +142,12 @@ public struct CoreView: View {
     private var dataSizeRow: some View {
         if let dataSize {
             HakoMetricRow(String(localized: "Data Size"), value: dataSize, systemImage: "internaldrive.fill", tint: .neutral)
+                .hakoStandardRowMetric()
         } else if !dataSizeLoaded {
             HakoValueRow(String(localized: "Data Size")) {
                 ProgressView()
             }
+            .hakoStandardRowMetric()
         } else {
             #if os(macOS)
                 Button {
@@ -216,6 +221,7 @@ public struct CoreView: View {
                         )
                     }
                     .buttonStyle(HakoPushRowButtonStyle())
+                    .hakoStandardRowMetric()
                     .hakoContainerDrawsDisclosure(true)
                 }
             #endif
@@ -226,6 +232,7 @@ public struct CoreView: View {
                 String(localized: "Clear Cache"),
                 subtitle: String(localized: "Removes what the client has cached. The working directory is kept."),
                 systemImage: "trash.fill",
+                tint: HakoAccentRole.neutral.color,
                 isEnabled: cacheSize > 0
             ) {
                 Task {
@@ -236,7 +243,8 @@ public struct CoreView: View {
             HakoDestructiveRow(
                 String(localized: "Erase Working Directory"),
                 subtitle: String(localized: "Deletes the core's data, caches and downloaded resources on this device."),
-                systemImage: "trash.fill"
+                systemImage: "trash.fill",
+                tint: HakoAccentRole.neutral.color
             ) {
                 Task {
                     await confirmDestroyWorkingDirectory()

@@ -161,21 +161,19 @@ public struct ConnectionView: View {
         let chain = Array(connection.chain.reversed())
         let group = chain.first
         let node = connection.outbound.isEmpty ? chain.dropFirst().first : connection.outbound
-        // Named, not arrowed.
+        // The two names, and nothing around them.
         //
-        // The review asked for the group and the node to be readable as what they are: "a → b"
-        // leaves the reader to work out which is which, and on a direct connection it read as a
-        // node that does not exist. The names are the core's own - nothing is invented for a
-        // direct route.
+        // They were labelled "组：… · 节点：…" for one round, and the review's note on the capture
+        // is that the labels are noise: the row is a route, its two halves are read as the group
+        // and the node whatever they are called, and a direct connection only ever has one name.
+        // The names are the core's own; nothing is invented for a direct route.
         switch (group, node) {
         case let (group?, node?):
-            return group == node
-                ? String(localized: "Group: \(group)")
-                : String(localized: "Group: \(group) · Node: \(node)")
+            return group == node ? group : "\(group) · \(node)"
         case let (group?, nil):
-            return String(localized: "Group: \(group)")
+            return group
         case let (nil, node?):
-            return String(localized: "Node: \(node)")
+            return node
         default:
             return ""
         }
