@@ -116,6 +116,17 @@ final class HakoSnapshotUITests: XCTestCase {
         tab("hako.tab.home").tap()
         sleep(1)
         snapshot("10_Home")
+
+        // The status card is below the fold, and it is where the core's own figures are named.
+        // The review's item on this page was one of those names: the goroutine count was
+        // translated, and the term is the runtime's, not the language's.
+        app.swipeUp()
+        sleep(1)
+        XCTAssertTrue(
+            app.staticTexts["Goroutine"].waitForExistence(timeout: 15),
+            "the core's goroutine count keeps the runtime's own name"
+        )
+        snapshot("10b_HomeStatus")
     }
 
     func test11Tools() {

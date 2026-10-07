@@ -6190,13 +6190,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "协程数"
+            "value": "Goroutine"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "協程數"
+            "value": "Goroutine"
           }
         }
       }
