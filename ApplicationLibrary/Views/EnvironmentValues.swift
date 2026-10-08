@@ -81,6 +81,42 @@ public extension EnvironmentValues {
             self[cardConfigurationVersionKey.self] = newValue
         }
     }
+
+    /// How much room the bottom accessory takes, so the log page can inset its own content.
+    ///
+    /// Upstream keys, restored alongside upstream's root. Upstream's `SFI/MainView.swift` - now the
+    /// iPad root - writes both of these, and upstream's Dashboard / Log / Tools pages read them.
+    /// Hako's phone root mentions neither, so on the phone they keep their defaults, which are the
+    /// values those pages were already receiving. Restoring them is therefore inert for the iPhone.
+    private struct logBottomInsetKey: EnvironmentKey {
+        static var defaultValue: CGFloat = 0
+    }
+
+    var logBottomInset: CGFloat {
+        get {
+            self[logBottomInsetKey.self]
+        }
+        set {
+            self[logBottomInsetKey.self] = newValue
+        }
+    }
+
+    /// Whether the remote-control control lives in the navigation toolbar rather than a bar.
+    ///
+    /// The iPad and Mac presentation set this; see `logBottomInset` for why restoring it does not
+    /// touch the phone.
+    private struct remoteControlInToolbarKey: EnvironmentKey {
+        static var defaultValue: Bool = false
+    }
+
+    var remoteControlInToolbar: Bool {
+        get {
+            self[remoteControlInToolbarKey.self]
+        }
+        set {
+            self[remoteControlInToolbarKey.self] = newValue
+        }
+    }
 }
 
 /// Whether the page's rows take the compact metric their neighbouring first-level page uses.
