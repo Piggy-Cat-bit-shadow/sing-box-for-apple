@@ -60,42 +60,17 @@ public struct MainView: View {
     public var body: some View {
         NavigationSplitView {
             SidebarView(selection: $viewModel.selection)
-                // The sidebar's width comes from the design tokens rather than from a
-                // literal here. It used to be `150` while the tokens said `220`, which
-                // is how a window ends up with a sidebar narrower than every row it
-                // has to draw: the section captions and the two-line remote-control
-                // row truncated. A range rather than one number, because a Mac user
-                // drags this and a fixed width takes that away.
-                .navigationSplitViewColumnWidth(
-                    min: HakoTheme.Regular.Sidebar.minimumWidth,
-                    ideal: HakoTheme.Regular.Sidebar.idealWidth,
-                    max: HakoTheme.Regular.Sidebar.maximumWidth
-                )
+                .navigationSplitViewColumnWidth(150)
         } detail: {
             NavigationStack(path: $settingsNavigationPath) {
-                // The desktop detail column is centred and inset rather than stretched across the
-                // window. The page keeps its own scroll view, form and title; this only supplies
-                // the column's geometry, so a page reached from the sidebar looks the same here as
-                // it does in the touch client's canvas.
-                HakoRegularDetailContainer {
-                    viewModel.selection.contentView
-                        .navigationTitle(viewModel.selection.title)
-                }
+                viewModel.selection.contentView
+                    .navigationTitle(viewModel.selection.title)
             }
             .environment(\.cardConfigurationVersion, cardConfigurationVersion)
             .environment(\.settingsNavigationPath, $settingsNavigationPath)
-            // The detail column is bounded rather than pinned. It used to be a flat
-            // `650`, so a wide window left the page at 650 points with dead space
-            // beside it, and a narrow one squeezed the page below what it can lay out.
-            .navigationSplitViewColumnWidth(
-                min: HakoTheme.Regular.Detail.minimumContentWidth,
-                ideal: 720
-            )
+            .navigationSplitViewColumnWidth(650)
         }
-        .frame(
-            minWidth: Variant.screenshotMode ? 0 : HakoTheme.MacOS.minimumWindowWidth,
-            minHeight: Variant.screenshotMode ? 0 : HakoTheme.MacOS.minimumWindowHeight
-        )
+        .frame(minHeight: Variant.screenshotMode ? 0 : 500)
         .background(WindowAccessor { window in
             guard Variant.screenshotMode, !didConfigureScreenshotWindow, let window else { return }
             didConfigureScreenshotWindow = true
@@ -117,13 +92,6 @@ public struct MainView: View {
             }
         })
         .onAppear {
-            // The anchor line: one per launch, before any interaction. It is what makes an empty
-            // trace readable as "nothing happened yet" rather than "the instrument is not running",
-            // and what proves the log level and subsystem reach an operator's terminal.
-            HakoUITrace.event(
-                "root-appear selection=\(String(viewModel.selection.rawValue)) remote=\(environments.remoteServer != nil)",
-                source: "MacLibrary.MainView.onAppear"
-            )
             viewModel.onAppear(environments: environments)
             Task { await reloadRemoteServers() }
         }
@@ -163,24 +131,11 @@ public struct MainView: View {
             Task { @MainActor in
                 viewModel.onSelectionChange(value, environments: environments)
                 if value != .settings {
-                    HakoUITrace.transition(
-                        "selection",
-                        from: settingsNavigationPath.isEmpty ? "none" : "settings-path",
-                        to: String(value.rawValue),
-                        source: "MacLibrary.MainView.onChange(selection).leaveSettings"
-                    )
                     settingsNavigationPath = NavigationPath()
                     pendingSettingsPage = nil
                     return
                 }
                 if let page = pendingSettingsPage {
-                    // The page was requested before Settings was on screen. Pushing it here, once the
-                    // selection has settled, is what makes the request deterministic: the path is
-                    // rebuilt from the request rather than the request waiting for a mounted page.
-                    HakoUITrace.event(
-                        "settings-apply \(page) push=true source=pendingSettingsPage",
-                        source: "MacLibrary.MainView.onChange(selection)"
-                    )
                     settingsNavigationPath = NavigationPath()
                     settingsNavigationPath.append(page)
                     pendingSettingsPage = nil
@@ -192,23 +147,11 @@ public struct MainView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsPage)) { notification in
             guard let page = notification.object as? SettingsPage else { return }
-            HakoUITrace.event(
-                "settings-requested \(page)",
-                source: "MacLibrary.MainView.onReceive(navigateToSettingsPage)"
-            )
             Task { @MainActor in
                 pendingSettingsPage = page
                 if viewModel.selection == .settings {
-                    // Already open: satisfy the request in place, and never stack a second copy.
-                    let alreadyThere = !settingsNavigationPath.isEmpty
-                    HakoUITrace.event(
-                        "settings-apply \(page) push=\(!alreadyThere) alreadyOpen=true",
-                        source: "MacLibrary.MainView.onReceive(navigateToSettingsPage)"
-                    )
                     settingsNavigationPath = NavigationPath()
-                    if !alreadyThere {
-                        settingsNavigationPath.append(page)
-                    }
+                    settingsNavigationPath.append(page)
                     pendingSettingsPage = nil
                 } else {
                     viewModel.selection = .settings
@@ -229,7 +172,6 @@ public struct MainView: View {
         }, content: {
             CardManagementSheet()
                 .frame(minWidth: 400, minHeight: 400)
-                .hakoTracePresentation("sheet cardManagement", isPresented: $showCardManagement)
         })
         .onReceive(NotificationCenter.default.publisher(for: .remoteServersUpdated)) { _ in
             Task { @MainActor in
@@ -239,11 +181,14 @@ public struct MainView: View {
     }
 
     private var remoteControlPicker: some View {
+        // macOS 27 hides Text-only toolbar menu labels in apps linked against older SDKs
         Menu {
             RemoteControlMenuItems(servers: remoteServers)
+                .labelStyle(.automatic)
         } label: {
             Text(environments.remoteServer?.displayName ?? String(localized: "Local Device"))
         }
+        .labelStyle(.titleOnly)
     }
 
     private var disconnectButton: some View {
