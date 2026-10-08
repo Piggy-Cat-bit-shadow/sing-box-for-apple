@@ -2,7 +2,10 @@ import Foundation
 import Libbox
 
 public class HTTPClient {
-    private static var userAgent: String {
+    /// The User-Agent every outgoing request carries, including the `URLSession`-based
+    /// `RemoteProfileFetcher`. Public so that moving a request between the two transports cannot
+    /// change what a server sees.
+    public static var userAgent: String {
         var userAgent = Variant.applicationName
         userAgent += " (sing-box "
         userAgent += LibboxVersion()
