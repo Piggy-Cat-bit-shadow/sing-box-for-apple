@@ -677,7 +677,7 @@ synthesised into the generated `Info.plist` because `GENERATE_INFOPLIST_FILE = Y
 
 The name is set in **12 places**, one per app/extension target's Debug and Release configuration:
 
-| Lines | Target | Era | Value |
+| Lines | Target | Platform | Value |
 | --- | --- | --- | --- |
 | 3108, 3152 | `SFI` | iOS app (**iPhone + iPad**) | **`Jiejiebox`** |
 | 3198, 3237 | `SFM` | macOS app | **`Jiejiebox`** |
@@ -707,6 +707,21 @@ and they cannot disagree.
 | `Variant.applicationName` | `SFI` / `SFM` / `SFT` | Internal identifier, not a display name. It feeds the HTTP `User-Agent`, the VPN profile's `localizedDescription` and Siri intent phrases. Renaming it would change what servers see and what the system VPN list shows — a behavioural change, not branding. |
 | Target / scheme / module / directory names | `SFI`, `SFM`, … | Internal. Renaming creates Xcode churn for no user-visible gain. |
 | `sing-box` as a *project* name in prose ("sing-box version", "sing-box documentation") | unchanged | Those refer to the kernel/project, not the app. They must not be rebranded. |
+
+### 11b.3a One related user-visible name is still un-rebranded — needs a decision
+
+`Variant.applicationName` is `"SFI"` (iOS) / `"SFM"` (macOS) / `"SFT"` (tvOS), and it is not purely
+internal. It reaches the user in two places that this change deliberately left alone:
+
+| Site | Effect | User-visible? |
+| --- | --- | --- |
+| `Library/Network/ExtensionProfile.swift:356` — `manager.localizedDescription = Variant.applicationName` | The tunnel profile's name in iOS **Settings › VPN** | **Yes** — a user who opens Settings sees `SFI`, not `Jiejiebox` |
+| `IntentsExtension/Intents.swift:199-223` — Siri phrases `"Start \(applicationName)"` | Spoken phrases | Yes, as speech |
+| `Library/Network/HTTPClient.swift:9` — `User-Agent` | What a subscription server sees | No |
+
+It was **not** changed here because it is not the app display name, and changing it alters what
+servers receive (a behavioural change, not branding) and would need a product decision about what
+the VPN profile and the Siri phrases should say. Flagged rather than assumed.
 
 ### 11b.4 Upstream-sync rule for branding
 
