@@ -27,7 +27,40 @@ open class ExtensionProvider: NEPacketTunnelProvider {
 
     public var overridePreferences: OverridePreferences?
     #if os(iOS)
+        /// The device-axis observer: the display and lock notifications, reported to the core.
+        ///
+        /// Created once per tunnel process, in `startTunnel`, and torn down once, in `stopTunnel`
+        /// before the command server is closed. `reloadService()` does not touch it.
         private var screenStateObserver: ScreenStateObserver?
+
+        /// Starts the observer, once.
+        ///
+        /// Called only from `startTunnel`. A reload restarts the service inside the same command
+        /// server, so re-creating the observer there would register the notifications a second time
+        /// and hand the core two independent device axes; the guard makes that impossible even if a
+        /// second caller appears. A failure to register is reported rather than swallowed: without
+        /// the notifications the device axis falls back to the NetworkExtension sleep/wake pair
+        /// alone, which on iOS enters the pause and never lifts it.
+        private func startScreenStateObserver() {
+            guard screenStateObserver == nil, let commandServer else {
+                return
+            }
+            let observer = ScreenStateObserver(commandServer: commandServer)
+            let result = observer.start()
+            guard result.isStarted else {
+                writeMessage("(packet-tunnel) screen state observer: could not register \(result.failedNotificationNames.joined(separator: ", ")); the device axis is driven by sleep/wake only")
+                return
+            }
+            screenStateObserver = observer
+        }
+
+        /// Stops the observer and releases both registrations.
+        ///
+        /// Idempotent, and safe to call when nothing was ever registered.
+        private func stopScreenStateObserver() {
+            screenStateObserver?.cancel()
+            screenStateObserver = nil
+        }
     #endif
 
     private func applyStartOptions(_ options: [String: NSObject]) throws {
@@ -244,9 +277,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         }
         writeMessage("(packet-tunnel): Here I stand")
         #if os(iOS)
-            if let commandServer {
-                screenStateObserver = ScreenStateObserver(commandServer: commandServer)
-            }
+            startScreenStateObserver()
         #endif
         #if os(macOS)
             if Variant.useSystemExtension {
@@ -308,6 +339,14 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         platformInterface.reset()
     }
 
+    /// Restarts the service inside the same command server.
+    ///
+    /// This is deliberately not a place the screen-state observer is touched. A reload replaces the
+    /// running config, not the process or the command server, and re-registering the notifications
+    /// here would leave the previous tokens behind and hand the core a second, independent device
+    /// axis. The observer outlives a reload by construction - see `startScreenStateObserver` and
+    /// `stopScreenStateObserver`, which are the only two call sites and are both in the tunnel
+    /// lifecycle.
     func reloadService() async throws {
         writeMessage("(packet-tunnel) reloading service")
         reasserting = true
@@ -320,8 +359,10 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     override open func stopTunnel(with reason: NEProviderStopReason) async {
         writeMessage("(packet-tunnel) stopping, reason: \(reason)")
         #if os(iOS)
-            screenStateObserver?.cancel()
-            screenStateObserver = nil
+            // Before the command server, and before `stopService()`. The observer publishes into
+            // the server through a weak reference, and `cancel()` fences the callbacks
+            // synchronously, so nothing can reach the core once this returns.
+            stopScreenStateObserver()
         #endif
         stopService()
         if let server = commandServer {
@@ -362,15 +403,33 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         }
     }
 
+    /// The process is going to sleep.
+    ///
+    /// `pause()` publishes the sleep EDGE and then the LEVEL: on iOS the level is entered once and
+    /// lifted by an unlock, so a level-only pause would leave the next sleep unmeasured.
     override open func sleep() async {
         if let commandServer {
             commandServer.pause()
         }
     }
 
+    /// The process ran again.
+    ///
+    /// `wake()` is an EDGE only on iOS - the platform resumes the extension for every push and
+    /// background task, and letting a resume lift the device pause would release health checks,
+    /// probes and statistics for a phone in a pocket.
+    ///
+    /// A resume is also the one moment the process knows it was suspended, and Darwin notifications
+    /// are not delivered to a suspended process: a lock that happened while the extension was away
+    /// was never delivered. `resync()` re-reads both names once so that lock is not lost. It is not
+    /// a poll, nothing schedules it, and a snapshot may only publish a sleep fact - so it can add a
+    /// pause and can never invent a wake.
     override open func wake() {
         if let commandServer {
             commandServer.wake()
         }
+        #if os(iOS)
+            screenStateObserver?.resync()
+        #endif
     }
 }
