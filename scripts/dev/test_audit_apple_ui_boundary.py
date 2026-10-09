@@ -60,13 +60,22 @@ def find_git() -> str | None:
     return None
 
 
-def run_audit(root: str, only: str | None = None, upstream_ref: str | None = None) -> tuple[int, dict]:
+def run_audit(root: str, only: str | None = None, upstream_ref: str | None = None,
+              git_broken_dir: str | None = None) -> tuple[int, dict]:
     args = [sys.executable, AUDIT, "--root", root, "--json"]
     if only:
         args += ["--only", only]
     if upstream_ref:
         args += ["--upstream-ref", upstream_ref]
-    proc = subprocess.run(args, capture_output=True)
+    env = None
+    if git_broken_dir is not None:
+        # A `git` that exists on PATH and always fails. The audit resolves git through PATH, so
+        # putting a broken one first is how "git is present but unusable" is simulated without
+        # touching any real ref. `DSH_GIT` is cleared so it cannot short-circuit the lookup.
+        env = dict(os.environ)
+        env.pop("DSH_GIT", None)
+        env["PATH"] = git_broken_dir + os.pathsep + env.get("PATH", "")
+    proc = subprocess.run(args, capture_output=True, env=env)
     try:
         payload = json.loads(proc.stdout.decode("utf-8", "replace"))
     except json.JSONDecodeError:
@@ -77,6 +86,14 @@ def run_audit(root: str, only: str | None = None, upstream_ref: str | None = Non
 
 def statuses(payload: dict) -> dict[str, str]:
     return {c["name"]: c["status"] for c in payload.get("checks", [])}
+
+
+def read(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+    except OSError:
+        return ""
 
 
 def replace_in_file(path: str, old: str, new: str, *, count: int = 1) -> None:
@@ -239,14 +256,16 @@ def main() -> int:
                 )
                 print(f"[FAIL] {label}: {check} -> {state}, exit {code}  ({description})")
 
-        # 3. An upstream file edited without a decision must be reported, not passed silently.
+        # 3. An upstream file edited without a decision must FAIL, not merely be listed. The list
+        #    of reviewed modifications is the record of which shared files this fork had to touch;
+        #    a file that is not on it and differs from upstream is an unreviewed edit.
         reset(copy, git)
         description = mutate_upstream_file(copy)
-        code, payload = run_audit(copy, only="upstream-files-untouched", upstream_ref="089d35e")
+        code, payload = run_audit(copy, only="upstream-files-untouched", upstream_ref=UPSTREAM_REF)
         check = (payload.get("checks") or [{}])[0]
         listed = " ".join(check.get("evidence", []))
-        if check.get("status") == "PASS" and "LogView.swift" in listed:
-            print(f"[ ok ] upstream-file-edited: reported in evidence  ({description})")
+        if check.get("status") == "FAIL" and "LogView.swift" in listed:
+            print(f"[ ok ] upstream-file-edited: FAIL and named  ({description})")
         elif check.get("status") == "UNKNOWN":
             failures.append(
                 "upstream-file-edited: the check could not run, so the edit was not reported; a "
@@ -255,8 +274,8 @@ def main() -> int:
             print(f"[FAIL] upstream-file-edited: UNKNOWN ({check.get('detail')})")
         else:
             failures.append(
-                "upstream-file-edited: the file was edited but is not listed as reviewed; "
-                f"status {check.get('status')}"
+                "upstream-file-edited: the file was edited but the check reported "
+                f"{check.get('status')}; evidence {listed!r}"
             )
             print(f"[FAIL] upstream-file-edited: status {check.get('status')}, evidence {listed!r}")
 
@@ -301,23 +320,53 @@ def main() -> int:
             failures.append("deterministic: two runs on the same tree disagreed")
             print("[FAIL] deterministic: two runs disagreed")
 
-        # 7. A baseline that cannot be determined must report UNKNOWN rather than compare against
-        #    the root commit and declare the whole tree new.
+        # 7. A check whose baseline cannot be established must say so. Driven by putting a broken
+        #    `git` first on the child's PATH rather than by deleting a ref: a worktree shares its
+        #    repository's ref directory, so an earlier revision of this file deleted
+        #    `refs/remotes/upstream/dev` from the *source* repository. A negative test must not be
+        #    able to damage the thing it is testing.
         reset(copy, git)
-        if git:
-            moved = subprocess.run(
-                [git, "-C", copy, "update-ref", "-d", "refs/remotes/upstream/dev"],
-                capture_output=True,
-            )
-            if moved.returncode == 0:
-                code, payload = run_audit(copy, only="project-membership")
-                check = (payload.get("checks") or [{}])[0]
-                print(f"[ ok ] baseline-unavailable: project-membership -> {check.get('status')} "
-                      f"({check.get('detail')!r})")
-            else:
-                print("[skip] baseline-unavailable: could not delete the upstream ref")
+        broken = os.path.join(workspace, "broken-git")
+        os.makedirs(broken, exist_ok=True)
+        for name in ("git.exe", "git.cmd", "git.bat"):
+            with open(os.path.join(broken, name), "w", encoding="utf-8") as handle:
+                handle.write("@exit /b 1\n" if name != "git.exe" else "")
+        code, payload = run_audit(copy, only="project-membership", git_broken_dir=broken)
+        check = (payload.get("checks") or [{}])[0]
+        if check.get("status") == "UNKNOWN":
+            print(f"[ ok ] no-usable-git: project-membership -> UNKNOWN ({check.get('detail')!r})")
         else:
-            print("[skip] baseline-unavailable: no git")
+            failures.append(
+                f"no-usable-git: expected UNKNOWN when git cannot be used, got {check.get('status')}"
+            )
+            print(f"[FAIL] no-usable-git: got {check.get('status')}")
+
+        # 8. The screen-state fix must not silently regress to the upstream defect it repairs.
+        #    This one grades source text directly rather than a check, because there is no check
+        #    for it: whether `notify_get_state`'s status is honoured is not something a boundary
+        #    audit decides, and pretending otherwise would be a guard that cannot fail. The four
+        #    invariants below are the ones whose absence is the defect.
+        reset(copy, git)
+        observer = read(os.path.join(copy, "Library/Network/ScreenStateObserver.swift"))
+        darwin = read(os.path.join(copy, "Library/Network/ScreenStateObserverDarwin.swift"))
+        provider = read(os.path.join(copy, "Library/Network/ExtensionProvider.swift"))
+        invariants = {
+            "the raw status is never discarded":
+                "notify_get_state(" in darwin and "NOTIFY_STATUS_OK" in darwin,
+            "a failed read carries no value to misread":
+                "case failed(status: UInt32)" in observer,
+            "only the Darwin surface imports notify":
+                darwin.count("import notify") == 1 and "import notify" not in observer,
+            "the observer is started once and stopped once":
+                provider.count("startScreenStateObserver()") >= 1
+                and provider.count("stopScreenStateObserver()") >= 1,
+        }
+        missing = [name for name, holds in invariants.items() if not holds]
+        if not missing:
+            print("[ ok ] screen-state invariants: all four hold")
+        else:
+            failures.append(f"screen-state invariants: {missing}")
+            print(f"[FAIL] screen-state invariants: {missing}")
 
     finally:
         if args.keep:

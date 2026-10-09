@@ -425,6 +425,36 @@ def check_no_reverse_dependency(root: str) -> Check:
     )
 
 
+#: Files this fork is allowed to have modified, each with the reason it had to be. A file that is
+#: not on this list and differs from upstream is a `FAIL`, not a note: an unreviewed edit to a file
+#: upstream owns is the thing this check exists to stop, and a check that only reports it is a
+#: check nobody reads twice.
+REVIEWED_UPSTREAM_MODIFICATIONS = {
+    ".gitignore":
+        "`__pycache__/` and `*.pyc`, for the two Python scripts under scripts/dev",
+    "Localizable.xcstrings":
+        "one String Catalog entry for the phone's remaining-quota row (`%@ left`)",
+    "Library/Database/Database.swift":
+        "the additive `add_subscription_info` migration",
+    "Library/Database/Profile.swift":
+        "the `subscriptionInfo` column and its encode/decode",
+    "Library/Database/Profile+Update.swift":
+        "the refresh split into a testable decision and an applier",
+    "Library/Database/ProfileManager.swift":
+        "clearing metadata whose remote URL changed",
+    "Library/Network/HTTPClient.swift":
+        "`userAgent` from private to public, so the URLSession fetch can send the same string",
+    "Library/Network/ExtensionProvider.swift":
+        "starting and stopping the screen-state observer once, around the tunnel's life",
+    "Library/Network/ScreenStateObserver.swift":
+        "a failed notify read must not publish an unlock (upstream defect, see the commit)",
+    "ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift":
+        "the remaining-quota item, the two layout properties and the locale-sized relative time",
+    "sing-box.xcodeproj/project.pbxproj":
+        "`CFBundleDisplayName` for the SFI and SFM app targets",
+}
+
+
 def check_upstream_files_untouched(root: str, upstream_ref: str | None) -> Check:
     """The upstream-owned page files must be identical to the pinned upstream commit.
 
@@ -488,20 +518,27 @@ def check_upstream_files_untouched(root: str, upstream_ref: str | None) -> Check
         if blob.strip() != head.strip():
             changed.append(path)
 
-    # The audit reports rather than asserts here: this fork is allowed to carry reviewed
-    # modifications in shared files, and the list is what a reviewer needs in order to see them.
-    if changed:
+    # The audit asserts rather than reports: a file that differs from upstream and is not on the
+    # reviewed list is a failure. The list is the record of which shared files this fork had to
+    # touch and why, and adding to it is a deliberate act.
+    unreviewed = [p for p in changed if p not in REVIEWED_UPSTREAM_MODIFICATIONS]
+    stale = [p for p in REVIEWED_UPSTREAM_MODIFICATIONS if p not in changed and p not in fork_owned_files]
+
+    if unreviewed:
         return Check(
             "upstream-files-untouched",
-            "PASS",
-            f"{compared - len(changed)} of {compared} upstream files are byte-identical to "
-            f"{upstream_ref}; {len(changed)} were modified by this fork and are listed for review",
-            changed[:40],
+            "FAIL",
+            f"{len(unreviewed)} upstream-owned file(s) were modified without being on the reviewed "
+            f"list: {', '.join(unreviewed[:5])}",
+            unreviewed[:40],
         )
     return Check(
         "upstream-files-untouched",
         "PASS",
-        f"all {compared} upstream-owned files are byte-identical to {upstream_ref}",
+        f"{compared - len(changed)} of {compared} upstream files are byte-identical to "
+        f"{upstream_ref}; {len(changed)} are modified and all of them are on the reviewed list",
+        [f"{p} - {REVIEWED_UPSTREAM_MODIFICATIONS[p]}" for p in sorted(changed)]
+        + ([f"note: {len(stale)} reviewed entry/entries no longer differ: {stale}"] if stale else []),
     )
 
 
