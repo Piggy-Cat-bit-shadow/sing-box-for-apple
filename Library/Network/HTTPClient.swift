@@ -2,7 +2,14 @@ import Foundation
 import Libbox
 
 public class HTTPClient {
-    private static var userAgent: String {
+    /// The User-Agent every outgoing request carries, including the `URLSession`-based
+    /// `RemoteProfileFetcher`. Public so that moving a request between the two transports cannot
+    /// change what a server sees.
+    ///
+    /// It is built from `Variant.applicationName`, which is the target's identity ("SFI"/"SFM") and
+    /// deliberately not the user-visible product name: a panel that answers a different plan by
+    /// User-Agent must keep seeing the same string it saw before the rename.
+    public static var userAgent: String {
         var userAgent = Variant.applicationName
         userAgent += " (sing-box "
         userAgent += LibboxVersion()

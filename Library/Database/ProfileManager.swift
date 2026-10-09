@@ -49,6 +49,16 @@ public enum ProfileManager {
 
     public nonisolated static func update(_ profile: Profile) async throws {
         _ = try await Database.sharedWriter.write { db in
+            // Compared against the row on disk rather than against a copy the caller kept, so the
+            // decision holds however the caller reached this point. See
+            // `Profile.normalizeRemoteSourceChange(previousURL:)`.
+            //
+            // A profile with no id has never been written, so there is no previous source to
+            // compare against and nothing to invalidate.
+            if let id = profile.id {
+                let storedURL = try Profile.fetchOne(db, id: id)?.remoteURL
+                profile.normalizeRemoteSourceChange(previousURL: storedURL)
+            }
             try profile.updateChanges(db)
         }
     }

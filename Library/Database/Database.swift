@@ -66,6 +66,23 @@ enum Database {
                     t.column("secret", .text).notNull().defaults(to: "")
                 }
             }
+            migrator.registerMigration("add_subscription_info") { db in
+                // Four nullable columns rather than one encoded blob: this table is decoded by
+                // hand in `Profile.init(row:)` and encoded in `Profile.encode(to:)`, so separate
+                // columns keep the adaptation transparent - and, being nullable, every existing
+                // profile row reads back as "no metadata" without a default to mistake for a
+                // real all-zero quota.
+                //
+                // Additive and nullable only. Nothing here renames, drops or rewrites an existing
+                // column, so a settings.db written by any earlier build keeps working and a user's
+                // profiles, preferences and remote servers are untouched by this migration.
+                try db.alter(table: "profiles") { t in
+                    t.add(column: "subscriptionUpload", .integer)
+                    t.add(column: "subscriptionDownload", .integer)
+                    t.add(column: "subscriptionTotal", .integer)
+                    t.add(column: "subscriptionExpire", .integer)
+                }
+            }
             try migrator.migrate(database)
             return database
         } catch {
