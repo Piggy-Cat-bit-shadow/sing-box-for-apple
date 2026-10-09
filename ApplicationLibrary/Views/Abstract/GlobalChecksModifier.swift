@@ -204,7 +204,7 @@ public struct GlobalChecksModifier: ViewModifier {
         #if os(tvOS)
             var state = AlertState(
                 title: String(localized: "Deprecated Warning"),
-                message: report.message(),
+                message: report.message()!.value,
                 dismissButton: .cancel(String(localized: "Ok"))
             )
             state.onDismiss = continueChain
@@ -213,7 +213,7 @@ public struct GlobalChecksModifier: ViewModifier {
             if report.migrationLink.isEmpty {
                 var state = AlertState(
                     title: String(localized: "Deprecated Warning"),
-                    message: report.message(),
+                    message: report.message()!.value,
                     dismissButton: .cancel(String(localized: "Ok"))
                 )
                 state.onDismiss = continueChain
@@ -221,7 +221,7 @@ public struct GlobalChecksModifier: ViewModifier {
             } else {
                 alert = AlertState(
                     title: String(localized: "Deprecated Warning"),
-                    message: report.message(),
+                    message: report.message()!.value,
                     primaryButton: .default(String(localized: "Documentation")) {
                         openURL(URL(string: report.migrationLink)!)
                     },

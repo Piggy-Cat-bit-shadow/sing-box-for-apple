@@ -185,9 +185,9 @@ extension IOSRootHelperService: ShellHelperProtocol {
         options.interface = interfaceName
         do {
             let (handle, session) = try bridgeSessionManager.create(owner: ObjectIdentifier(currentConnection), options: options)
-            logger.info("createBridgeService: \(session.name(), privacy: .public)")
+            logger.info("createBridgeService: \(session.name()!.value, privacy: .public)")
             let fileHandle = FileHandle(fileDescriptor: session.fileDescriptor(), closeOnDealloc: false)
-            reply(fileHandle, session.name() as NSString, session.inet6Active(), handle as NSString, nil)
+            reply(fileHandle, session.name()!.value as NSString, session.inet6Active(), handle as NSString, nil)
         } catch {
             logger.error("createBridgeService: \(error.localizedDescription, privacy: .public)")
             reply(nil, nil, false, nil, error as NSError)
