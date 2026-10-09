@@ -7,7 +7,7 @@ SagerNet 官方 [sing-box-for-apple](https://github.com/SagerNet/sing-box-for-ap
 本 README 是**本项目架构的权威说明**。它是给人和 AI 协作者读的：
 读完这一页就能知道哪段代码归谁、新功能该写在哪里、哪些东西绝对不能碰。
 
-> **集成分支**：`jiejiebox/integrated`，从 `upstream/dev` @ `089d35e` 建立。
+> **集成分支**：`jiejiebox/integrated`，从 `upstream/dev` @ `089d35e` 建立，已推送到 origin。
 > GitHub 上的**默认分支目前仍是 `dev`**，尚未切换。分支清单见
 > [`docs/APPLE-REFACTOR-BASELINES.md`](docs/APPLE-REFACTOR-BASELINES.md)。
 
