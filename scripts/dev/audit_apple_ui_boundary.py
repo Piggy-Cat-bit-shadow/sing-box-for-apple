@@ -233,14 +233,27 @@ def read_text(path: str) -> str | None:
         return None
 
 
+#: Directories no build target reads. A `.swift` file here is documentation or a standalone
+#: package, not source, so the boundary checks must not treat it as reachable:
+#:
+#:   * `docs/` holds `docs/pending/`, which keeps fork work that is deliberately **not** compiled.
+#:     It is full of Hako references by design, and counting them would make the audit report the
+#:     holding area as a boundary violation.
+#:   * `.git`, `.build` and `.swiftpm` are not this project's source at all.
+NOT_A_TARGET_TREE = ("docs/", ".build/", ".swiftpm/")
+
+
 def swift_files(root: str) -> list[str]:
     out = []
     for base, dirs, files in os.walk(root):
-        # `.build` is a SwiftPM checkout of dependencies, not this project's source.
         dirs[:] = [d for d in dirs if d not in (".git", ".build", ".swiftpm", "build")]
         for name in files:
-            if name.endswith(".swift"):
-                out.append(os.path.relpath(os.path.join(base, name), root).replace("\\", "/"))
+            if not name.endswith(".swift"):
+                continue
+            relative = os.path.relpath(os.path.join(base, name), root).replace("\\", "/")
+            if relative.startswith(NOT_A_TARGET_TREE):
+                continue
+            out.append(relative)
     return sorted(out)
 
 
