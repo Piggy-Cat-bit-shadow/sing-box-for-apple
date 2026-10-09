@@ -1142,18 +1142,66 @@ private struct ProfilePickerRow: View {
                 Text(profile.type.presentationLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
+            .layoutPriority(1)
+
+            remainingTrafficInfo
 
             if profile.type == .remote, let lastUpdated = profile.lastUpdated {
                 HStack(spacing: 4) {
                     Image(systemName: "clock.fill")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                    Text(lastUpdated.relativeFormat)
+                    Text(lastUpdated.relativeFormat(forPickerRow: locale))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+                .layoutPriority(1)
             }
+        }
+        // The three items are one line's worth of information, so when they do not all fit they
+        // give way together rather than one of them wrapping to a second line. That wrap is what
+        // makes the English row tall: split across two lines, "Remote" and "6 days ago" take the
+        // card from 106pt to 154pt, where a slightly smaller second line costs nothing but a
+        // little size and keeps every item whole. The two items that were already on this line
+        // keep their width first - they are why the line exists - and the quota gives way.
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+    }
+
+    /// The panel's remaining quota, beside the type and the last update it belongs with.
+    ///
+    /// The row already carries this value: `ProfilePreview` mirrors `subscriptionInfo`, so the
+    /// list reads it from the snapshot it holds rather than reaching back to `origin`.
+    ///
+    /// No quota reported means no item at all. `remainingBytes` is `nil` when the panel never
+    /// sent a total - "unknown", which is not the same claim as a remainder of zero - so the row
+    /// keeps saying only what it knows.
+    ///
+    /// It is text alone rather than `icon + text`, which is what the other two items on this line
+    /// are. The line does not hold a fourth element at this width: measured on the iPhone 17,
+    /// "Remote  clock 6 days ago" fills it, and adding an icon beside this item pushes the
+    /// *relative time* - the item that was already here - onto a second line, taking the card
+    /// from 106pt to 154pt for every remote row. The glyph was dropped so the two items that were
+    /// already on the line keep the layout they had. The unit in the text says what the number
+    /// is, so nothing is lost but the ornament.
+    ///
+    /// The word comes from this row's own `"%@ left"` entry rather than from the catalog's existing
+    /// `"Available"`. That key is a standalone state label on three other pages (a Tailscale exit
+    /// node, a Tailscale SSH row, and the remote server's own status), so shortening it would
+    /// change what those pages say. "Available" is also five characters wider than the "可用" this
+    /// line was laid out for, which is the whole of the English overflow. `"%@ left"` is scoped to
+    /// this line, and its Chinese translation is the same "可用" the line has always shown.
+    @ViewBuilder
+    private var remainingTrafficInfo: some View {
+        if let remainingBytes = profile.subscriptionInfo?.remainingBytes {
+            Text(verbatim: String(format: String(localized: "%@ left"), Int64.remainingTrafficText(remainingBytes)))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
     }
 
@@ -1533,6 +1581,8 @@ private struct ProfilePickerRow: View {
                         .foregroundStyle(.secondary)
                 }
 
+                remainingTrafficInfo
+
                 if profile.type == .remote, let lastUpdated = profile.lastUpdated {
                     HStack(spacing: 4) {
                         Image(systemName: "clock.fill")
@@ -1544,6 +1594,96 @@ private struct ProfilePickerRow: View {
                     }
                 }
             }
+        }
+
+        /// The same item as the current row's, on the pre-26 layout.
+        ///
+        /// `remainingTrafficInfo` is declared inside `ProfilePickerRow`, a different type, so this
+        /// row needs its own copy. Both read the same snapshot value.
+        @ViewBuilder
+        private var remainingTrafficInfo: some View {
+            if let remainingBytes = profile.subscriptionInfo?.remainingBytes {
+                Text(verbatim: String(format: String(localized: "%@ left"), Int64.remainingTrafficText(remainingBytes)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+    }
+#endif
+
+// MARK: - Remaining traffic presentation
+
+private extension Int64 {
+    /// A quota remainder as the configuration row spells it.
+    ///
+    /// Written here rather than taken from `ByteCountFormatter`: that formatter spells units out
+    /// in full for several locales and returns "Zero KB" for nothing at all, and neither fits a
+    /// caption that shares its line with two other items. The units are the decimal ones the
+    /// panels themselves report against.
+    ///
+    /// - Zero is "0 B", not "0 GB": a remainder of nothing is a real value the row must state.
+    /// - A negative value cannot reach here - `remainingBytes` clamps at zero - but is clamped
+    ///   anyway so the caption can never read "-1 GB".
+    /// - Precision is one decimal below ten and none from ten up: "1.2 TB" and "8.6 GB" keep
+    ///   their shape, while ordinary quotas stay short - "286 GB", "840 MB".
+    static func remainingTrafficText(_ bytes: Int64) -> String {
+        // `Swift.max`, not `max`: the file's imports bring a `max` of their own, which the
+        // `bytes` parameter would otherwise be handed to.
+        let bytes = Swift.max(0, bytes)
+        guard bytes >= 1000 else {
+            return "\(bytes) B"
+        }
+        // Descending, so the first threshold the remainder clears is its unit.
+        let units: [(threshold: Int64, divisor: Double, name: String)] = [
+            (1_000_000_000_000, 1_000_000_000_000, "TB"),
+            (1_000_000_000, 1_000_000_000, "GB"),
+            (1_000_000, 1_000_000, "MB"),
+            (1000, 1000, "KB"),
+        ]
+        let unit = units.first { bytes >= $0.threshold }!
+        // Quantised at the one decimal the caption ever shows, so a value that rounds up to ten
+        // is counted in tens and spelled "10 GB" rather than "10.0 GB".
+        let rounded = (Double(bytes) / unit.divisor * 10).rounded() / 10
+        let decimals = rounded < 10 ? 1 : 0
+        return "\(rounded.formatted(.number.precision(.fractionLength(decimals)))) \(unit.name)"
+    }
+}
+
+// MARK: - Relative time, at one line's width
+
+// iOS only: the row that asks for this is the iOS-current one. The macOS and tvOS rows keep
+// `relativeFormat` exactly as it was, so their width is not touched by a change made for a line
+// they do not have.
+#if os(iOS)
+    private extension Date {
+        /// How long ago this was, sized for a configuration row's second line.
+        ///
+        /// `relativeFormat` spells the unit out - "6 days ago", "3 hours ago" - which is right where
+        /// it has a line to itself, as on the home card, and too wide here: this line already carries
+        /// the type, the remaining quota and this timestamp, and English spells all three longer than
+        /// the Chinese the layout was drawn for. At the full style "6 days ago" measures 92.7pt
+        /// against "6天前"'s 43.7pt, and the line is about 236pt wide - what was left went to the two
+        /// items that were already there, and the quota had nowhere to go.
+        ///
+        /// So the unit is abbreviated where that is what makes it fit. Chinese keeps the full style,
+        /// because its line already fits and "6天前" is what this row has always said; English reads
+        /// "6d ago" instead of "6 days ago".
+        ///
+        /// - Parameter locale: the row's locale. A `RelativeDateTimeFormatter` defaults to the
+        ///   current locale rather than to the one the view is rendered in, so it is passed in.
+        func relativeFormat(forPickerRow locale: Locale) -> String {
+            // Only languages whose unit is a separate word get shorter from abbreviation; Chinese
+            // writes 天/小时/分钟, which an abbreviated style leaves as it is.
+            guard !locale.identifier.hasPrefix("zh") else {
+                return relativeFormat
+            }
+            let formatter = RelativeDateTimeFormatter()
+            formatter.locale = locale
+            formatter.unitsStyle = .abbreviated
+            formatter.dateTimeStyle = .numeric
+            return formatter.localizedString(for: self, relativeTo: Date())
         }
     }
 #endif
