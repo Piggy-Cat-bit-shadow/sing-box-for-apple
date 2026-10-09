@@ -848,8 +848,14 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
                 tunFileDescriptor
             }
 
-            func name() -> String {
-                tunName
+            // LibboxBridgeSessionProtocol requires the boxed result: Go declares
+            // BridgeSession.Name as returning *StringBox so the value does not travel in
+            // gomobile's packed result frame. The AIDL handshake still carries a plain
+            // String, so it is wrapped here rather than changing that contract.
+            func name() -> LibboxStringBox? {
+                let nameBox = LibboxStringBox()
+                nameBox.value = tunName
+                return nameBox
             }
 
             func inet6Active() -> Bool {
