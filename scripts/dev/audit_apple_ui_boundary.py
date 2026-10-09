@@ -318,7 +318,7 @@ def check_tablet_and_mac_entry(root: str) -> Check:
     """
     app = read_text(os.path.join(root, "SFI/Application.swift"))
     if app is None:
-        return Check("tablet-entry", "UNKNOWN", "SFI/Application.swift is missing")
+        return Check("tablet-and-mac-entry", "UNKNOWN", "SFI/Application.swift is missing")
 
     evidence = []
     problems = []
@@ -345,9 +345,9 @@ def check_tablet_and_mac_entry(root: str) -> Check:
             evidence.append(f"{path}: no Hako symbol")
 
     if problems:
-        return Check("tablet-mac-entry", "FAIL", "; ".join(problems), evidence)
+        return Check("tablet-and-mac-entry", "FAIL", "; ".join(problems), evidence)
     return Check(
-        "tablet-mac-entry",
+        "tablet-and-mac-entry",
         "PASS",
         "every idiom other than .phone resolves to upstreamPad, and upstream's roots name no Hako symbol",
         evidence,
@@ -372,21 +372,21 @@ def check_shared_pages_are_clean(root: str) -> Check:
 
     if problems:
         return Check(
-            "shared-page-boundary",
+            "shared-pages-are-clean",
             "FAIL",
             f"{len(problems)} Hako reference(s) in pages upstream owns; first is {problems[0]}",
             [str(h) for h in problems[:10]],
         )
     if missing:
         return Check(
-            "shared-page-boundary",
+            "shared-pages-are-clean",
             "UNKNOWN",
             "these upstream-reachable files are absent, so they could not be checked: "
             + ", ".join(missing),
             evidence,
         )
     return Check(
-        "shared-page-boundary",
+        "shared-pages-are-clean",
         "PASS",
         f"{len(UPSTREAM_REACHABLE_PAGES)} upstream-reachable files name no Hako symbol",
         evidence,
@@ -684,6 +684,86 @@ def target_lines(text: str, setting: str) -> list[tuple[str, list[str]]]:
     return out
 
 
+def inventory_symbols(root: str) -> tuple[set[str], dict[str, list[Blame]]]:
+    """Every member this fork's Swift names by declaration, and every site that names it.
+
+    Only *added* knowledge: a member declared in the tree is returned in the first set, and the
+    places that write `something.member` or `.member(...)` are returned in the second. It is
+    deliberately shallow - it does not resolve types, so `a.foo` where two types both declare
+    `foo` counts for both. That is the right trade for this purpose: the check is asking whether a
+    symbol is *used anywhere at all*, and over-counting uses can only make it less likely to
+    report a missing one, which is why the callers of this function assert on the declaration side
+    as well.
+    """
+    declared: set[str] = set()
+    sites: dict[str, list[Blame]] = {}
+
+    decl_pattern = re.compile(
+        r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*"
+        r"(?:public\s+|internal\s+|private\s+|fileprivate\s+|final\s+|static\s+|class\s+|"
+        r"nonisolated\s+|override\s+|mutating\s+|lazy\s+)*"
+        r"(?:func|var|let)\s+([A-Za-z_]\w*)",
+    )
+    use_pattern = re.compile(r"(?:\.|\bself\.)([A-Za-z_]\w*)")
+
+    for path in swift_files(root):
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        for number, line in enumerate(text.splitlines(), start=1):
+            declaration = decl_pattern.match(line)
+            if declaration:
+                declared.add(declaration.group(1))
+            for match in use_pattern.finditer(line):
+                sites.setdefault(match.group(1), []).append(Blame(path, number, line))
+    return declared, sites
+
+
+def submodule_paths(root: str, git: str | None) -> list[str]:
+    """Every gitlink in the index, read from `.gitmodules` and the index's own mode bits.
+
+    Read rather than assumed: a path list written into this script would silently stop covering a
+    submodule that upstream adds later, which is the failure mode this whole file is written to
+    avoid.
+    """
+    if git is None:
+        return []
+    paths: list[str] = []
+    gitmodules = os.path.join(root, ".gitmodules")
+    if os.path.exists(gitmodules):
+        text = read_text(gitmodules) or ""
+        for match in re.finditer(r'^\s*path\s*=\s*(.+?)\s*$', text, re.M):
+            paths.append(match.group(1))
+    # The index is the authority on what is actually a gitlink; `.gitmodules` can name a path that
+    # was never added.
+    rc, out, _ = run([git, "-C", root, "ls-files", "-s", "--stage"])
+    if rc == 0:
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[0] == "160000":
+                path = parts[3]
+                if path not in paths:
+                    paths.append(path)
+    return sorted(set(paths))
+
+
+def is_declaration_of(blame: Blame, symbol: str) -> bool:
+    """Whether this line declares the symbol rather than using it.
+
+    Shallow on purpose: it recognises the declaration forms Swift actually uses for these members
+    and treats everything else as a use. Being wrong in the "use" direction is safe here, because
+    the callers pair this check with a declaration scan - a symbol that is only ever "used" on its
+    own declaration line would be caught by the scan as missing.
+    """
+    return bool(re.match(
+        r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*"
+        r"(?:public\s+|internal\s+|private\s+|fileprivate\s+|final\s+|static\s+|class\s+|"
+        r"nonisolated\s+|override\s+|mutating\s+|lazy\s+)*"
+        r"(?:func|var|let)\s+" + re.escape(symbol) + r"\b",
+        blame.text,
+    ))
+
+
 def check_subscription_feature(root: str) -> Check:
     """The newest phone feature must be present, reachable and wired end to end."""
     required_files = {
@@ -717,6 +797,54 @@ def check_subscription_feature(root: str) -> Check:
             "cannot show the remainder from the snapshot it already has"
         )
 
+    # A feature is not present merely because a helper exists. Every symbol on the chain that the
+    # row depends on must be declared *and* named somewhere the phone actually reaches, which is
+    # what distinguishes "written" from "wired up" - the failure this check exists for.
+    #
+    # Two independent readings are taken, because each can miss a different thing and a guard is
+    # only as good as its weakest one:
+    #
+    #   * a declaration scan, which catches a renamed or deleted member; and
+    #   * a plain occurrence count outside the Hako namespace, which catches a helper that is
+    #     declared and then never called.
+    #
+    # The occurrence reading deliberately does not try to resolve types. A symbol named anywhere
+    # outside the fork's presentation is enough to say the feature is reachable from code that is
+    # not the presentation, which is the property being asserted.
+    outside_hako: dict[str, list[Blame]] = {}
+    for path in swift_files(root):
+        if path.startswith(HAKO_PREFIX):
+            continue
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        for number, line in enumerate(text.splitlines(), start=1):
+            for symbol in ("remainingTrafficInfo", "remainingBytes", "remainingTrafficText",
+                           "subscriptionInfo", "updateRemoteProfile"):
+                if re.search(rf"\b{symbol}\b", line):
+                    outside_hako.setdefault(symbol, []).append(Blame(path, number, line))
+
+    declared, _ = inventory_symbols(root)
+    for symbol, where in (
+        ("remainingTrafficInfo", "the picker row's quota item"),
+        ("remainingBytes", "the remaining-bytes accessor"),
+        ("remainingTrafficText", "the quota formatter"),
+        ("subscriptionInfo", "the profile's stored metadata"),
+        ("updateRemoteProfile", "the refresh entry point"),
+    ):
+        if symbol not in declared:
+            problems.append(f"{symbol} ({where}) is not declared anywhere in the tree")
+            continue
+        # One occurrence is the declaration itself; the feature needs a second, elsewhere.
+        uses = [b for b in outside_hako.get(symbol, []) if not is_declaration_of(b, symbol)]
+        if not uses:
+            problems.append(
+                f"{symbol} ({where}) is declared but used nowhere outside the Hako namespace, so "
+                "the feature it belongs to is not reachable"
+            )
+        else:
+            evidence.append(f"{symbol}: {len(uses)} use(s) outside the Hako namespace, first at {uses[0]}")
+
     # The migration must be additive: no drop or rename of a column that already shipped.
     db = read_text(os.path.join(root, "Library/Database/Database.swift"))
     if db:
@@ -746,7 +874,7 @@ def check_repository_hygiene(root: str, upstream_ref: str | None = None) -> Chec
     """
     git = which_git()
     if git is None:
-        return Check("repo-hygiene", "UNKNOWN", "git is not available on PATH")
+        return Check("repository-hygiene", "UNKNOWN", "git is not available on PATH")
 
     problems = []
     evidence = []
@@ -760,28 +888,49 @@ def check_repository_hygiene(root: str, upstream_ref: str | None = None) -> Chec
     else:
         evidence.append(f"git diff --check could not run ({err.strip()}); not counted as a failure")
 
-    # `.gitmodules` and every gitlink must match the pinned upstream commit.
-    for path in (".gitmodules", "Frameworks/Runestone"):
-        rc, local, _ = run([git, "-C", root, "rev-parse", f"HEAD:{path}"])
+    # `.gitmodules` is an ordinary tracked file, so it is compared as one - against the **working
+    # tree**, because repointing a submodule is exactly the change this check is for, and a
+    # comparison against HEAD would not see it until it had been committed.
+    if upstream_ref:
+        rc, upstream_blob, _ = run([git, "-C", root, "rev-parse", f"{upstream_ref}:.gitmodules"])
         if rc != 0:
-            problems.append(f"{path} cannot be read from HEAD")
+            evidence.append(".gitmodules: upstream comparison unavailable")
+        elif not os.path.exists(os.path.join(root, ".gitmodules")):
+            problems.append(".gitmodules is missing from the working tree")
+        else:
+            rc, local_blob, _ = run([git, "-C", root, "hash-object", os.path.join(root, ".gitmodules")])
+            if rc != 0:
+                evidence.append(".gitmodules: could not be hashed")
+            elif local_blob.strip() != upstream_blob.strip():
+                problems.append(
+                    f".gitmodules differs from {upstream_ref}; this work must not repoint a "
+                    "submodule"
+                )
+            else:
+                evidence.append(f".gitmodules blob = {local_blob.strip()[:12]} (identical to {upstream_ref})")
+
+    # Every gitlink is a pointer recorded in the index, and the index is where a move shows up
+    # even before it is committed.
+    for path in submodule_paths(root, git):
+        rc, local, _ = run([git, "-C", root, "rev-parse", f":{path}"])
+        if rc != 0:
+            evidence.append(f"{path}: no gitlink recorded in the index")
             continue
         local = local.strip()
         if upstream_ref:
             rc, upstream, _ = run([git, "-C", root, "rev-parse", f"{upstream_ref}:{path}"])
             if rc != 0:
-                evidence.append(f"{path} = {local[:12]} (upstream comparison unavailable)")
+                evidence.append(f"{path} gitlink = {local[:12]} (upstream comparison unavailable)")
                 continue
-            upstream = upstream.strip()
-            if local != upstream:
+            if local != upstream.strip():
                 problems.append(
-                    f"{path} differs from {upstream_ref} ({local[:12]} vs {upstream[:12]}); this "
-                    "work must not move a submodule pointer"
+                    f"the {path} gitlink differs from {upstream_ref}; this work must not move a "
+                    "submodule pointer"
                 )
             else:
-                evidence.append(f"{path} = {local[:12]} (identical to {upstream_ref})")
+                evidence.append(f"{path} gitlink = {local[:12]} (identical to {upstream_ref})")
         else:
-            evidence.append(f"{path} = {local[:12]} (no upstream ref given to compare)")
+            evidence.append(f"{path} gitlink = {local[:12]} (no upstream ref given to compare)")
 
     # Any *other* gitlink this fork might have added or moved.
     rc, out, _ = run([git, "-C", root, "submodule", "status"])
@@ -792,8 +941,8 @@ def check_repository_hygiene(root: str, upstream_ref: str | None = None) -> Chec
         evidence.append(f"submodules reported by git: {len(out.splitlines())}")
 
     if problems:
-        return Check("repo-hygiene", "FAIL", "; ".join(problems), evidence)
-    return Check("repo-hygiene", "PASS", "no whitespace errors, no submodule pointer drift", evidence)
+        return Check("repository-hygiene", "FAIL", "; ".join(problems), evidence)
+    return Check("repository-hygiene", "PASS", "no whitespace errors, no submodule pointer drift", evidence)
 
 
 # --------------------------------------------------------------------------------------
@@ -856,26 +1005,58 @@ def in_swiftpm_package(root: str, path: str) -> bool:
     return os.path.exists(os.path.join(root, "Package.swift"))
 
 
-def baseline_commit(root: str, upstream_ref: str | None) -> str | None:
-    """The commit this branch started from.
+def find_upstream_ref(root: str) -> str | None:
+    """An upstream commit this repository already knows about.
 
-    `upstream_ref` when the branch was cut straight from upstream and the first commit on the
-    branch is upstream's own - which is how this repository's integration branch is built. The
-    root commit is the fallback, and it is the honest answer for a fork whose history cannot be
-    separated from upstream's: "everything present was added at some point" is not useful, so
-    the caller is told rather than misled.
+    Tried in order; the result is only used after its ancestry is verified, so a branch that
+    merely happens to have an `origin/main` which is *not* behind it is not mistaken for a fork
+    of it.
     """
     git = which_git()
     if git is None:
         return None
-    if upstream_ref:
-        rc, out, _ = run([git, "-C", root, "rev-parse", "--verify", f"{upstream_ref}^{{commit}}"])
+    for candidate in ("upstream/dev", "upstream/main", "origin/main"):
+        rc, out, _ = run([git, "-C", root, "rev-parse", "--verify", f"{candidate}^{{commit}}"])
         if rc == 0:
             return out.strip()
-    rc, out, _ = run([git, "-C", root, "rev-list", "--max-parents=0", "HEAD"])
-    if rc != 0:
+    return None
+
+
+def baseline_commit(root: str, upstream_ref: str | None) -> str | None:
+    """The commit this branch's own work starts from.
+
+    Three attempts, in order of how much each can be trusted:
+
+      1. `upstream_ref`, when given and when it really is an ancestor of HEAD.
+      2. An upstream ref found in this repository, under the same ancestry test. This is what makes
+         the audit usable with no arguments in a normal checkout, which is the difference between a
+         check that gets run and a check that has to be remembered.
+      3. `HEAD~1`, so a branch whose upstream cannot be found still gets a usable definition -
+         "what the last commit added".
+
+    `None` is returned only when none of the three apply, and the caller then reports `UNKNOWN`.
+    Comparing against the root commit instead would report the entire tree as new and turn a
+    boundary check into noise.
+    """
+    git = which_git()
+    if git is None:
         return None
-    return out.split()[0].strip() if out.split() else None
+
+    def is_ancestor(candidate: str) -> bool:
+        rc, _, _ = run([git, "-C", root, "merge-base", "--is-ancestor", candidate, "HEAD"])
+        return rc == 0
+
+    for candidate in (upstream_ref, find_upstream_ref(root)):
+        if not candidate:
+            continue
+        rc, out, _ = run([git, "-C", root, "rev-parse", "--verify", f"{candidate}^{{commit}}"])
+        if rc == 0 and is_ancestor(out.strip()):
+            return out.strip()
+
+    rc, out, _ = run([git, "-C", root, "rev-parse", "--verify", "HEAD~1^{commit}"])
+    if rc == 0:
+        return out.strip()
+    return None
 
 
 def run(args: list[str]) -> tuple[int, str, str]:

@@ -14,3 +14,7 @@ AGENTS.md
 /fastlane/test_output/
 /fastlane/.bundle/
 /fastlane/.cache/
+
+# Python bytecode from scripts/dev/*.py
+__pycache__/
+*.pyc
