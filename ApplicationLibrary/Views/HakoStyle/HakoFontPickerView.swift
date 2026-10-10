@@ -212,16 +212,35 @@
 
 
         private static func monospacedFamilies() -> [String] {
-
-
+            // The three branches are the original's, restored.
+            //
+            // Migration resolved the platform conditionals here and kept the selected branch's body, which
+            // left `UIFont` as the only implementation with no guard in front of it. This file is in
+            // `ApplicationLibrary`, a shared target, so on macOS the compiler still parses this body and
+            // `UIFont` does not exist - a compile error. Restoring the guard is not a behaviour change for
+            // the phone either, because the UIKit branch is the one that was kept.
+            //
+            // This guard is not selecting a variant for the phone; it is the only implementation, written to
+            // be legal on three platforms. That is exactly the kind of condition migration must preserve,
+            // and the reason "resolve everything for iOS" is the wrong policy for a shared target.
+            #if canImport(AppKit)
+                let names = NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? []
+                var families = Set<String>()
+                for name in names {
+                    let family = NSFont(name: name, size: 12)?.familyName ?? name
+                    families.insert(family)
+                }
+                return families.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            #elseif canImport(UIKit)
                 return UIFont.familyNames.filter { family in
                     UIFont.fontNames(forFamilyName: family).contains { name in
                         guard let font = UIFont(name: name, size: 12) else { return false }
                         return font.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
                     }
                 }.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-
-
+            #else
+                return []
+            #endif
         }
     }
 
