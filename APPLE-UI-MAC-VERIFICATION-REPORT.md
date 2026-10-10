@@ -352,8 +352,9 @@ recorded as the top remaining risk rather than guessed at.
 ## 6c. The Full Snapshot Suite, And What Its Five Failures Are
 
 Running the suite to completion (28 cases, 720 s, 23 pass / 5 fail) found what the earlier
-three-case sample could not. The five failures are **two different things**, and only one of them
-is a product defect.
+three-case sample could not. The five failures are **two different things, and neither is a proved
+product bug**: four drive a fixture that does not exist, and the fifth compares a number the
+snapshot fixture invents against the live client.
 
 ### The shared cause of four of them: the fixture the suite drives does not exist
 
