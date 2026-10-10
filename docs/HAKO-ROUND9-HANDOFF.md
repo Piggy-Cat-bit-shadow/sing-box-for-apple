@@ -10,16 +10,16 @@ repeated here except where round 9 changed it.
 |---|---|
 | Repository | `https://github.com/Piggy-Cat-bit-shadow/sing-box-for-apple` |
 | Integration branch | `jiejiebox/integrated` |
-| **Final SHA, on both branches** | **`2335251`** |
+| **Final SHA, on both branches** | **`536a3cf`** |
 | Round 9 start | `2207852` |
 | iPhone UI gold standard | `hako-ui@c1935cff77246f97498400f5a0a7f430cfabbd55` |
 | Upstream comparison baseline | `SagerNet/sing-box-for-apple dev@089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85` |
-| Remote `refs/heads/r8/main` | `2335251` |
-| Remote `refs/heads/jiejiebox/integrated` | `2335251` — fast-forwarded from `2207852` |
+| Remote `refs/heads/r8/main` | `536a3cf` |
+| Remote `refs/heads/jiejiebox/integrated` | `536a3cf` — fast-forwarded from `2207852` |
 
-Round 9 pushed `r8/main` first (`2d5dca3`, then `2335251`), and then fast-forwarded
-`jiejiebox/integrated` from `2207852` to `2335251`. That second push is a **fast-forward, not a rewrite**:
-`2207852` is an ancestor of `2335251`, and `2335251..2207852` is empty, so the branch's old tip is fully
+Round 9 pushed `r8/main` first (`2d5dca3`, then `2335251`, then `536a3cf`), and then fast-forwarded
+`jiejiebox/integrated` from `2207852` to the same tip. Both pushes are **fast-forwards, not rewrites**:
+`2207852` is an ancestor of `536a3cf`, and `536a3cf..2207852` is empty, so the branch's old tip is fully
 contained in the new one and nothing was discarded.
 
 **What was deliberately not pushed is the content of the `jiejiebox-integrated` working tree.** That
@@ -247,9 +247,9 @@ The evidence that it is old content rather than work in progress:
 * it deletes all 26 tooling and document files, including every check this round's work depends on.
 
 So it would have been a 12,658-line regression had it been committed and pushed. **Round 9 did not touch it
-and did not commit it.** The *branch* was advanced to the verified `2335251` instead, and whoever owns this
+and did not commit it.** The *branch* was advanced to the verified tip instead, and whoever owns this
 checkout should decide what to do with the working tree — `git checkout -- .` restores it to its own HEAD,
-and `git checkout 2335251 -- .` or a fresh worktree brings it to the verified state.
+and a fresh worktree of `536a3cf` brings it to the verified state.
 
 ### The reflog
 
