@@ -6,6 +6,13 @@ import SwiftUI
 public class GroupListViewModel: BaseViewModel {
     @Published public var groups: [OutboundGroup] = []
     @Published public var testingGroups: Set<String> = []
+    /// The members whose latency is being measured right now.
+    ///
+    /// A group test measures every member, so the members carry the state as well as the group:
+    /// without it a sweep over a hundred and thirty-seven nodes shows one spinner on the header and
+    /// nothing on the rows it is actually working through. `HakoGroupListView` reads this to put the
+    /// spinner on the row, which is why the set exists here rather than in the page.
+    @Published public var testingItems: Set<String> = []
 
     private var pendingSelections: [String: String] = [:]
     private var pendingExpands: [String: Bool] = [:]
@@ -105,15 +112,24 @@ public class GroupListViewModel: BaseViewModel {
 
     public func performGroupURLTest(_ groupTag: String) {
         testingGroups.insert(groupTag)
+        // A group test measures every member, so the members are marked as well: the header alone
+        // cannot show which of a hundred and thirty-seven rows is being worked through. The set is
+        // captured before the task starts so the same members are cleared even if the group's list
+        // changes while the sweep is running.
+        let members = groups.first { $0.tag == groupTag }?.items.map(\.tag) ?? []
+        testingItems.formUnion(members)
         Task {
             await doURLTest(tag: groupTag)
             testingGroups.remove(groupTag)
+            testingItems.subtract(members)
         }
     }
 
     public func performURLTest(_ tag: String) {
+        testingItems.insert(tag)
         Task {
             await doURLTest(tag: tag)
+            testingItems.remove(tag)
         }
     }
 

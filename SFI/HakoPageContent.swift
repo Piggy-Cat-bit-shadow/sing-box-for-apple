@@ -68,9 +68,9 @@ struct HakoPageContent: View {
                 dashboardPage
             #if !os(tvOS)
                 case .groups:
-                    GroupListView()
+                    HakoGroupListView()
                 case .connections:
-                    ConnectionListView()
+                    HakoConnectionListView()
             #endif
             case .logs:
                 HakoLogView()

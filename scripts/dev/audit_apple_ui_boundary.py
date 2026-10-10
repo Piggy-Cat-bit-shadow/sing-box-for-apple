@@ -461,6 +461,9 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
         "starting and stopping the screen-state observer once, around the tunnel's life",
     "Library/Network/ScreenStateObserver.swift":
         "a failed notify read must not publish an unlock (upstream defect, see the commit)",
+    "ApplicationLibrary/Views/Groups/GroupListViewModel.swift":
+        "`testingItems`, the per-member half of a group latency sweep, which the phone's "
+        "Proxies page reads to put a spinner on each row being measured; additive only",
     "ApplicationLibrary/Views/Log/LogView.swift":
         "`LogViewContent` made public so the phone's Logs page can put the fork's chrome on "
         "upstream's content instead of copying it; no behaviour changed inside the file",
@@ -1047,8 +1050,8 @@ def setting_values_at(root: str, ref: str | None, setting: str) -> list[str] | N
 #: inference from a diff. A page becomes `"Hako…View"` when `SFI/HakoPageContent.swift` routes it.
 HAKO_PAGE_ROUTING = {
     "dashboard": "HakoHomeView",
-    "groups": None,
-    "connections": None,
+    "groups": "HakoGroupListView",
+    "connections": "HakoConnectionListView",
     "logs": "HakoLogView",
     "tools": None,
     "settings": None,
@@ -1198,6 +1201,8 @@ def check_hako_feature_preservation(root: str) -> Check:
         ("HakoHomeView", "the Home page"),
         ("HakoProfilePickerSheet", "the configuration centre, with the quota row"),
         ("HakoLogView", "the Logs page"),
+        ("HakoGroupListView", "the Proxies page"),
+        ("HakoConnectionListView", "the Activity page"),
         ("HakoNavigationRow", "the shortcut rows"),
         ("HakoPageSection", "the painted sections"),
         ("HakoRootScaffold", "the page canvas"),
@@ -1235,6 +1240,12 @@ def check_hako_feature_preservation(root: str) -> Check:
         (r"shortcutRow\(",
          r"selection\.wrappedValue\s*=\s*\.logs",
          "the shortcuts select the pages they name"),
+        (r"HakoGroupListView\s*\(",
+         r"testingItems",
+         "the Proxies page shows which member a latency sweep is measuring"),
+        (r"HakoConnectionListView\s*\(",
+         r"HakoConnectionListContentView\s*\(", 
+         "the Activity page presents its own content view"),
         (r"HakoLogView\s*\(",
          r"LogViewContent\s*\(commandClient:",
          "the Logs page wraps upstream's content rather than copying it"),
