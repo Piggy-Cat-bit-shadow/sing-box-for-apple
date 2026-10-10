@@ -28,6 +28,13 @@ import re
 #: `canImport` answers for the platform being resolved. A module that is genuinely absent must be listed
 #: as False rather than defaulted: a wrong True keeps a block that will not compile, a wrong False drops
 #: UI. A module that is not in the table raises, so it is added deliberately.
+#:
+#: `GhosttyTerminal` is an optional xcframework under `Frameworks/`, and the shared tree guards every
+#: terminal file with `canImport(GhosttyTerminal)`. Several of those guards also require `os(iOS)` -
+#: `TerminalSessionContainerView`, `TerminalSessionManager`, `TerminalSessionMenuButton` - so on iOS the
+#: framework is expected to be present and `canImport` answers true. Answering False would silently drop
+#: the terminal UI from every ported copy, which is the failure this table's "add it deliberately" rule
+#: exists to force someone to look at.
 CAN_IMPORT = {
     "ios": {"UIKit": True, "AppKit": False, "Cocoa": False, "SwiftUI": True, "Combine": True,
             "NetworkExtension": True, "WidgetKit": True, "ActivityKit": True, "Charts": True,
@@ -38,6 +45,14 @@ CAN_IMPORT = {
               "AVFoundation": True, "CoreImage": True, "Security": True, "QuickLook": True,
               "UniformTypeIdentifiers": True, "OSLog": True, "StoreKit": True},
 }
+
+#: Modules whose presence depends on an optional xcframework rather than on the platform. Kept separate
+#: from `CAN_IMPORT` because the answer is a fact about this project's `Frameworks/` directory, not about
+#: the platform, and a reader checking one should not have to read the other.
+OPTIONAL_MODULES = {"GhosttyTerminal": True}
+
+for _platform in CAN_IMPORT:
+    CAN_IMPORT[_platform].update(OPTIONAL_MODULES)
 
 #: Conditions that select a *build* rather than a platform. A branch guarded by one of these is copied
 #: with its directive, and nothing inside it is evaluated or rewritten.

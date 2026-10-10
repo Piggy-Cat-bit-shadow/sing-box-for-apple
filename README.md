@@ -36,6 +36,52 @@ python scripts/dev/audit_apple_ui_boundary.py --upstream-ref 089d35e
 
 ---
 
+## 产品所有权铁律（最高准则）
+
+> **iPhone 界面设计来源：`hako-ui@c1935cf`。任何人不得擅自改变它——不改视觉、不改信息架构、不改交互、不改文案、不"顺手优化"。iPad 与 macOS 保持上游官方 UI。这两条同等必须满足。**
+
+这是给后续 AI 与协作者的第一条约束，优先于任何"让代码更整洁""让视觉更现代"的施工提示。
+
+| | |
+|---|---|
+| **iPhone UI 真值来源** | `hako-ui` @ `c1935cff77246f97498400f5a0a7f430cfabbd55`。已完成的界面就是它，不需要重新设计 |
+| **iPad / macOS UI 真值来源** | `upstream/dev` @ `089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85`（本 fork 的已审计 pin） |
+| **两者冲突时** | 技术方案让步。宁可更严格的隔离、局部重复代码、专用适配器，也不牺牲原版设计 |
+| **没有 Apple 编译条件时** | 如实标 `UNVERIFIED`，保留原版实现等待真机验证。**不是**重新发明界面的许可 |
+
+### 谁是谁：原版设计 与 本工程的适配层
+
+```text
+hako-ui@c1935cf（原版 iPhone UI，唯一设计真值）
+        │
+        │  机械移植：scripts/dev/port_*.py
+        │    · 平台条件解析为 iOS
+        │    · 文件级类型改名进 Hako 命名空间
+        │    · 丢弃共享层已拥有的声明（每项都有断言，找不到就失败）
+        ▼
+ApplicationLibrary/Views/HakoStyle/（手机 UI 的全部所有权边界）
+        │
+        │  唯一的可达性入口
+        ▼
+SFI/HakoPageContent.swift ──→ SFI/HakoPhoneRootView.swift
+        │
+        │  SFIUIFamily.resolve(idiom:) 只对 .phone 返回 Hako
+        ▼
+    iPhone 看到 Hako；.pad 与 macOS 看到上游官方 UI
+```
+
+**生成器是迁移工具，不是设计权威。** 它们只做机械改名与条件解析；任何无法机械表达的转换都必须失败并列出，不许猜。原版源码以固定 commit 读取，生成物由 `--check` 只读校验，`--regenerate` 必须显式指定。
+
+### 三个不能靠"看起来差不多"判断的判据
+
+| 判据 | 工具 | 当前 |
+|---|---|---|
+| **一级页面路由** | `audit_apple_ui_boundary.py --only hako-page-coverage`，读取 `HakoPageContent` 的 switch | 6 / 6 |
+| **原版 UI 保全** | `audit_hako_lossless_parity.py`，把每个页面的 UI token（本地化字符串、`systemImage`、空状态符号与文案、可访问性 ID、Hako 组件、设计 token）与原版逐集合比对 | 6 个页面 0 token 丢失；设计系统 10 个文件逐字节相同 |
+| **平台隔离** | 同一边界审计的 `phone-entry`、`ipad-mac-ui-gate`、`no-reverse-dependency`、`shared-declaration-duplicates` | PASS |
+
+保全审计**只能**给出 `STATIC_PARITY_EVIDENCE`，且**永不输出** `PIXEL_PARITY_PASS` 或 `DEVICE_PASS`——那需要真实设备截图。逐项状态见 [docs/HAKO-LOSSLESS-PARITY-AUDIT.md](docs/HAKO-LOSSLESS-PARITY-AUDIT.md)，设备验收清单见 [docs/APPLE-HAKO-VISUAL-ACCEPTANCE.md](docs/APPLE-HAKO-VISUAL-ACCEPTANCE.md)。
+
 ## Architecture / Data Flow
 
 ```text
@@ -77,7 +123,7 @@ SFI/HakoPhoneRootView    SFI/MainView.swift      Mac 侧边栏与页面
 **四个不变量，全部由审计脚本验证：**
 
 1. **反向依赖为零** — `ApplicationLibrary/Views/*` 中任何一个上游可达文件里
-   **不得出现任何 Hako 类型名或 Hako 成员名**。当前：339 个文件，0 处匹配。
+   **不得出现任何 Hako 类型名或 Hako 成员名**。当前：0 处匹配（由审计脚本实测，不写死计数）。
 2. **上游根是上游的字节** — `SFI/MainView.swift`、`MacLibrary/MainView.swift`、
    `ApplicationLibrary/Views/SidebarView.swift`、`Abstract/SidebarLayout.swift`、
    `NavigationPage.swift` 与 `089d35e` **逐字节相同**。
@@ -95,7 +141,7 @@ SFI/HakoPhoneRootView    SFI/MainView.swift      Mac 侧边栏与页面
 SFI/                          iPhone / iPad 应用目标
   Application.swift           ★ 唯一的设备分流点（SFIUIFamily）
   HakoPhoneRootView.swift     fork 拥有的手机根视图
-  HakoPageContent.swift       ★ 唯一的手机页面路由缝（当前指向上游页面）
+  HakoPageContent.swift       ★ 唯一的手机页面路由缝（六个一级页面全部指向 Hako 页面本体）
   MainView.swift              上游的 iPad 根视图（未被本 fork 修改）
   ApplicationDelegate.swift   App 代理
   *_WrapperView.swift         编辑器包装（共享）
@@ -109,11 +155,24 @@ MacLibrary/                   macOS 专属界面与窗口（MainView 与上游�
 
 ApplicationLibrary/           共享的界面框架（iOS / macOS / tvOS 共用）
   Views/
-    HakoStyle/                ★ fork 拥有的设计系统（11 个文件）
-                                HakoTheme、HakoProductPalette、HakoCard、
-                                HakoRow、HakoScaffold、HakoStatus、HakoData、
-                                HakoSurface、HakoEmptyState、HakoPrimaryShell、
-                                HakoNavigation、HakoUITrace
+    HakoStyle/                ★ 手机 UI 的全部所有权边界（19 个 .swift）
+
+      原版共享组件（必须与 c1935cf 逐字节相同）：
+        HakoTheme、HakoSurface、HakoCard、HakoRow、HakoScaffold、
+        HakoStatus、HakoData、HakoEmptyState、HakoPrimaryShell、HakoUITrace
+
+      原版页面（按 UI token 对照原版，不要求逐字节）：
+        HakoHomeView
+
+      从原版机械移植的页面（生成物，勿手改）：
+        HakoGroupListView、HakoConnectionListView、HakoLogView、
+        HakoToolsView、HakoSettingView
+
+      原版组件的 fork 副本（上游已改，手机需要原版形态）：
+        HakoStartStopButton、HakoProfilePickerSheet
+
+      本工程新增、原版没有的：
+        HakoNavigation（手机页面名；原版无此文件）
     Abstract/                 共享的页面原语（FormItem、ViewModifiers …）
     Dashboard/                仪表板与卡片（上游所有）
     Groups/  Connections/     代理组与连接（上游所有）
