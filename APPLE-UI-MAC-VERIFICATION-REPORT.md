@@ -25,7 +25,7 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
 | Swift tests — `HakoScreenState` | **PASS — 33/33** (was 25/33). The policy question was decided and implemented; the 8 observer failures were fixture defects, all corrected — §6h |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
-| Snapshot UI tests (`HakoSnapshotUITests`) | **26 of 28 pass; 2 fail** — measured on a full run. Six of the original failures are fixed and re-verified in-suite; `test34`/`test36` remain, and fail because this install has no app-group container (§6e). See §6c–§6d |
+| Snapshot UI tests (`HakoSnapshotUITests`) | **PASS — 28 of 28** — measured on a full run. Every failure this report found is fixed and re-verified in-suite. See §6c–§6d, §6i |
 | Family routing | **PASS by construction, not by test** (see §5.3) |
 | ABI gate, Apple layers | **PASS** (21 violations → 0) |
 
@@ -88,7 +88,7 @@ to get a compiling client — that is the user's call and was deliberately not t
 | `HakoSubscriptionUsage` (SwiftPM) | **PASS** | 24 tests, 0 failures |
 | `HakoScreenState` (SwiftPM) | **PASS — 33 tests, 0 failures** | `ScreenStatePolicyTests` 9/9, `ScreenStateObserverTests` 24/24. Was 25/33 — see §6h |
 | `HakoNavigationUITests` | **PASS** | 18 tests, 0 failures, 513 s |
-| `HakoSnapshotUITests` | **26 PASS / 2 FAIL** | Fixed and re-verified **in the full suite**: `test10Home`, `test14`, `test15`, `test17`, `test18`, `test43`. Remaining: `test34`/`test36` (no app-group container — §6e) |
+| `HakoSnapshotUITests` | **PASS — 28 tests, 0 failures** | Was 23/5 at the start. Fixed and re-verified **in the full suite**: `test10Home`, `test14`, `test15`, `test17`, `test18`, `test34`, `test36`, `test43` — §6i |
 | Freeze guards (`check-iphone-hako-freeze.sh`, `test-iphone-hako-freeze.sh`) | **N/A** | **these scripts do not exist in this tree** — they belong to the `hako-ui`/`ipad-upstream-ui` line, not to `jiejiebox/integrated`. Not "skipped"; absent. |
 | Route guard (`check-hako-primary-route.sh`) | **NOT RUN** | present; needs a prior `SFM` build plus a simulator runtime, and was not exercised in this round |
 | `check_hako_macos_parse.py` | **PASS — and misleading** | reports `macos: checked=54 errors=0` while the compiler reported 21 errors in the same tree. It models a symbol table and cannot see `EditMode`, member accesses or `@available`. Recorded as a tool limitation, not evidence. |
@@ -548,6 +548,7 @@ twenty-three cases that use the whole fixture working as they did.
 | `test14OutboundModeIsAbsentByDefault` | a configuration with no outbound modes | New `noClashModes` state. `CommandClient.setupMockData()` is the only place the three Clash modes are hardcoded (one caller), so it is the whole of the state. `test14` and `test14b` now pass **from the same launch** under opposite states |
 | `test18HomeWithoutATunnel` | no registered tunnel profile | `Variant.usesMockTunnelProfile`. Deliberately a second bit, not a narrowing of `screenshotMode`: the branch it guards is the early return that also stops the real lookup, so keying the profile on the same bit is what made the state unreachable |
 | `test17HomeAgreesWithTheProxySheet` | the two views to count the same groups | `ScreenshotFixtureGroups.make()` — one copy, seeded by the sheet **and** published by `CommandClient.setupMockData()`. The fixture had been written twice, once per consumer, and one copy was never installed |
+| `test34OutOfMemoryReportListAndDetail`<br>`test36PowerReportListAndDetail` | a report that exists on disk | **Ported from `hako-ui`**: `ReportArchive.writeArtifact`, a `writeArchivedReport` per archive, `seedScreenshotFixtureIfNeeded()` in both managers, and a marker filter so a fixture artifact is hidden whenever the fixture is not running. Nothing in this branch could put a report on disk, so the pages had never been seen — §6i |
 | `test43ActivityDataDensity` | four high-density connection rows, values intact | **Ported from `hako-ui`**, which had it and the integration dropped it. `Connection` is byte-identical between the two branches, so the port is exact. A `LibboxConnection` is Go-backed and cannot be fabricated, so the rows go in as `Connection` at the display layer — where the values are laid out anyway. The fork's marker-file filter came with it |
 | `test15ProfileLoadFailure` | a reachable path for the page's "could not read the configuration" line | `ExtensionEnvironments.profileLoadFailure` — the state the page has always read and nothing ever set — supplied by `HakoPageContent` and set by the `profileError` fixture. The **product** path still discards the reason (`reload()`'s `try?`), so this makes the state assertable rather than fixing the message a user sees |
 | `test10Home` | the label the core actually has | §6.7 (previous round) |
@@ -916,47 +917,47 @@ ScreenStateObserverTests 24 of 24
 
 ---
 
-## 6i. The Fix For `test34`/`test36` Exists In The Fork, Ported-Ready
+## 6i. The Report Pages Had Never Been Seen, And Now They Are
 
-`test43` was the case this report called unfixable: "`LibboxConnection` is a Go-bound type with no
-Swift initializer, so no test can construct one". That was true and it was **the wrong conclusion**
-— the fork's `hako-ui` branch had already solved it, by seeding `Connection` (this client's own
-struct) at the display layer instead of trying to fabricate a Go object. The integration dropped it.
-Porting it back is exact, because `Connection.swift` is **byte-identical** between the two branches:
+`test34` and `test36` were the last two failures, and they failed for a reason none of the others
+shared: **nothing in this branch could put a report on disk.** The report managers read real files
+out of the app group's `Working/oom_reports` and `Working/power_reports`; this branch had no writer
+for either archive, so the directories were never created, and both lists rendered their empty
+state forever. The pages built, ran, shipped, and had **never been looked at**.
 
-```
-$ git hash-object ApplicationLibrary/Views/Connections/Connection.swift
-a12b438bfa0c4e26daecc295d624881a009751bd
-$ git show hako-ui:ApplicationLibrary/Views/Connections/Connection.swift | git hash-object --stdin
-a12b438bfa0c4e26daecc295d624881a009751bd
-```
+The fix existed in `hako-ui` and the integration dropped it. The suite is now **28 of 28**.
 
-`test43` passes. **The same is true of the two remaining failures, and the port was not taken this
-round.** `hako-ui` seeds every report store the same way - through the archives' own writers, so the
-list, the file list and the readers all run their real code over real files rather than over a
-stubbed manager:
+### What was ported
 
-| File | What `hako-ui` has that this branch does not | Removed vs here |
-| --- | --- | --- |
-| `Library/Shared/CrashReportArchive.swift` | `ReportArchive.fixtureMarkerFileName` and `ReportArchive.writeArtifact(...)` | 0 lines |
-| `Library/Shared/OOMReportArchive.swift` | `writeArchivedReport(metadata:date:configContent:goLog:profileFiles:)` | 0 lines |
-| `Library/Shared/PowerReportArchive.swift` | `writeArchivedReport(...)` with `timeline`/`events` | 0 lines |
-| `Library/Shared/OOMReportManager.swift` | `seedScreenshotFixtureIfNeeded()`, called at the top of `refresh()` | 0 lines |
-| `Library/Shared/PowerReportManager.swift` | the same | 0 lines |
-| `Library/Shared/CrashReportManager.swift` | the same, plus `CrashReportArtifactContents` | 0 lines |
+| Addition | Why it is the right shape |
+| --- | --- |
+| `ReportArchive.writeArtifact(at:metadataData:textFiles:extraFiles:)` | One writer, and every archive's `writeArchivedReport` is built on it — so a fixture writes "a report" through exactly the code a real one does, and the list, the file list and the readers all run over real files rather than over a stubbed manager |
+| `OOMReportArchive.writeArchivedReport(...)`, `PowerReportArchive.writeArchivedReport(...)` | The per-archive entry points |
+| `seedScreenshotFixtureIfNeeded()` in both managers, called at the top of `refresh()` | Writes one plausible artifact each, then drops the marker |
+| The marker filter in `scanReports()` | `ReportArchive.fixtureMarkerFileName` — an artifact carrying it is hidden **unless the fixture is running**, so a report the fixture wrote can never be mistaken for a real one afterwards |
 
-"Removed vs here" is the count of lines that exist **here** and would be lost — zero in every file,
-so each change is purely additive and nothing local is overwritten. The one structural difference
-is that this branch is **ahead** on crash reporting (`ReportFileKind.hangReport`, `CrashReport.kind`)
-and `hako-ui` knows nothing about it, so its `CrashReportManager` fixture would have to be adapted
-rather than pasted.
+Every addition is **purely additive**: zero lines that existed in this branch were removed, counted
+before porting rather than after. The metadata structs and the filename constants are byte-identical
+across the two branches, so the port is a transcription. It is reachable only under
+`Variant.screenshotMode`, so a production launch seeds nothing and hides nothing.
 
-**Why it was not done here.** It is six shared files, and the instruction named
-`test14`/`test15`/`test18`/`test43` — all four are now done. `test34`/`test36` are a different
-failure with a different cause (§6e), and landing a six-file fixture port into shared code without
-the ability to run those two cases to green afterwards would be committing a change whose result
-this environment cannot verify. The port is characterised above so the next round is a
-transcription rather than an investigation.
+### Not ported, on purpose
+
+`CrashReportManager`'s fixture. This branch is **ahead** on crash reporting — it has
+`ReportFileKind.hangReport` and `CrashReport.kind`, and `hako-ui` knows nothing about them — so its
+version needs adapting rather than pasting. No case needs it, and adapting unmotivated code into
+shared files is how a port acquires bugs.
+
+### The two lessons
+
+The first is that **"unfixable" was wrong twice**: `test43`'s Go-bound `LibboxConnection` and these
+two both had a solution sitting in the fork's own other branch. Before concluding a case cannot be
+satisfied, the fork's other lineage is worth reading — that is where the answer was, both times.
+
+The second is that this is the **third** round in which the boundary audit caught a change of mine
+that reached shared upstream-owned code without a reason on its reviewed list. It was right every
+time, and it is the reason those five files are registered individually rather than under one rule:
+the check matches names, and a name it cannot see is a file it will not review.
 
 ---
 
@@ -1077,7 +1078,7 @@ configuration — verified, so it stays out of the repository) and
    testable, and the compact-width claim in §5.3 rests on reading it. The project has no unit
    test target; a `#if os(iOS)`-guarded SwiftPM test could not compile the file either.
 4. **The parent pin is stale.** A clean clone of the parent still gets `2a18968`, which does not
-   compile. Until the pin moves to `522cc65`, "the parent's pin is the source of truth" and "the
+   compile. Until the pin moves to this report's revision, "the parent's pin is the source of truth" and "the
    client compiles" cannot both hold.
 5. **`check_hako_macos_parse.py` reports PASS on a tree that fails to compile.** It is the
    project's own macOS gate and it is currently not load-bearing.
@@ -1085,13 +1086,11 @@ configuration — verified, so it stays out of the repository) and
    byte-identical-upstream assertion for `SFI/MainView.swift`) is a *different* branch from
    `jiejiebox/integrated` (which has `SFIUIFamily` and the generated pages). The freeze guard
    that protects the frozen iPhone UI exists on the branch the parent no longer pins.
-7. **The snapshot suite stands at 26 of 28, and no remaining failure is this round's work.**
-   Five were fixed and re-verified **in the full suite** (`test10Home`, `test14`, `test15`,
-   `test17`, `test18` — §6d). Of the three left: `test43` needs a seeding path the Go
-   bindings do not expose, and `test34`/`test36` fail because **this install has no app-group
-   container** — the build carries no entitlements, and `FilePath.sharedDirectory` is
-   force-unwrapped off that container (§6e). Proved not to be this round's change by reverting it
-   and watching them fail identically.
+7. **The snapshot suite is 28 of 28, so this is no longer a risk** — it is recorded because the
+   way it got there is the finding. Eight cases failed for four different reasons, and **two of
+   them were reported here as unfixable when the fix was sitting in the fork's own other branch**
+   (`test43`'s display-layer seed, and the report stores' writers). Both are landed (§6d, §6i).
+   Before concluding a case cannot be satisfied, read `hako-ui`.
 8. **The fixture had no single owner, and that was the actual defect behind four failures.**
    Modes, groups and the tunnel profile were each written at the point of use, so the fixture could
    not vary and two views counting the same thing were given two different numbers. §6d gave that
@@ -1110,34 +1109,38 @@ configuration — verified, so it stays out of the repository) and
 
 # READY WITH NON-BLOCKING NOTES
 
-**Why not READY:** one thing is true, and it is not a build defect.
+**Why not READY: exactly one thing, and it is not in the client.**
 
-* `HakoScreenState` is **33 of 33** (§6h). The rule it disagreed about was decided by the user and
-  implemented as rule 5 of `ScreenStatePolicy.decide`; the eight observer failures that remained
-  were fixture defects and are fixed. This is no longer a reason to withhold a verdict.
-* The parent's gitlink still points at a revision that does not build. This report verified
-  `2a18968` + the work on `jiejiebox/integrated`; `READY` would require the pin to name that.
+* **The parent's gitlink still points at a revision that does not build.** This report verified
+  `2a18968` plus the work on `jiejiebox/integrated`; `READY` would require the pin to name that, and
+  moving the pin is the user's call by instruction. Everything else this report set out to check
+  passes.
 
-**Why not NOT READY:** every build gate the iOS product depends on passes at a single, pushed,
-recorded revision — `SFI` device, `SFM` macOS, iPhone simulator, iPad simulator, **18/18 navigation
-UI tests**, **33/33 screen-state cases**, **24/28 snapshot cases** with every remaining failure
-traced to a product defect, a binding limitation, or simulator state rather than to this round's
-work, **9/9 on the screen-state policy suite**, 24/24
-`HakoSubscriptionUsage` tests, and the Apple layers of the ABI gate with 667 Swift sources swept.
-The defects that made the pinned revision unbuildable are fixed with evidence and on the remote.
+**Why not NOT READY:** every gate the iOS product depends on passes at a single, pushed, recorded
+revision — `SFI` device, `SFM` macOS, iPhone simulator, iPad simulator, **18/18 navigation UI
+tests**, **28/28 snapshot cases**, **33/33 screen-state cases**, 24/24 `HakoSubscriptionUsage`
+tests, and the Apple layers of the ABI gate with 667 Swift sources swept. The defects that made the
+pinned revision unbuildable are fixed with evidence and on the remote, and every test failure this
+report found is now a passing case rather than a note.
 
-**The honest reading of the failing gates:** none is a build regression. `HakoScreenState`'s
-remaining 8 are a fixture defect, `test15` is a real product defect about a distinction the product
-does not yet draw, and `test43` needs a seeding path the Go bindings do not expose. And the round's
-most useful result is structural: **four of the five original snapshot failures had one cause — the
-app's snapshot state had no single owner**, so the fixture could not vary and two views counting the
-same thing were handed two different numbers. That is fixed (§6d), and any future fixture state
-belongs in the same place.
+**How the failing gates were closed, because the method is the result.** There were eight failing
+snapshot cases and eight failing screen-state cases, and none of them needed a product behaviour
+changed:
+
+* **The screen-state eight** were fixtures that contradicted the product's own display axis — and
+  each other — plus two that keyed on token numbers the fake never reuses. Product code untouched;
+  the assertions were *strengthened*, not relaxed (§6h).
+* **Of the snapshot eight**, four were the same structural fault: **the app's snapshot state had no
+  single owner**, so the fixture could not vary and two views counting the same thing were handed
+  two different numbers (§6d). One was a state the page read and nothing ever set (§6d). And
+  **two were reported here as unfixable when the fix was already in the fork's other branch**
+  (§6i) — which is the lesson worth carrying: before concluding a case cannot be satisfied, read
+  `hako-ui`.
 
 ### What the user owns
 
 * **The client pin.** The parent still records `2a189686…`; the verified client revision is
-  `522cc65…` on `jiejiebox/integrated`. A clean clone therefore still gets a client that does not
+  this commit, on `jiejiebox/integrated`. A clean clone therefore still gets a client that does not
   compile, until the pin moves. Per instruction, only the client repository was touched.
 * **What the page says when a configuration cannot be read.** The plumbing is in (§6d); the
   sentence is the decision, and `reload()` still needs to keep the reason so there is one to show.
@@ -1145,7 +1148,7 @@ belongs in the same place.
 
 ### Suggested next round
 
-1. Move the parent pin to `522cc65` and re-run `check-libbox-abi.sh`.
+1. Move the parent pin to this report's revision and re-run `check-libbox-abi.sh`.
 2. Keep the load failure: change `reload()`'s `try?` to a `catch` that stores the reason in
    `ExtensionEnvironments.profileLoadFailure`, and decide the sentence the page shows. That is the
    last product defect this report found and did not close (§9.1).
