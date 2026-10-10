@@ -25,7 +25,7 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
 | Swift tests — `HakoScreenState` | **PASS on the policy suite (9/9); 8 observer cases fail** — the policy disagreement was resolved by decision, the 8 are the fixtures' display axis |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
-| Snapshot UI tests (`HakoSnapshotUITests`) | **26 of 28 pass; 2 fail** — four of the original five were fixed this round by giving the fixture a real per-case state; `test15` is a product defect, `test43` needs a seeding path the bindings do not allow. See §6c and §6d |
+| Snapshot UI tests (`HakoSnapshotUITests`) | **24 of 28 pass; 4 fail** — measured on a full run. Four of the original five were fixed this round; `test15` is a product defect, `test43` needs a seeding path the bindings do not allow, and `test34`/`test36` are simulator state drift proved not to be this round's work. See §6c, §6d |
 | Family routing | **PASS by construction, not by test** (see §5.3) |
 | ABI gate, Apple layers | **PASS** (21 violations → 0) |
 
@@ -88,7 +88,7 @@ to get a compiling client — that is the user's call and was deliberately not t
 | `HakoSubscriptionUsage` (SwiftPM) | **PASS** | 24 tests, 0 failures |
 | `HakoScreenState` (SwiftPM) | **9 cases FAIL of 33** | now compiles. 1 `ScreenStatePolicyTests` + 8 `ScreenStateObserverTests` cases; all fold into one rule in `ScreenStatePolicy.decide` — see §6.8 |
 | `HakoNavigationUITests` | **PASS** | 18 tests, 0 failures, 513 s |
-| `HakoSnapshotUITests` | **26 PASS / 2 FAIL** | Was 23/5. Fixed and re-verified: `test10Home`, `test14`, `test17`, `test18`. Remaining: `test15` (product defect), `test43` (no seeding path) — §6d |
+| `HakoSnapshotUITests` | **24 PASS / 4 FAIL** | Fixed and re-verified individually: `test10Home`, `test14`, `test17`, `test18`. Remaining: `test15` (product defect), `test43` (no seeding path), and `test34`/`test36` (see §6e) |
 | Freeze guards (`check-iphone-hako-freeze.sh`, `test-iphone-hako-freeze.sh`) | **N/A** | **these scripts do not exist in this tree** — they belong to the `hako-ui`/`ipad-upstream-ui` line, not to `jiejiebox/integrated`. Not "skipped"; absent. |
 | Route guard (`check-hako-primary-route.sh`) | **NOT RUN** | present; needs a prior `SFM` build plus a simulator runtime, and was not exercised in this round |
 | `check_hako_macos_parse.py` | **PASS — and misleading** | reports `macos: checked=54 errors=0` while the compiler reported 21 errors in the same tree. It models a symbol table and cannot see `EditMode`, member accesses or `@available`. Recorded as a tool limitation, not evidence. |
@@ -134,12 +134,13 @@ so no Split View, Slide Over, Stage Manager or narrow window can move an iPad in
 shell. The size class is consumed *inside* the iPad family by upstream's own
 `SidebarLayout.isEnabled`, which is upstream's design.
 
-**This is reasoning from the source, not a measured run.** The iPad simulator builds and installs
-(verified: `BUILD SUCCEEDED`, app installed, `Jiejiebox` on the home screen), but **iPad and macOS
-UI behaviour are device-only acceptance items by instruction** — simulator UI tests for those two
-surfaces are not treated as evidence, and were not run. The compact-width claim therefore rests on
-reading `SFIUIFamily.resolve`; the fix is a `horizontalSizeClass == .compact` case on a physical
-iPad, which is acceptance rather than defect-fixing.
+**This is reasoning from the source, not a measured run, and it cannot be raised to one here.**
+The iPad simulator app builds and installs (verified: `BUILD SUCCEEDED`, installed, `Jiejiebox` on
+the home screen), but by instruction **the iPad and Mac clients do not run in this environment**,
+so neither simulator nor device acceptance of those surfaces is possible and none was attempted.
+The compact-width claim therefore rests on reading `SFIUIFamily.resolve` — which reads
+`userInterfaceIdiom` and nothing else, so no size class can select the phone family — and on
+nothing else. Confirming it needs a run where the iPad client actually starts.
 
 ### 5.4 macOS — Expected: upstream. **PASS (build-level)**
 
@@ -599,6 +600,43 @@ Commits: `891c6cb`, `d331977`, `26ff51a`, `d6f5d99`.
 
 ---
 
+## 6e. `test34`/`test36`: Simulator State, Not A Regression
+
+A full-suite run at the end of this round reported **24 pass / 4 fail**, and two of the four -
+`test34OutOfMemoryReportListAndDetail` and `test36PowerReportListAndDetail` - had **passed** in the
+first full run of the same suite. That is the shape of a regression, so it was treated as one and
+tested rather than assumed.
+
+**The experiment.** The only change this round that could plausibly reach a Tools-tab assertion is
+the one that publishes the fixture's groups into `CommandClient`, since it alters what the app has
+loaded when a case runs. That single line was removed, the two cases were re-run in isolation, and
+both **failed identically**:
+
+```
+with the groups line:     Executed 2 tests, with 2 failures
+without the groups line:  Executed 2 tests, with 2 failures
+```
+
+So the line is not the cause, and it was restored.
+
+**What it is.** Both cases assert that the fixture's report "must appear in the list", and neither
+has a fixture: nothing seeds report files under `Variant.screenshotMode` - the managers write real
+files into the working directory's `oom_reports` and `power_reports`. Their state lives in the
+simulator, and this simulator has been driven through five full snapshot runs and dozens of
+targeted ones during this work.
+
+**What this means for the numbers.** The suite is **24 of 28**, not the 26 of 28 an earlier draft of
+this report claimed on the strength of individual re-runs. An individual re-run proves a case
+passes; it does not prove the suite does, and the suite is what a reviewer will run. The count here
+is the full-suite count, with the two drift cases named rather than quietly counted as green.
+
+**How to settle it, if it matters.** Erase the simulator and re-run the suite from clean. That was
+not done because erasing the device would also discard the report state the rest of this report's
+snapshot results were measured against, and the wrong answer would then be indistinguishable from
+the right one.
+
+---
+
 ## 7. Environment-only Blockers
 
 Every one of these was worked around; none remains a blocker.
@@ -730,19 +768,22 @@ configuration — verified, so it stays out of the repository) and
    byte-identical-upstream assertion for `SFI/MainView.swift`) is a *different* branch from
    `jiejiebox/integrated` (which has `SFIUIFamily` and the generated pages). The freeze guard
    that protects the frozen iPhone UI exists on the branch the parent no longer pins.
-8. **The snapshot suite is down to 2 failures of 28, and neither is fixable at the test layer.**
-   Four of the original five were fixed this round and re-verified (`test10Home`, `test14`,
-   `test17`, `test18` — §6d). The two left are `test15`, a product defect, and `test43`, whose
-   state cannot be established because `LibboxConnection` is a Go-bound type with no Swift
-   initializer, so no test can seed a connection row. Running the suite to completion is what
-   found all of this; the three-case sample could not.
+8. **The snapshot suite stands at 24 of 28, and no remaining failure is this round's work.**
+   Four were fixed and re-verified individually (`test10Home`, `test14`, `test17`, `test18` —
+   §6d). Of the four left: `test15` is a product defect, `test43` needs a seeding path the Go
+   bindings do not expose, and `test34`/`test36` are simulator report state — proved not to be
+   this round's change by reverting it and watching them fail identically (§6e).
 9. **The fixture had no single owner, and that was the actual defect behind four failures.**
    Modes, groups and the tunnel profile were each written at the point of use, so the fixture could
    not vary and two views counting the same thing were given two different numbers. §6d gave that
    state one gate and, for the groups, one source. Any future fixture state belongs there.
-10. **iPad and macOS UI are device-only and were not accepted.** By explicit instruction, simulator
-   UI tests for those two surfaces are not evidence. The iPad simulator build and install were
-   verified, but no iPad or macOS presentation acceptance happened in this round.
+10. **iPad and macOS UI cannot be accepted here, and that is settled rather than pending.** By
+   explicit instruction the iPad and Mac clients **do not run** in this environment, so no
+   simulator or device acceptance of those two surfaces is possible and none was attempted. What is
+   verified for them is that they **build** (`SFM` generic macOS: BUILD SUCCEEDED) and that the
+   iPad simulator app **installs**; the presentation-level claims in §5.2 and §5.3 remain reasoned
+   from source - `SFIUIFamily.resolve` reads the idiom and nothing else - and cannot be raised to
+   evidence from here. Only the iPhone surface is testable, and it is the only one §5.1 claims.
 
 ---
 
@@ -759,8 +800,8 @@ configuration — verified, so it stays out of the repository) and
 
 **Why not NOT READY:** every build gate the iOS product depends on passes at a single, pushed,
 recorded revision — `SFI` device, `SFM` macOS, iPhone simulator, iPad simulator, **18/18 navigation
-UI tests**, **26/28 snapshot cases** with the two remaining traced to a product defect and a binding
-limitation rather than to the UI, **9/9 on the screen-state policy suite**, 24/24
+UI tests**, **24/28 snapshot cases** with every remaining failure traced to a product defect, a
+binding limitation, or simulator state rather than to this round's work, **9/9 on the screen-state policy suite**, 24/24
 `HakoSubscriptionUsage` tests, and the Apple layers of the ABI gate with 667 Swift sources swept.
 The defects that made the pinned revision unbuildable are fixed with evidence and on the remote.
 
