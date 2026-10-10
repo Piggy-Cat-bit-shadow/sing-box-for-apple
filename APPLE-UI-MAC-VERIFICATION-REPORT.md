@@ -25,7 +25,7 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
 | Swift tests — `HakoScreenState` | **compiles; 11 of 33 cases fail** (was: did not compile) |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
-| Snapshot UI tests (`HakoSnapshotUITests`) | **23 of 28 pass, 5 fail** — full suite run on the iPhone simulator. `test10Home` was failing and is fixed; the five remaining failures are diagnosed in §6c |
+| Snapshot UI tests (`HakoSnapshotUITests`) | **23 of 28 pass, 5 fail** — all five are fixture/test-side, none is a proved product bug. `test10Home` was failing and is fixed; the five are diagnosed in §6c |
 | Family routing | **PASS by construction, not by test** (see §5.3) |
 | ABI gate, Apple layers | **PASS** (21 violations → 0) |
 
@@ -393,7 +393,7 @@ have the states they ask for. They need either the harness ported or the cases r
 inventing a `SCREENSHOT_STATE` interpreter to satisfy six call sites would be adding product
 surface for a test.
 
-### `test17HomeAgreesWithTheProxySheet` — **a real product defect**
+### `test17HomeAgreesWithTheProxySheet` — **the two views are not reading the same thing**
 
 ```
 Home said "Proxies, Proxy groups" while the sheet said 2 groups
@@ -408,28 +408,53 @@ private var groupsSubtitle: String {
 }
 ```
 
-The sheet showed `2`, so the data was there; Home's `liveGroupCount` was `0` when its row was
-built. Home feeds it by hand:
+**A first reading of this blamed Home for not receiving the count. That was wrong, and the cause
+is on the other side.** The number `2` the case reads from the sheet is not the live group count
+at all — it is a **fixture**:
 
 ```swift
-@State private var liveGroupCount = 0
-...
-.onAppear { liveGroupCount = environments.commandClient.groups?.count ?? 0 }
-.onReceive(environments.commandClient.$groups) { groups in liveGroupCount = groups?.count ?? 0 }
+// GroupListViewModel.connect()
+public func connect() {
+    if Variant.screenshotMode {
+        ...
+        groups = [
+            OutboundGroup(tag: "my_group", ...),
+            OutboundGroup(tag: "Auto", ...),
+        ]
+        isLoading = false
+    }
+}
 ```
 
-The sheet reads the **same** `environments.commandClient.$groups` through its own view model, so
-the two views have one source and disagree about it — which is exactly the defect this case was
-written to catch, and its comment says so: *"Two views disagreeing about one number is a defect a
-single-page assertion cannot see, which is why this one reads both."* The earlier fix (reading the
-published property rather than a nested observable) is present in the code and is evidently not
-sufficient.
+Under `-FASTLANE_SNAPSHOT` the sheet **hardcodes exactly two groups**, and `summaryCard` renders
+`"\(filteredGroups.count)"` from them -> `2`. Home has no such fixture: its `liveGroupCount` is
+`0` because `commandClient.groups` is never populated in screenshot mode. So the case compares a
+**fixture-invented 2** against a **real count of 0** and reports a disagreement between the two
+views.
 
-**Not fixed here.** Reaching it means deciding whether Home should observe through a view model
-(as the sheet does) or whether `onReceive` is firing before the client ever publishes `groups`,
-and that is a change to how the phone's Home page tracks runtime state — with a 12-minute
-verification cycle per attempt on this host. It is recorded as the one real product failure in
-the suite.
+That also explains why the row is on screen at all while its subtitle says "Proxy groups" — the
+two use different predicates for the same question:
+
+```swift
+private var showGroups: Bool {
+    Variant.screenshotMode || environments.commandClient.groups?.isEmpty == false   // row: shown
+}
+private var groupsSubtitle: String {
+    let count = liveGroupCount                                                      // subtitle: 0
+    return count > 0 ? String(localized: "\(count) groups") : String(localized: "Proxy groups")
+}
+```
+
+So this is **not** the live-view disagreement the case was written to catch. In a real session
+both views read `commandClient.groups` — the sheet through `GroupListViewModel.setGroups(_:)`, Home
+through `.onAppear` + `.onReceive` on the same publisher — and would agree.
+
+**Not changed.** Making the case pass means either giving Home the same two-group fixture the sheet
+has (which changes what the phone renders under snapshot, and is a decision about the fixture model)
+or correcting the case. `groupsSubtitle` is in the frozen iPhone presentation, and the brief is
+explicit that its text is not to be touched without a bug that is proved against real behaviour —
+this one is proved only against a fixture. Recorded, with the cause named, rather than "fixed" on
+the strength of a number the fixture invented.
 
 ### Fixed in this round: four count strings with no catalog key
 
@@ -566,12 +591,18 @@ kernel repository was not touched by these.
    byte-identical-upstream assertion for `SFI/MainView.swift`) is a *different* branch from
    `jiejiebox/integrated` (which has `SFIUIFamily` and the generated pages). The freeze guard
    that protects the frozen iPhone UI exists on the branch the parent no longer pins.
-7. **The snapshot suite fails 5 of 28, and four of those are a missing harness rather than a
-   wrong expectation.** They are diagnosed in §6c: `test14`, `test15`, `test18` and `test43` all
-   call a `launch(state:)` that writes a variable the app never reads, so the state they describe
-   was never established and the assertions describe a page that was never asked for. `test17` is
-   the one real product failure in the group. Running the suite to completion is what found this;
-   the three-case sample in the previous round could not.
+7. **The snapshot suite fails 5 of 28, and none of the five is a proved product bug.** They are
+   diagnosed in §6c. Four (`test14`, `test15`, `test18`, `test43`) call a `launch(state:)` that
+   writes a variable the app never reads, so the states they describe were never established. The
+   fifth, `test17`, compares a number the *sheet's* snapshot fixture invents (two hardcoded groups)
+   against Home's real, empty count — so it reports a disagreement between a fixture and the live
+   client, not the live-view disagreement it was written to catch. Running the suite to completion
+   is what found this; the three-case sample in the previous round could not.
+8. **Two things would still change the phone's rendering if "fixed" naively**, which is why they
+   were not: giving Home the sheet's two-group fixture (changes what the frozen iPhone page draws
+   under snapshot) and the `showGroups` / `groupsSubtitle` predicate split — the row is shown by
+   `Variant.screenshotMode || groups?.isEmpty == false` while its subtitle falls back on a count of
+   zero. They agree in a real session; under the fixture they do not.
 8. **iPad and macOS UI are device-only and were not accepted.** By explicit instruction,
    simulator UI tests for those two surfaces are not evidence. The iPad simulator build and
    install were verified, but no iPad or macOS presentation acceptance happened in this round.
@@ -582,27 +613,27 @@ kernel repository was not touched by these.
 
 # READY WITH NON-BLOCKING NOTES
 
-**Why not READY:** three things are true, and the third is a product defect rather than a
-harness gap.
+**Why not READY:** two things are true, and neither is a build defect.
 
 * `HakoScreenState` compiles but **11 of its 33 cases fail**, in the pause/wake family this
-  project has already had to correct once (§6.8).
-* `HakoSnapshotUITests/test17HomeAgreesWithTheProxySheet` **fails against the product**: Home's
-  group count never reaches the page, so it reads its zero fallback while the sheet beside it
-  shows 2 (§6c). This is the case's stated purpose and it is doing its job.
+  project has already had to correct once (§6.8). That is a product-contract question, not a
+  harness gap.
 * The parent's gitlink still points at a revision that does not build. This report verified
-  `2a18968` + ten commits; `READY` would require the pin to name that.
+  `2a18968` + eleven commits; `READY` would require the pin to name that.
 
 **Why not NOT READY:** every build gate the iOS product depends on passes at a single, pushed,
 recorded revision — `SFI` device, `SFM` macOS, iPhone simulator, iPad simulator, 18/18 navigation
-UI tests, 23/28 snapshot cases with all five failures diagnosed to a cause, 24/24
-`HakoSubscriptionUsage` tests, and the Apple layers of the ABI gate with 667 Swift sources swept.
-The defects that made the pinned revision unbuildable are fixed with evidence and on the remote.
+UI tests, 23/28 snapshot cases with **all five failures traced to a fixture or a test rather than
+to the product**, 24/24 `HakoSubscriptionUsage` tests, and the Apple layers of the ABI gate with
+667 Swift sources swept. The defects that made the pinned revision unbuildable are fixed with
+evidence and on the remote.
 
-**The honest reading of the two failing gates:** neither is a build regression, and neither was
-introduced by this round. Both are places where the fork's own test suites are ahead of, or
-behind, the code they test — `test17` catching a real bug, `HakoScreenState` catching an
-undecided contract, and four snapshot cases driving a harness that was never carried over.
+**The honest reading of the failing gates:** none is a build regression and none was introduced by
+this round. `HakoScreenState` is an undecided product contract. Four snapshot cases drive a
+harness that was never carried across, and the fifth compares a number the snapshot fixture
+invents against the live client — so the two failing gates together say something worth saying:
+**this tree has no reliable way to tell a snapshot fixture's invented state from real state**, and
+that is what a future round should fix first.
 
 ### What the user owns
 
