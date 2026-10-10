@@ -142,20 +142,31 @@
                 pickerTheme: Binding<String>,
                 themePreference: SharedPreferences.Preference<String>
             ) -> some View {
-                FormNavigationLink {
-                    HakoThemePickerView(
-                        scheme: isDark ? .dark : .light,
-                        currentName: pickerTheme.wrappedValue
-                    ) { newName in
-                        guard !newName.isEmpty else { return }
-                        Task {
-                            await themePreference.set(newName)
-                            pickerTheme.wrappedValue = newName
+                // `HakoThemePickerView` is declared under `#if canImport(GhosttyTerminal)` - the same
+                // condition `HakoTerminalSessionContentView` and `HakoTerminalSessionContainerView` use,
+                // because `GhosttyTheme` is a product of that framework and the project links it for
+                // `(ios, macos)` only (`sing-box.xcodeproj/project.pbxproj:52`). The row is built only where
+                // that condition holds; elsewhere it draws nothing, which is the honest result for a row
+                // whose destination does not exist. Widening the declaration's guard instead would put a
+                // `GhosttyTheme`-typed stored property into a file the tvOS slice also compiles.
+                #if canImport(GhosttyTerminal)
+                    FormNavigationLink {
+                        HakoThemePickerView(
+                            scheme: isDark ? .dark : .light,
+                            currentName: pickerTheme.wrappedValue
+                        ) { newName in
+                            guard !newName.isEmpty else { return }
+                            Task {
+                                await themePreference.set(newName)
+                                pickerTheme.wrappedValue = newName
+                            }
                         }
+                    } label: {
+                        themeRowLabel(value: pickerTheme.wrappedValue)
                     }
-                } label: {
-                    themeRowLabel(value: pickerTheme.wrappedValue)
-                }
+                #else
+                    EmptyView()
+                #endif
             }
 
             private func themeRowLabel(value: String) -> some View {

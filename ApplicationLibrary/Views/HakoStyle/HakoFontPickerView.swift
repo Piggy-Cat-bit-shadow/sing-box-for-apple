@@ -177,22 +177,30 @@
                         alert = AlertState(action: "import font", error: error)
                     }
                 }
-                private func deleteImported(_ targets: [ImportedFont]) async {
-                    for font in targets {
-                        do {
-                            try await fontStore.delete(font)
-                            if selected == font.familyName {
-                                selected = ""
+                // `#if os(iOS)`, as the original has it (`up-hako@c1935cf
+                // .../Setting/FontPickerView.swift:20-25` guards the group that declares
+                // `ImportedFontStore`). `ImportedFont` is declared under that same condition at
+                // `Library/Shared/ImportedFontStore.swift:143`, and both this signature and its body read
+                // it and `fontStore`, so the function takes the condition its dependencies have. Its one
+                // call site is inside the matching `#if os(iOS)` block above.
+                #if os(iOS)
+                    private func deleteImported(_ targets: [ImportedFont]) async {
+                        for font in targets {
+                            do {
+                                try await fontStore.delete(font)
+                                if selected == font.familyName {
+                                    selected = ""
+                                }
+                            } catch {
+                                alert = AlertState(action: "remove font", error: error)
+                                return
                             }
-                        } catch {
-                            alert = AlertState(action: "remove font", error: error)
-                            return
+                        }
+                        if fontStore.fonts.isEmpty, editMode.isEditing {
+                            withAnimation { editMode = .inactive }
                         }
                     }
-                    if fontStore.fonts.isEmpty, editMode.isEditing {
-                        withAnimation { editMode = .inactive }
-                    }
-                }
+                #endif
             private static func monospacedFamilies() -> [String] {
                 // The three branches are the original's, restored.
                 //

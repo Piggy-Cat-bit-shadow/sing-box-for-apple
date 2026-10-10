@@ -74,18 +74,25 @@ public struct HakoNewProfileMenuView: View {
             }
             .alert($alert)
 
-                .fileImporter(
-                    isPresented: $showFileImporter,
-                    allowedContentTypes: [.profile, .json],
-                    allowsMultipleSelection: false
-                ) { result in
-                    handleFileImport(result)
-                }
-                .sheet(isPresented: $showQRScanner) {
-                    QRScannerView { result in
-                        handleQRScanResult(result)
+                // `#if !os(tvOS)`, as the original has it (`up-hako@c1935cf
+                // .../Profile/NewProfileMenuView.swift:125-138`). Both of these read state declared under
+                // that same condition at `:15-18`, and `QRScannerView` is itself declared under it
+                // (`ApplicationLibrary/Views/Scanner/QRScannerView.swift:12`) - `ApplicationLibrary` builds
+                // for tvOS, so neither reference compiles there without this.
+                #if !os(tvOS)
+                    .fileImporter(
+                        isPresented: $showFileImporter,
+                        allowedContentTypes: [.profile, .json],
+                        allowsMultipleSelection: false
+                    ) { result in
+                        handleFileImport(result)
                     }
-                }
+                    .sheet(isPresented: $showQRScanner) {
+                        QRScannerView { result in
+                            handleQRScanResult(result)
+                        }
+                    }
+                #endif
 
         }
         // Outside the scaffold, not inside its content.

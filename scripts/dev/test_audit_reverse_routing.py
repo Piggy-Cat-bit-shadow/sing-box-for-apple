@@ -403,9 +403,24 @@ def guard_definition_guard_deleted(copy: Copy) -> str:
 
 
 def guard_caller_guard_deleted(copy: Copy) -> str:
+    """Delete the `#if os(iOS)` that guards the terminal call site, leaving the declaration's guard.
+
+    The mutation used to name the generic lines `"        #if os(iOS)\\n"` and `"        #endif\\n"`. That
+    held while the file had exactly one of each; it now has several, because this round restored the
+    platform guards `HakoToolsView`'s original has (`up-hako@c1935cf .../Tools/ToolsView.swift:22-29`,
+    `:58-103`, `:152-158`, `:160-162`, `:404-458`). A mutation anchored on a line count is not a mutation -
+    it is a coincidence that stops holding - so this is anchored on the region it means to change: the guard
+    immediately above the `.sheet(item: $sshPresentedSession)` that constructs
+    `HakoTerminalSessionContainerView`, together with the `#endif` that closes it.
+    """
     relative = HAKO + "HakoToolsView.swift"
-    edit(copy, relative, "        #if os(iOS)\n", "")
-    edit(copy, relative, "        #endif\n", "")
+    edit(copy, relative,
+         "        #if os(iOS)\n        .sheet(item: $sshPresentedSession) { presented in\n"
+         "            NavigationStackCompat {\n                HakoTerminalSessionContainerView(presented)\n"
+         "            }\n        }\n        #endif\n",
+         "        .sheet(item: $sshPresentedSession) { presented in\n"
+         "            NavigationStackCompat {\n                HakoTerminalSessionContainerView(presented)\n"
+         "            }\n        }\n")
     return "the terminal call site's guard deleted while the declaration keeps its own"
 
 

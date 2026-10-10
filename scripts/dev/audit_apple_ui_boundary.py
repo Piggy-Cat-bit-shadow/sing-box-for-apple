@@ -1162,8 +1162,15 @@ FRAMEWORK_CONDITIONS: dict[str, FrameworkConditions] = {
     "DeviceDiscoveryUI": FrameworkConditions(os_atoms=("os(iOS)", "os(tvOS)"),
                                              symbols=("DDDevicePickerViewController",)),
     # The types this package vends are declared in this repository under the same condition, so rule (a)
-    # decides them; there is no SDK symbol list to keep here.
-    "GhosttyTerminal": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)"), symbols=()),
+    # decides them; there is no SDK symbol list to keep here. `os(iOS) || os(macOS)` is the project's own
+    # fact about the package (`project.pbxproj:52`, `platformFilters = (ios, macos, )`), so a declaration
+    # under that disjunction is reachable from a use under either arm - which is what `also_implied_by`
+    # records. The pair is symmetric with `GhosttyTheme` below and is stated once in each direction rather
+    # than left to an implication pass.
+    "GhosttyTerminal": FrameworkConditions(
+        os_atoms=("os(iOS)", "os(macOS)"),
+        symbols=(),
+        also_implied_by=("os(iOS) || os(macOS)",)),
     # `GhosttyTheme` is a second package product of the same optional xcframework, and it carries the same
     # `platformFilters = (ios, macos, )` in `sing-box.xcodeproj/project.pbxproj`. Added after this check
     # reported `UNDECIDABLE` on it: an unknown framework is a legitimate refusal, but a framework the tree

@@ -403,13 +403,11 @@ def main() -> int:
         #    are enumerated below with their reason, and the migration count, which is incomplete on
         #    purpose and says so through `--allow-partial`.
         #
-        #    `platform-guard-agreement` is open: it was added this round to find a guarded declaration with
-        #    an unguarded use, and it found 29. Fifteen were fixed in this round's commits and fourteen
-        #    remain, all of them a port whose original guards the *use site* rather than the file. The set
-        #    is named rather than "anything goes": a positive case that tolerated any failure would stop
-        #    being a check, and this one still fails the moment a check outside this list goes red.
-        #    `docs/HAKO-ROUND8-FINAL-DEBUG.md` carries the remaining sites.
-        KNOWN_OPEN = {"platform-guard-agreement"}
+        #    The list is empty, and that is the point of keeping it: `platform-guard-agreement` was on it
+        #    while the twenty-nine findings it produced were being worked through, and the round fixed all
+        #    of them. A positive case that tolerated any failure would stop being a check, so the set is
+        #    named rather than implied - an entry here has to be justified in a commit message.
+        KNOWN_OPEN: set[str] = set()
         code, payload = run_audit(copy, allow_partial=True)
         states = statuses(payload)
         failing = sorted(name for name, state in states.items() if state == "FAIL")

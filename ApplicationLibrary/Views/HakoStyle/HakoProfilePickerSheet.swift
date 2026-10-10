@@ -396,8 +396,15 @@ private struct HakoProfilePickerRow: View {
     @State private var showQRCode = false
     @State private var showQRSShare = false
     @State private var qrsShareData: Data?
-        @State private var exportDocument: ProfileAnyExportDocument?
-        @State private var showExporter = false
+    // `ProfileAnyExportDocument` is declared under `#if !os(tvOS)`
+    // (`Library/Database/Profile+Transferable.swift:280`) and the `.fileExporter` beside this is its only
+    // reader, so both take that condition - the same one the original guards these lines with
+    // (`up-hako@c1935cf .../Dashboard/Cards/ProfilePickerSheet.swift:549-552`). `ApplicationLibrary` is
+    // built for `appletvos` too, so without it the tvOS slice cannot compile this file.
+    #if !os(tvOS)
+    @State private var exportDocument: ProfileAnyExportDocument?
+    @State private var showExporter = false
+    #endif
 
     var body: some View {
             defaultBody
@@ -601,6 +608,11 @@ private struct HakoProfilePickerRow: View {
             }
         }
 
+        // `#if !os(tvOS)`, as the original has it (`up-hako@c1935cf
+        // .../Dashboard/Cards/ProfilePickerSheet.swift:942-1036`): this function exists to build a
+        // `ProfileAnyExportDocument`, which is declared under that condition, and it writes the state
+        // pair guarded the same way above it.
+        #if !os(tvOS)
         private func exportProfile(type: ExportItemType) {
             Task {
                 do {
@@ -624,6 +636,7 @@ private struct HakoProfilePickerRow: View {
                 }
             }
         }
+        #endif
 
     private var profileInfo: some View {
         HStack(spacing: 8) {
@@ -730,8 +743,12 @@ private struct HakoProfilePickerRow: View {
         @State private var showQRCode = false
         @State private var showQRSShare = false
         @State private var qrsShareData: Data?
-        @State private var exportDocument: ProfileAnyExportDocument?
-        @State private var showExporter = false
+        // Same condition and same reason as the outer pair above: the `.fileExporter` in this type reads
+        // it, and `ProfileAnyExportDocument` is declared under `#if !os(tvOS)`.
+        #if !os(tvOS)
+            @State private var exportDocument: ProfileAnyExportDocument?
+            @State private var showExporter = false
+        #endif
 
         var body: some View {
             Group {
@@ -915,6 +932,11 @@ private struct HakoProfilePickerRow: View {
             }
         }
 
+        // `#if !os(tvOS)`, as the original has it (`up-hako@c1935cf
+        // .../Dashboard/Cards/ProfilePickerSheet.swift:942-1036`): this function exists to build a
+        // `ProfileAnyExportDocument`, which is declared under that condition, and it writes the state
+        // pair guarded the same way above it.
+        #if !os(tvOS)
         private func exportProfile(type: ExportItemType) {
             Task {
                 do {
@@ -938,6 +960,7 @@ private struct HakoProfilePickerRow: View {
                 }
             }
         }
+        #endif
 
         private var profileInfo: some View {
             HStack(spacing: 8) {
