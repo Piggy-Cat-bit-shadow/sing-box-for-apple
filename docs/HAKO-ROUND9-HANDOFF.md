@@ -10,17 +10,29 @@ repeated here except where round 9 changed it.
 |---|---|
 | Repository | `https://github.com/Piggy-Cat-bit-shadow/sing-box-for-apple` |
 | Integration branch | `jiejiebox/integrated` |
-| **Final SHA on `r8/main`** | **`932bf1c`** (round 9 made `fd27efe`, `6a9d7eb`, `91896a5`, `116ae6f`, `d8240eb`, `932bf1c`) |
+| **Final SHA, on both branches** | **`2335251`** |
 | Round 9 start | `2207852` |
 | iPhone UI gold standard | `hako-ui@c1935cff77246f97498400f5a0a7f430cfabbd55` |
 | Upstream comparison baseline | `SagerNet/sing-box-for-apple dev@089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85` |
-| **`r8/main` on the remote** | **Yes — `refs/heads/r8/main` = `2d5dca3`, pushed in round 9** |
-| `jiejiebox/integrated` | **not advanced.** Still `2207852`, the round-9 start. It carries a 73-file staged changeset that is somebody's work in progress (§6), and moving the branch under it would either lose that or conflict with it. Whoever owns it decides when it advances. |
+| Remote `refs/heads/r8/main` | `2335251` |
+| Remote `refs/heads/jiejiebox/integrated` | `2335251` — fast-forwarded from `2207852` |
 
-Round 9 pushed **one** branch, `r8/main`, alongside the four `r8/a`…`r8/d` branches round 8 already had on
-the remote (`r8/a-generator`, `r8/b-boundary`, `r8/c-platform`, `r8/d-reach`). No force push, no rebase of
-pushed history, and the `Frameworks/Runestone` gitlink is unchanged. This repository has no
-`.github/workflows` at all, so the push cannot have started a CI run.
+Round 9 pushed `r8/main` first (`2d5dca3`, then `2335251`), and then fast-forwarded
+`jiejiebox/integrated` from `2207852` to `2335251`. That second push is a **fast-forward, not a rewrite**:
+`2207852` is an ancestor of `2335251`, and `2335251..2207852` is empty, so the branch's old tip is fully
+contained in the new one and nothing was discarded.
+
+**What was deliberately not pushed is the content of the `jiejiebox-integrated` working tree.** That
+checkout had 73 entries staged that were never committed, and they are the **pre-repair** state, not work in
+progress: its `Hako*.swift` files are byte-identical (SHA-256) to all five round-8 sibling branches
+`_work/r8/w-a`…`w-e`, and against `r8/main` it is 80 files changed, **+1,903 / −12,658** — it deletes all 26
+tooling and document files and reverts round 8's platform guards. Pushing it would have undone verified
+work, so the branch was advanced to the verified commit instead, and the stale working tree was left exactly
+as it was found for its owner to deal with. See §6.
+
+Round 9 pushed alongside the four `r8/a`…`r8/d` branches round 8 already had on the remote. No force push,
+no rebase of pushed history, and the `Frameworks/Runestone` gitlink is unchanged. This repository has no
+`.github/workflows` at all, so no push can have started a CI run.
 
 ```text
 IPHONE_HAKO_UI=STATIC_VERIFIED
@@ -217,15 +229,27 @@ what is left, and each one needs a decision, a Mac, or both.
 
 ## 6. Two things in the workspace that a fresh window must not mistake for its own mess
 
-### `jiejiebox-integrated` has a large staged, uncommitted changeset
+### `jiejiebox-integrated`'s working tree is the **pre-repair** state, and is stale
 
 `git status` there shows **23 `D` and 50 `M`, with no unstaged diff** — the index and the working tree agree,
-so the files really are absent from disk. The deletions are 19 files under `scripts/dev/` (including
-`_safety_gate.py`, `test_platform_gates.py`, `test_migrate_secondary_page.py`,
-`MIGRATION-SAFETY-CONTRACT.md`) and the four round-8 documents under `docs/`. **All of them are in `HEAD`**,
-so this is recoverable with a checkout, not data loss. It looks like a deliberate "ship the app, not the dev
-scaffolding" preparation that was never committed. **Round 9 did not touch it and did not commit it** — that
-is a decision for whoever owns the integration branch. `r8/main` is unaffected.
+so the files really are absent from disk. Its HEAD is `2207852`, which *is* an ancestor of today's
+`r8/main`, so this is a checkout whose files were overwritten with older content and then staged.
+
+The evidence that it is old content rather than work in progress:
+
+* its `Hako*.swift` files are **byte-identical by SHA-256** to all five round-8 sibling branches
+  `_work/r8/w-a` … `w-e` (checked `HakoCrashReportListView.swift`; every one matched);
+* against `r8/main` it is **80 files changed, +1,903 / −12,658** — every file is a strict subset, nothing is
+  newer;
+* the "added" lines are the *older* text: it removes the `#if os(tvOS)` arm this round restored in the three
+  report list views, removes the `ownsDismiss` two-arm condition again, and rewrites provenance headers to
+  paths that do not exist (`Tools/HakoCrashReportListView.swift` for `Tools/CrashReportListView.swift`);
+* it deletes all 26 tooling and document files, including every check this round's work depends on.
+
+So it would have been a 12,658-line regression had it been committed and pushed. **Round 9 did not touch it
+and did not commit it.** The *branch* was advanced to the verified `2335251` instead, and whoever owns this
+checkout should decide what to do with the working tree — `git checkout -- .` restores it to its own HEAD,
+and `git checkout 2335251 -- .` or a fresh worktree brings it to the verified state.
 
 ### The reflog
 
