@@ -240,8 +240,16 @@ public struct HakoHomeView: View {
             }
 
             // The page's condition, as a line under the header - the reference's error and notice
-            // rows, which carry no card of their own either.
-            condition
+            // rows, which carry no card of their own either. One line, one `Text`, no control of its
+            // own: the header's action is the page's action in every state.
+            if let condition {
+                Text(condition)
+                    .font(.subheadline)
+                    .foregroundStyle(HakoAccentRole.orange.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("hako.home.condition")
+            }
 
             if let detail = sessionDetail {
                 HakoStatusLine(detail.title, detail: detail.value, tint: detail.emphasis)
@@ -288,51 +296,39 @@ public struct HakoHomeView: View {
 
     /// What the page's one action is, and what it says.
     ///
-    /// This is upstream's `StartStopButton`, which is the tunnel's only state machine: it reads the
-    /// extension profile from the environment, starts and stops it, tracks the start attempt and
-    /// raises its own alert when the service reports a startup error. The fork's variant added a
-    /// compact label metric and an "install the tunnel" closure; the metric is applied here instead,
-    /// and the install path is the notice's own action, so the state machine is not re-implemented.
+    /// `HakoStartStopButton` is the fork's own component, ported whole by
+    /// `scripts/dev/port_hako_components.py`. It is not upstream's `StartStopButton`, and the
+    /// difference is the design: upstream's no longer takes `isCompact` - the capsule sized to its own
+    /// label that this header needs, because a full-width action beside the configuration's name
+    /// pushes the name off the row - and no longer takes the `install` closure, so upstream's control
+    /// cannot be the page's action in the state that exists to be fixed.
     ///
     /// The reference fixes this at 104pt because its labels are one word; the same width in Chinese
     /// truncated "断开连接" to "断开…". The reference's *minimum* is kept and the button may grow to
     /// fit its own title.
     private var primaryAction: some View {
-        StartStopButton()
-            .frame(minWidth: 104, minHeight: HakoTheme.Control.minimumHitTarget)
-            .accessibilityIdentifier("hako.home.startStop")
+        HakoStartStopButton(showsRuntimeDuration: false, isCompact: true) {
+            await installTunnel()
+        }
+        .frame(minWidth: 104, minHeight: HakoTheme.Control.minimumHitTarget)
     }
 
     /// The condition the page is in, if it is in one: nothing installed, or a configuration that
-    /// cannot be read. One line, in one place, with its action beside it.
+    /// cannot be read. One line, in one place, with the action beside it in the header.
     ///
-    /// The install action is upstream's own path, called the way the dashboard's install button
-    /// calls it. A notice that describes a problem and offers nothing would be worse than no notice.
-    @ViewBuilder
-    private var condition: some View {
+    /// A `String?` rather than a view, which is the original's shape: the header draws it as one line
+    /// under the configuration's name, and the action is the header's own action rather than a button
+    /// this notice grows. The notice used to be a `VStack` holding the text and an "Install" button,
+    /// which put a second control in the header and moved the page's action out of the control the
+    /// design gives it.
+    private var condition: String? {
         if !tunnelIsInstalled {
-            VStack(alignment: .leading, spacing: HakoTheme.Spacing.tight) {
-                Text("The VPN extension is not installed yet. Install it to start the tunnel.")
-                Button(String(localized: "Install")) {
-                    Task { await installTunnel() }
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("hako.home.install")
-            }
-            .font(.subheadline)
-            .foregroundStyle(HakoAccentRole.orange.color)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("hako.home.condition")
-        } else if let profileLoadFailure {
-            Text(profileLoadFailure)
-                .font(.subheadline)
-                .foregroundStyle(HakoAccentRole.orange.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("hako.home.condition")
+            return String(localized: "The VPN extension is not installed yet. Install it to start the tunnel.")
         }
+        return profileLoadFailure
     }
 
+    /// The line under the configuration's name: what the tunnel is doing, and nothing else.
     private var sessionTitle: String {
         switch profile.status {
         case .connected: String(localized: "Started")
