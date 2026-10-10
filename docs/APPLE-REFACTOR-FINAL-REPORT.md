@@ -207,7 +207,7 @@
 | 原判断 | 推翻依据 |
 |---|---|
 | 「`fix/libbox-stringbox-callsites` 的三个补丁需要逐个核验，必要时有证据地移植」 | 核验结果：其中 **`2b23330` 完全不需要** —— 上游 `089d35e` 已有 `Library/Network/ScreenStateObserver.swift`，且 `ExtensionProvider.swift:248` 已经安装它。另外两个（`8599039`、`37043ff`）判定为 **UNKNOWN 而非可移植**：上游用 `address()`、fork 用 `address()!.value`，而两侧都没有把 `Libbox.xcframework` 纳入版本控制，**没有证据链判定哪一侧匹配内核**。按任务书 §2.2 的边界，无证据时登记 `BLOCKED`，不做静态推断的安全修复 |
-| 「`fix/apple-notify-unknown` 尚不能直接认定应合并，须审计」→ 审计结论比预期更强 | 它修的是**上游的真实缺陷**，不只是 fork 的问题。上游 19 行的观察者丢弃 `notify_get_state` 的返回码，把「读失败」发布成 `recordLockState(false)`，而在这个内核上那是 `Box.LockStateChanged(false)` → `lifecycle.woke()`——**唯一能解除设备暂停的事实**。上游版本还**完全没观测锁屏这一轴**。本轮采纳并移植 |
+| 「`fix/apple-notify-unknown` 尚不能直接认定应合并，须审计」→ 审计结论比预期更强 | 它修的是**上游的真实缺陷**，不只是 fork 的问题。**第二阶段更正**：初稿把缺陷描述成「失败读 → `recordLockState(false)` → `woke()`」，而**上游从不调用 `recordLockState`**。真正的缺陷是 `wakeNow()` 被挂在屏幕亮起上——在上游内核里那是 `PauseManager().DeviceWake()`，即唯一解除设备暂停的调用，而推送通知就会点亮锁屏。完整核验与内核契约对照见 [`docs/SCREEN-STATE-FACTS.md`](SCREEN-STATE-FACTS.md)。本轮采纳并移植 |
 | 「必须先解决 68 个共享文件的污染才能完成隔离」 | 不需要。**隔离的正确形式不是改 68 个文件，而是让上游页面根本不被改。** 本轮把上游页面恢复为上游字节，让手机经 `HakoPageContent` 这个唯一的缝路由。结果是「反向依赖为零」这一条**由结构保证**，而不是由纪律保证 |
 
 ### C.4 与任务书推荐方案的分歧（以及为什么）

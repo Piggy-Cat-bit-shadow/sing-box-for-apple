@@ -128,7 +128,7 @@
 
 | 修改 | 位置 | 判定依据 |
 |---|---|---|
-| `notify_get_state` 返回值被忽略，读取失败被发布为「已解锁」 | `ScreenStateObserver.swift` | **上游缺陷**，与 UI 无关；失败读会经 `Box.LockStateChanged(false)` → `lifecycle.woke()` 解除设备暂停。**本轮已移植**（见 §5.2） |
+| `notify_get_state` 返回值被忽略；且 `wakeNow()` 被挂在「屏幕亮起」上 | `ScreenStateObserver.swift` | **上游缺陷**，与 UI 无关。**第二阶段更正**：失败读在旧代码里产生的是 `recordScreenState(false)`，不是「解锁」；真正会解除设备暂停的是 `wakeNow()`，而推送通知就会点亮屏幕。完整核验见 [`docs/SCREEN-STATE-FACTS.md`](SCREEN-STATE-FACTS.md) |
 | `FormItem` 在无障碍字号下不换行，标题被挤没 | `Abstract/FormItem.swift` | 工程判断：`@Environment(\.dynamicTypeSize)` + `isAccessibilitySize` 分支；与 Hako 无关 |
 | `FormNavigationLink` 的默认样式把整行染成强调色 | `Abstract/FormItem.swift` | 缺陷修复（`NavigationLink` 的 tint 作用在 label 之上） |
 | WiFi 权限提示里的 `SFM` 是内部目标名 | `Abstract/GlobalChecksModifier.swift` | 文案修复 |
@@ -362,27 +362,56 @@ xcrun swift-api-digester -dump-sdk -module Libbox -o /tmp/libbox.json -I Libbox.
 
 ### 5.2 `fix/apple-notify-unknown`（1 个提交）— **判定：采纳**
 
-`dd9114d` 修复的是**上游 `089d35e` 的真实缺陷**。上游 `ScreenStateObserver.swift`（实测 19 行）：
+> **本节在第二阶段被更正。** 初稿把上游的行为写成
+> 「读失败 → `recordLockState(false)` → `lifecycle.woke()`」。**上游从不调用 `recordLockState`。**
+> 更正后的完整事实核验见
+> [`docs/SCREEN-STATE-FACTS.md`](SCREEN-STATE-FACTS.md)。要点：
+
+上游 `089d35e` 的 `Library/Network/ScreenStateObserver.swift` 实测为 19 行，其回调是：
 
 ```swift
 var state: UInt64 = 0
 notify_get_state(token, &state)          // 返回码被丢弃
-commandServer.recordLockState(state == 1) // 0 == "已解锁"
+commandServer.recordScreenState(state == 1)
+if state == 1 {
+    commandServer.wakeNow()
+}
 ```
 
-`notify_get_state` 在失败时**不写入** `state`，于是失败与「成功读到 0」不可区分。
-在这个内核上 `recordLockState(false)` 是 `Box.LockStateChanged(false)` → `lifecycle.woke()`，
-即**唯一能解除设备暂停的事实**。一次失败的读取 = 一次解锁。
+**没有 `recordLockState` 调用**，也**没有注册 `com.apple.springboard.lockstate`**。
 
-上游版本还有第二个缺口：只注册了 `com.apple.iokit.hid.displayStatus`，
-**没有** `com.apple.springboard.lockstate`——也就是说上游从未观测锁屏这一轴。
+缺陷因此不是「失败被当作解锁」，而是两点：
 
-**本轮处置**：移植该提交的三个文件（`ScreenStateObserver.swift` 540 行改动、
-新增 `ScreenStateObserverDarwin.swift` 85 行、`ExtensionProvider.swift` 69 行）。
-对上游的偏离限定在观察者与其在 `ExtensionProvider` 的三个调用点，
-`git diff` 显示该文件其余部分无改动。已在审计的白名单里登记理由。
+1. **`wakeNow()` 被挂在「屏幕亮起」上。** 上游内核里 `WakeNow()` 是
+   `instance.PauseManager().DeviceWake()`——**唯一真正解除设备暂停的调用**。而在 iOS 上
+   推送通知就会点亮锁屏，所以上游客户端把「锁屏被点亮」当成了「设备可用」，
+   这正是其父仓库 `box_lifecycle.go` 明文要避免的 wake storm。
+2. `notify_get_state` 的返回码被丢弃，失败读与「读到 0」不可区分——屏幕事实因此也可能误报。
 
-**未验证**：这是 iOS 扩展路径，需要设备或模拟器运行。静态验证结论见 §7。
+**第二阶段的更正还涉及一个更重要的发现**：本 fork 的目标内核
+（父仓库 `Piggy-Cat-bit-shadow/sing-box`，`clients/apple` 指向它）**已经移除了那条
+`WakeNow` 路径**，改为要求客户端上报**锁屏轴**：
+
+| 内核 API | 上游 `SagerNet/sing-box` | 父仓库 `Piggy-Cat-bit-shadow/sing-box` |
+|---|---|---|
+| `RecordScreenState(on:)` | 只写 power report，**不碰暂停轴** | `Box.ScreenStateChanged(on)`；on = 仅 resume **EDGE** |
+| `RecordLockState(locked:)` | **不存在** | `Box.LockStateChanged(locked)`；**unlocked 是唯一解除 LEVEL 的事实** |
+| `WakeNow()` | `PauseManager().DeviceWake()`，客户端在屏幕亮起时调用 | 仍存在，但语义收窄为「平台已另行确认的唤醒」 |
+
+即：**客户端的 `RecordLockState` 上报不是 fork 的发明，而是其内核已经设计好、并明文等待的
+客户端另一半。** 父仓库 `box_lifecycle.go` 第 40–52 行写着：
+
+> Before this file, the Apple level had no lift at all … and the shipped client never called the one
+> method that did. … A platform that reports no such fact keeps the latch, and that is stated as a
+> limitation rather than papered over with a guess: see the client patch in
+> `docs/fork/apple-screen-state-observer.md`.
+
+**本轮处置**：完整事实核验见 [`docs/SCREEN-STATE-FACTS.md`](SCREEN-STATE-FACTS.md)；
+实现未改（它已与内核契约一致），但补了 33 个纯逻辑故障注入测试
+（`Tests/HakoScreenState`，见 §7.4）。
+
+**未验证**：两个通知名是否会投递给沙盒化的 NetworkExtension，只能由设备证据回答。
+`ScreenStateStartResult` 会把失败的通知名带出来，正是为了让那一条日志成为证据。
 
 ---
 
