@@ -56,13 +56,19 @@ HAKO_PREFIX = "ApplicationLibrary/Views/HakoStyle/"
 #: Files the phone's pages may reach, and the only places outside `HakoStyle/` that may name a Hako
 #: symbol.
 #:
-#: `EnvironmentValues.swift` is here because it is the one shared file the phone's design system cannot
-#: be served without: a `Hako`-named environment key can only be declared as a member of
-#: `EnvironmentValues`, and that extension is upstream's. It declares exactly one member and reads no
-#: other Hako symbol.
+#: Two shared files are here, and both for the same reason: the phone's design cannot be served without
+#: a change that has nowhere else to live.
+#:
+#:   * `EnvironmentValues.swift` - a `Hako`-named environment key can only be declared as a member of
+#:     `EnvironmentValues`, and that extension is upstream's. It declares exactly one member.
+#:   * `Profile/ProfileSheetHelpers.swift` - the modal container all eight of the client's modals are
+#:     built on. The original gives it a close control; without one a sheet can only be dismissed by
+#:     dragging it down. The change is not phone-specific, and forking the container would have meant
+#:     retargeting eight shared call sites to a Hako-only type.
 PHONE_ROOT_FILES = (
     "SFI/Application.swift", "SFI/HakoPhoneRootView.swift", "SFI/HakoPageContent.swift",
     "ApplicationLibrary/Views/EnvironmentValues.swift",
+    "ApplicationLibrary/Views/Profile/ProfileSheetHelpers.swift",
 )
 
 #: The iPad root. Upstream owns it, byte for byte.
@@ -504,6 +510,11 @@ def check_no_reverse_dependency(root: str) -> Check:
 REVIEWED_UPSTREAM_MODIFICATIONS = {
     ".gitignore":
         "`__pycache__/` and `*.pyc`, for the two Python scripts under scripts/dev",
+    "ApplicationLibrary/Views/Profile/ProfileSheetHelpers.swift":
+        "the close control every modal on this container needs. Eight modals are built on it and none "
+        "had one, so a sheet could only be dismissed by dragging it down; the change is not "
+        "phone-specific, and forking the container would have meant retargeting eight shared call sites "
+        "to a Hako-only type",
     "ApplicationLibrary/Views/EnvironmentValues.swift":
         "the `hakoCompactRows` environment key, which is the compact row metric the original's "
         "`HakoScaffold` sets and its `HakoRow` reads. An environment key cannot be declared outside "
