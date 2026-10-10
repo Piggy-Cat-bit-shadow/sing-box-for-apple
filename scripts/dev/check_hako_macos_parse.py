@@ -67,6 +67,7 @@ def main() -> int:
 
     report = {}
     total = 0
+    undecidable = 0
     for name in sorted(os.listdir(HAKO_DIR)):
         if not name.endswith(".swift"):
             continue
@@ -75,6 +76,7 @@ def main() -> int:
             resolved = resolve(text, platform)
         except DirectiveError as error:
             report[name] = {"error": str(error)}
+            undecidable += 1
             continue
         body = strip_comments(resolved)
         hits = []
@@ -90,7 +92,8 @@ def main() -> int:
             total += len(hits)
 
     if as_json:
-        print(json.dumps({"platform": platform, "files": report, "failures": total}, indent=2))
+        print(json.dumps({"platform": platform, "files": report, "failures": total,
+                          "undecidable": undecidable}, indent=2))
         return 0
 
     for name, data in report.items():
@@ -101,9 +104,17 @@ def main() -> int:
         for hit in data["hits"]:
             print(f"        {hit['line']:4d}  {hit['framework']:16s} {hit['symbol']:34s} {hit['text']}")
     print()
-    print(f"  {platform}: {len([v for v in report.values() if 'hits' in v])} file(s) would not parse, "
-          f"{total} symbol(s)")
-    return 1 if total else 0
+
+    # A file the evaluator could not decide was **not** checked, so it must not be counted as clean. The
+    # first version returned 0 here while nine files were `[undecidable]`, which is a clean bill of health
+    # from a run that never looked at them - the same false-green shape as the import check reporting PASS
+    # over an unguarded `UIFont`. Undecided files are therefore reported and made to fail the run.
+    broken = len([value for value in report.values() if "hits" in value])
+    print(f"  {platform}: {broken} file(s) would not parse, {total} symbol(s), "
+          f"{undecidable} file(s) could not be decided")
+    if undecidable:
+        print(f"  {undecidable} file(s) were NOT checked; a run that skipped them is not a pass")
+    return 1 if (total or undecidable) else 0
 
 
 if __name__ == "__main__":
