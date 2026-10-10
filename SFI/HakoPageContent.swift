@@ -133,12 +133,19 @@ struct HakoPageContent: View {
     }
 
     /// Ask the system to install the tunnel, then re-read the environment so the page sees it.
-    private func installTunnel() async {
-        do {
-            try await ExtensionProfile.install()
-            await environments.reload()
-        } catch {
-            installAlert = AlertState(action: "install network extension", error: error)
+    ///
+    /// A closure over `self` rather than the bare method reference: this view's `@State installAlert` is
+    /// written here, and a `@State` mutation through a method reference taken in a `@ViewBuilder` is the
+    /// kind of capture that is easy to get subtly wrong. The shape is the one the original used, an
+    /// action that awaits the install and reports its failure.
+    private var installTunnel: () async -> Void {
+        {
+            do {
+                try await ExtensionProfile.install()
+                await environments.reload()
+            } catch {
+                installAlert = AlertState(action: "install network extension", error: error)
+            }
         }
     }
 }

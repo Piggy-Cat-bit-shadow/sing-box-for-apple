@@ -9,7 +9,21 @@ Hako files exist beside it. `scripts/dev/audit_apple_ui_boundary.py --only hako-
 that switch and reports the count; it **fails** while the count is incomplete, so this table cannot
 drift away from the source without the audit saying so.
 
-Last verified: `b0f35a6`.
+Last verified: `22c263c` (branch `jiejiebox/integrated`).
+
+**What was out of date in this file, and is fixed here.** Two things, one of which was actively misleading:
+
+* the SHA above, and
+* the whole second-level section, which listed the Tools, More, Profile, Terminal and Connections
+  sub-pages as `PENDING`. They are not pending - they were migrated in the rounds after that line was
+  written - so a reader checking this file would have concluded the opposite of the truth. The section now
+  records what each one actually is.
+
+For the question this file does **not** answer - whether the phone's call sites actually construct the Hako
+page rather than upstream's, entry by entry - see
+[`HAKO-REAL-REACHABILITY-MATRIX.md`](HAKO-REAL-REACHABILITY-MATRIX.md). The distinction is not academic: a
+page can be listed here as migrated, have its file present, and still be reached through an upstream type at
+the call site. That is exactly what happened once, and it is why the second document exists.
 
 ---
 
@@ -54,23 +68,30 @@ iPad and a Mac load it too. The presentation has to become a Hako-owned page, th
 
 ---
 
-## The section-level pages the pending pages lead to
+## The section-level pages
 
-Second-level pages are reached from Tools and More. They are **not** in the coverage count - that
-count is the six first-level destinations - so a reader should not assume they are done. The fork's
-own changes to them are small and are listed here so the next slice starts from evidence:
+Second-level pages are reached from Tools and More. They are **not** in the coverage count - that count is
+the six first-level destinations - but they are **migrated**, not pending. Every row below was `PENDING`
+here until round 8; the disposition column is now what the source says.
 
 | Page | Fork change | Disposition |
 |---|---|---|
-| `Tools/NetworkQualityView.swift` | `FormItem` → a plain row; `navigationTitle` → `hakoNavigationChrome` | **PENDING** — belongs to the Tools slice |
-| `Tools/OutboundPickerView.swift` | `HakoSelectionRow` / `HakoIconWell` | **PENDING** |
-| `Tools/CrashReportDetailView.swift`, `OOMReportDetailView.swift`, `PowerReportDetailView.swift` | `HakoReportScaffold`, `HakoEmptyState` | **PENDING** |
-| `Tools/CrashReportListView.swift`, `OOMReportListView.swift`, `PowerReportListView.swift` | `HakoWorkspaceScaffold` | **PENDING** |
-| `Tools/ReportShared.swift`, `STUNTestView.swift`, `TaildropView.swift`, `USBIPServerView.swift`, `Tailscale*View.swift` | one modifier or one row each | **PENDING** |
-| `Setting/CoreView.swift`, `PacketTunnelView.swift`, `OnDemandRulesView.swift`, `ProfileOverrideView.swift`, `MacAppView.swift` | `HakoSettingsScaffold` and its rows | **PENDING — More slice.** `MacAppView` is the one to check twice: it is the macOS shape of the app settings page, and a Hako variant of it must not become reachable from `SFM` |
-| `Setting/FontPickerView.swift`, `ThemePickerView.swift` | one modifier each | **PENDING** |
-| `Connections/ConnectionView.swift`, `Groups/GroupItemView.swift`, `Groups/GroupView.swift` | shared row language | **PENDING** |
-| `Terminal/TerminalSessionContentView.swift` | shared chrome | **PENDING** |
+| `Tools/NetworkQualityView.swift` | `FormItem` → a plain row; `navigationTitle` → `hakoNavigationChrome` | **MIGRATED** → `HakoStyle/HakoNetworkQualityView.swift`, reached from `HakoToolsView.swift:261` |
+| `Tools/OutboundPickerView.swift` | `HakoSelectionRow` / `HakoIconWell` | **MIGRATED** → `HakoStyle/HakoOutboundPickerView.swift`, reached through the Network Quality / STUN section chain |
+| `Tools/CrashReportDetailView.swift`, `OOMReportDetailView.swift`, `PowerReportDetailView.swift` | `HakoReportScaffold`, `HakoEmptyState` | **MIGRATED** → `HakoStyle/Hako*ReportDetailView.swift`, constructed by their own list pages |
+| `Tools/CrashReportListView.swift`, `OOMReportListView.swift`, `PowerReportListView.swift` | `HakoWorkspaceScaffold` | **MIGRATED** → `HakoStyle/Hako*ReportListView.swift`, reached from `HakoToolsView.swift:298`, `:327`, `:341` |
+| `Tools/ReportShared.swift` | one modifier or one row each | **MIGRATED in part, deliberately**: `HakoStyle/HakoReportShared.swift` holds the Hako-namespaced presentation types; `createReportZip` and `presentShareSheet` stay upstream's in `Tools/ReportShared.swift`, because they are free functions with no presentation in them and copying them produced a duplicate declaration |
+| `Tools/STUNTestView.swift`, `TaildropView.swift`, `USBIPServerView.swift`, `Tailscale*View.swift` | one modifier or one row each | **MIGRATED** → `HakoStyle/HakoSTUNTestView.swift`, `HakoTaildropView.swift`, `HakoUSBIPServerView.swift`, `HakoTailscaleSSHPromptView.swift` |
+| `Setting/CoreView.swift`, `PacketTunnelView.swift`, `OnDemandRulesView.swift`, `ProfileOverrideView.swift` | `HakoSettingsScaffold` and its rows | **MIGRATED** → `HakoStyle/HakoCoreView.swift`, `HakoPacketTunnelView.swift`, `HakoOnDemandRulesView.swift`, `HakoProfileOverrideView.swift`, all pushed from `HakoSettingView.swift:293-319` |
+| `Setting/MacAppView.swift` | `HakoSettingsScaffold` and its rows | **MIGRATED** → `HakoStyle/HakoMacAppView.swift`, whose type is `HakoAppView`. The caution this row used to carry is answered: the file is reachable only from `HakoSettingView.swift:329`, which is the phone's own page, and `SFM` reaches its own `AppView` through upstream's `SettingView.swift`. Note the file's *name*: upstream's original is not macOS-only - line 99 of it constructs `GhosttyConfigurationView()`, which is how the phone reaches Terminal Appearance |
+| `Setting/FontPickerView.swift`, `ThemePickerView.swift` | one modifier each | **MIGRATED** → `HakoStyle/HakoFontPickerView.swift`, `HakoThemePickerView.swift`, reached from `HakoGhosttyConfigurationView.swift:75` and `:139` |
+| `Connections/ConnectionView.swift`, `Groups/GroupItemView.swift`, `Groups/GroupView.swift` | shared row language | **MIGRATED** → `HakoStyle/HakoConnectionView.swift`, `HakoGroupItemView.swift`, `HakoGroupView.swift` |
+| `Terminal/TerminalSessionContentView.swift` | shared chrome | **MIGRATED** → `HakoStyle/HakoTerminalSessionContentView.swift`, reached from `HakoTerminalSessionContainerView.swift:43` |
+
+The row a reader should still check twice is `MacAppView`, for the reason given there: the phone's variant
+and the Mac's are different types with the same upstream ancestor, and the phone's must never become
+reachable from `SFM`. `ipad-mac-ui-gate` asserts that, and `MainView.swift` being byte-identical to upstream
+is what makes the assertion trustworthy rather than list-based.
 
 ---
 
