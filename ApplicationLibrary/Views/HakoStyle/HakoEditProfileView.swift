@@ -105,21 +105,27 @@ public struct HakoEditProfileView: View {
                 }
                 .disabled(viewModel.isLoading)
 
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Save") {
-                            viewModel.isLoading = true
-                            Task {
-                                await viewModel.saveProfile(profile, environments: environments)
+                // `.navigationBarTrailing` is the original's own `#if os(iOS)` arm, restored: it is a
+                // UIKit-only toolbar placement and this file is in the shared `ApplicationLibrary`
+                // target, which is built for macOS too. The migration resolved the guard away and kept
+                // the arm, which asks the macOS compiler to parse a placement it does not have.
+                #if os(iOS)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Save") {
+                                viewModel.isLoading = true
+                                Task {
+                                    await viewModel.saveProfile(profile, environments: environments)
+                                }
                             }
+                            .disabled(!viewModel.isChanged)
+                            // The same primary treatment the creation page's button uses, so the
+                            // page's action looks the same before and after a configuration exists -
+                            // the review's "the two states must not maintain two button layouts".
+                            .hakoPrimaryActionButtonStyle()
                         }
-                        .disabled(!viewModel.isChanged)
-                        // The same primary treatment the creation page's button uses, so the
-                        // page's action looks the same before and after a configuration exists -
-                        // the review's "the two states must not maintain two button layouts".
-                        .hakoPrimaryActionButtonStyle()
                     }
-                }
+                #endif
 
                 .alert($viewModel.alert)
                 .navigationTitle("Edit Profile")

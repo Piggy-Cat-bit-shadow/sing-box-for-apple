@@ -92,9 +92,15 @@ public struct HakoGroupItemView: View {
     }
 
     private var itemBackground: Color {
-
+        // The original's three-way split, restored. The migration resolved `#if os(iOS)` and kept its arm,
+        // which left `Color(uiColor:)` - a UIKit initialiser - as the only arm of a file the shared
+        // `ApplicationLibrary` target also builds for macOS and tvOS.
+        #if os(iOS)
             return Color(uiColor: .systemGroupedBackground)
-
-
+        #elseif os(macOS)
+            return Color(nsColor: .windowBackgroundColor)
+        #else
+            return Color.clear
+        #endif
     }
 }

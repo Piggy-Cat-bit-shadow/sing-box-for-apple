@@ -114,33 +114,16 @@ struct HakoReportFileContentView: View {
 }
 
 
-    @MainActor
-    func createReportZip(reportID: String, fileURL: URL, cacheSubdirectory: String, includeConfig: Bool, includeLog: Bool, encrypt: Bool) async throws -> URL {
-        try await BlockingIO.run {
-            let tempDir = FilePath.cacheDirectory.appendingPathComponent(cacheSubdirectory, isDirectory: true)
-            try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            let tempURL = tempDir.appendingPathComponent(encrypt ? "\(reportID).zip.age" : "\(reportID).zip")
-            try? FileManager.default.removeItem(at: tempURL)
-            let strippedURL = tempDir.appendingPathComponent(reportID, isDirectory: true)
-            try? FileManager.default.removeItem(at: strippedURL)
-            try FileManager.default.copyItem(at: fileURL, to: strippedURL)
-            try? FileManager.default.removeItem(at: strippedURL.appendingPathComponent(ReportArchive.readMarkerFileName))
-            if !includeConfig {
-                try? FileManager.default.removeItem(at: strippedURL.appendingPathComponent(ReportArchive.configFileName))
-            }
-            if !includeLog {
-                try? FileManager.default.removeItem(at: strippedURL.appendingPathComponent(ReportArchive.goLogFileName))
-                try? FileManager.default.removeItem(at: strippedURL.appendingPathComponent(ReportArchive.nativeLogFileName))
-            }
-            var error: NSError?
-            LibboxCreateZipArchive(strippedURL.path, tempURL.path, encrypt, &error)
-            try? FileManager.default.removeItem(at: strippedURL)
-            if let error {
-                throw error
-            }
-            return tempURL
-        }
-    }
+// `createReportZip(reportID:fileURL:cacheSubdirectory:includeConfig:includeLog:encrypt:)` is deliberately
+// **not** copied here. It is a module-scope free function, so renaming the file's *types* into the Hako
+// namespace did nothing to it, and upstream's `Tools/ReportShared.swift:108` declares the same signature
+// under the same live condition (`#if !os(tvOS)`), in the same target:
+//
+//     error: invalid redeclaration of 'createReportZip(reportID:fileURL:cacheSubdirectory:includeConfig:includeLog:encrypt:)'
+//
+// The three ported detail pages spell the bare name, which is what they should call - the zip has no
+// presentation in it. A copy here would be dead as well as duplicate.
+
 
     enum HakoReportShareAction {
         case save
@@ -230,27 +213,10 @@ struct HakoReportFileContentView: View {
     }
 
 
-        // `#if os(iOS)`, as the original had it. `UIApplication` and `UIWindowScene` are not in the macOS
-        // SDK, and this file is in the shared target - so without the guard the macOS compiler is asked to
-        // parse a function it cannot resolve. Migration resolved the original's `#if os(iOS)` here and kept
-        // the body, which reads as "port the phone's version" but produces a file that no longer compiles
-        // for the other platforms the same target serves.
-        #if os(iOS)
-            @MainActor
-            func presentShareSheet(_ item: URL) {
-                guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                      let rootViewController = windowScene.keyWindow?.rootViewController
-                else {
-                    return
-                }
-                var topViewController = rootViewController
-                while let presented = topViewController.presentedViewController {
-                    topViewController = presented
-                }
-                topViewController.present(
-                    UIActivityViewController(activityItems: [item], applicationActivities: nil),
-                    animated: true
-                )
-            }
-        #endif
+// `presentShareSheet(_:)` is deliberately **not** copied here either, for the same reason as
+// `createReportZip`: it is a module-scope free function that the rename could not touch, and upstream's
+// `Tools/ReportShared.swift:235` declares it under `#if os(iOS)` in this same target. Two declarations of
+// one signature in one module do not build. The ported detail pages call the bare name, which reaches
+// upstream's declaration - and `HakoReportSharePopup` below presents its own sheet through SwiftUI, so
+// nothing in the Hako namespace needed a copy of the UIKit one.
 

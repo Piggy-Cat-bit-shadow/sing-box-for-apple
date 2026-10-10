@@ -159,6 +159,14 @@ struct HakoPhoneRootView: View {
     private var mainBody: some View {
         shell
             .onAppear {
+                // The ticket from the original's `ActiveDashboardView:105-116`, which opened the command
+                // client from three places: on appear, on becoming active, and when the tunnel reported
+                // itself connected. Only the third was left here (it sits on the logs-selection hook
+                // below), so on a cold launch with a running tunnel the client was never connected:
+                // `HakoHomeView` gates its Proxies row on a live `commandClient.groups` and its outbound
+                // mode card on a live `clashMode`, so both silently vanished with no route from Home to
+                // Proxies. `connect()` is the same idempotent call the iPad's root still makes.
+                environments.connect()
                 environments.postReload()
                 // The Home page reads this object, and the dashboard's own view is what normally
                 // calls this. The phone's root is the equivalent owner here.
@@ -166,7 +174,13 @@ struct HakoPhoneRootView: View {
                 Task { await dashboard.reload() }
                 Task { await cardConfiguration.reload() }
             }
+            // The configuration list is read by `DashboardViewModel`, and when that read throws it
+            // records the failure on its own `alert`. The iPad presents that alert (`DashboardView:26`);
+            // the phone bound its *own* state here, which only ever held URL-import failures - so an
+            // unreadable profile list left Home saying "No profile selected" with no explanation and no
+            // retry. Both alerts are presented now, each where it belongs.
             .alert($alert)
+            .alert($dashboard.alert)
             .globalChecks()
             .environment(\.selection, $selection)
             .environment(\.importProfile, $importProfile)
@@ -198,6 +212,9 @@ struct HakoPhoneRootView: View {
             }
             .onChangeCompat(of: scenePhase) { newValue in
                 if newValue == .active {
+                    // The original's second connect site, kept for its reason: the client's connection to
+                    // the tunnel does not survive every trip through the background.
+                    environments.connect()
                     environments.postReload()
                     Task { await dashboard.reloadSystemProxy() }
                 }
@@ -206,7 +223,12 @@ struct HakoPhoneRootView: View {
                 // `DashboardView` does this for the same reason: the Home page's environment needs
                 // the profile object, and its presence is what tells the page a tunnel exists.
                 dashboard.setEnvironments(environments)
-                _ = profile
+                // The original's third connect site. A tunnel that is started after the app launched -
+                // from the Home button, or from the system - is what makes the command client worth
+                // opening, and that is exactly when the groups arrive.
+                if profile?.status.isConnected == true {
+                    environments.connect()
+                }
             }
             .onChangeCompat(of: selection) { newValue in
                 // Upstream's iOS root does this too: the log view is a stream from the
