@@ -248,14 +248,14 @@ private struct HakoLogViewContent: View {
                         title: NSLocalizedString("To File", comment: ""),
                         image: UIImage(systemName: "arrow.down.doc")
                     ) { _ in
-                        viewModel.dataModel.prepareLogFile()
+                        Task { await viewModel.dataModel.prepareLogFile() }
                         viewModel.dataModel.showFileExporter = true
                     },
                     UIAction(
                         title: NSLocalizedString("Share", comment: ""),
                         image: UIImage(systemName: "square.and.arrow.up")
                     ) { _ in
-                        viewModel.dataModel.prepareLogFile()
+                        Task { await viewModel.dataModel.prepareLogFile() }
                     },
                 ]
 
@@ -334,13 +334,13 @@ private struct HakoLogViewContent: View {
                             Label("To Clipboard", systemImage: "doc.on.clipboard")
                         }
                         Button {
-                            viewModel.dataModel.prepareLogFile()
+                            Task { await viewModel.dataModel.prepareLogFile() }
                             viewModel.dataModel.showFileExporter = true
                         } label: {
                             Label("To File", systemImage: "arrow.down.doc")
                         }
                         Button {
-                            viewModel.dataModel.prepareLogFile()
+                            Task { await viewModel.dataModel.prepareLogFile() }
                         } label: {
                             Label("Share", systemImage: "square.and.arrow.up")
                         }
@@ -524,8 +524,8 @@ private struct HakoLogContentInnerView: View {
                     contentType: .plainText,
                     defaultFilename: "logs.txt"
                 ) { result in
-                    dataModel.cleanupLogFile()
-                    dataModel.logFileURL = nil
+                    let url = dataModel.logFileURL
+                    Task { await dataModel.cleanupLogFile(url) }
                     if case let .failure(error) = result {
                         alert = AlertState(action: "export log file", error: error)
                     }
@@ -552,7 +552,8 @@ private struct HakoLogContentInnerView: View {
                 }
                 .onChange(of: showShareSheet) { newValue in
                     if !newValue {
-                        dataModel.cleanupLogFile()
+                        let url = dataModel.logFileURL
+                        Task { await dataModel.cleanupLogFile(url) }
                         dataModel.logFileURL = nil
                     }
                 }

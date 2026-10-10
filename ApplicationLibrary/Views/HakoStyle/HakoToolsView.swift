@@ -456,7 +456,7 @@ public struct HakoToolsView: View {
 
                     sshPresentedSession = TailscaleSSHPresentedSession(
                         endpointTag: info.endpointTag,
-                        peerHostName: info.peer.hostName,
+                        peerDisplayName: info.peer.displayName,
                         peerAddress: info.peer.tailscaleIPs.first!,
                         username: usernames[info.peer.stableID] ?? "root",
                         terminalType: termTypes[info.peer.stableID] ?? "xterm-256color",

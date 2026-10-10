@@ -162,3 +162,11 @@ public struct HakoNetworkQualityView: View {
         }
     }
 }
+
+// The phone's outbound section is generic over the Hako copy of the protocol, but the view model is
+// shared: `NetworkQualityViewModel` lives in `Tools/` and an iPad loads it too, so it declares its
+// conformance to the original `OutboundSelectable` there and cannot name a Hako type. The two
+// protocols are requirement-identical - the migration renames module-scope types, and this one
+// carries three members that the shared one already satisfies - so the phone supplies the second
+// conformance here, next to the one call that needs it, rather than editing a shared file.
+extension NetworkQualityViewModel: HakoOutboundSelectable {}

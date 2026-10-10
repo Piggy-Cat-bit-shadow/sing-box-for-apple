@@ -38,11 +38,14 @@
                     Color(nsColor: .windowBackgroundColor)
                         .ignoresSafeArea()
                 #endif
-                TailsshTerminalSurfaceView(
-                    state: viewModel.terminalState,
-                    extras: viewModel.extras,
-                    isActive: isActive
-                )
+                if let terminalState = viewModel.terminalState {
+                    TailsshTerminalSurfaceView(
+                        state: terminalState,
+                        extras: viewModel.extras,
+                        isActive: isActive
+                    )
+                    .opacity(viewModel.hasReceivedOutput ? 1 : 0)
+                }
                 if case .connecting = viewModel.phase {
                     VStack(spacing: 16) {
                         ProgressView()
@@ -100,20 +103,20 @@
             Self.displayTitle(
                 phase: viewModel.phase,
                 extrasTitle: viewModel.extras.title,
-                peerHostName: presentedSession.peerHostName
+                peerDisplayName: presentedSession.peerDisplayName
             )
         }
 
         static func displayTitle(
             phase: TerminalWrapperViewModel.Phase,
             extrasTitle: String,
-            peerHostName: String
+            peerDisplayName: String
         ) -> String {
             if case .connecting = phase {
-                return peerHostName
+                return peerDisplayName
             }
             let remote = extrasTitle.trimmingCharacters(in: .whitespaces)
-            return remote.isEmpty ? peerHostName : remote
+            return remote.isEmpty ? peerDisplayName : remote
         }
 
         static func bannerAttributedString(_ text: String) -> AttributedString {

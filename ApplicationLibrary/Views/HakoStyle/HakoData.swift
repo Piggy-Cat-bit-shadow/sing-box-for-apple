@@ -76,16 +76,42 @@ public struct HakoBadgeRow: View {
     }
 
     public var body: some View {
-        // Every badge, on as many lines as it takes.
-        //
-        // This row kept to one line and folded whatever did not fit into a "+N" chip. The
-        // review's item is that a badge here is a field - the network, the protocol, the inbound
-        // it arrived on, whether the connection is still open - and a count of hidden fields is
-        // the one thing the row must not show: the reader cannot tell which ones are missing.
-        // The row has room underneath, so it wraps.
+        if #available(iOS 16.0, macOS 13.0, tvOS 17.0, visionOS 1.0, *) {
+            wrappingBody
+        } else {
+            compatBody
+        }
+    }
+
+    /// Every badge, on as many lines as it takes.
+    ///
+    /// This row kept to one line and folded whatever did not fit into a "+N" chip. The
+    /// review's item is that a badge here is a field - the network, the protocol, the inbound
+    /// it arrived on, whether the connection is still open - and a count of hidden fields is
+    /// the one thing the row must not show: the reader cannot tell which ones are missing.
+    /// The row has room underneath, so it wraps.
+    @available(iOS 16.0, macOS 13.0, tvOS 17.0, visionOS 1.0, *)
+    private var wrappingBody: some View {
         HakoFlowLayout(spacing: HakoTheme.Spacing.tight) {
             ForEach(Array(badges.enumerated()), id: \.offset) { _, badge in
                 HakoBadge(badge, role: role)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(badges.joined(separator: ", ")))
+    }
+
+    /// The same badges on iOS 15, which has no `Layout`.
+    ///
+    /// One line, and it scrolls rather than folding anything into a "+N": the iOS 15 path must
+    /// still show every field, because hiding one is the defect this row was changed to fix. It
+    /// is a narrower row, not a shorter list.
+    private var compatBody: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: HakoTheme.Spacing.tight) {
+                ForEach(Array(badges.enumerated()), id: \.offset) { _, badge in
+                    HakoBadge(badge, role: role)
+                }
             }
         }
         .accessibilityElement(children: .ignore)
@@ -97,6 +123,12 @@ public struct HakoBadgeRow: View {
 ///
 /// The badge row's own container, because a `HStack` cannot wrap and a grid would make every
 /// column as wide as the widest chip.
+///
+/// `Layout` and `ProposedViewSize` are iOS 16, and `ApplicationLibrary` still builds for iOS 15 -
+/// the floor Hako raised to 16 for `SFI` alone. The badge row that uses this therefore keeps an
+/// iOS 15 path, and this type is unavailable below 16 rather than absent: a conforming type cannot
+/// be compiled conditionally, so the version lives on the declaration.
+@available(iOS 16.0, macOS 13.0, tvOS 17.0, visionOS 1.0, *)
 struct HakoFlowLayout: Layout {
     var spacing: CGFloat = HakoTheme.Spacing.tight
 

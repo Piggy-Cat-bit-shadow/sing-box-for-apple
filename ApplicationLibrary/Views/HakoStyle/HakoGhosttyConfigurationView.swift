@@ -64,8 +64,8 @@
                     .navigationBarTitleDisplayMode(.inline)
                     #endif
 
-                    .onAppear {
-                        reload()
+                    .task {
+                        await reload()
                     }
             }
 
@@ -178,8 +178,9 @@
                 }
             }
 
-            private func reload() {
-                let lightStored = SharedPreferences.tailscaleSSHGhosttyLightTheme.getBlocking()
+            @MainActor
+            private func reload() async {
+                let lightStored = await SharedPreferences.tailscaleSSHGhosttyLightTheme.get()
                 if lightStored.isEmpty {
                     lightCustomEnabled = true
                     lightPickerTheme = Self.lightDefaultTheme
@@ -187,7 +188,7 @@
                     lightCustomEnabled = false
                     lightPickerTheme = lightStored
                 }
-                let darkStored = SharedPreferences.tailscaleSSHGhosttyDarkTheme.getBlocking()
+                let darkStored = await SharedPreferences.tailscaleSSHGhosttyDarkTheme.get()
                 if darkStored.isEmpty {
                     darkCustomEnabled = true
                     darkPickerTheme = Self.darkDefaultTheme
@@ -195,9 +196,9 @@
                     darkCustomEnabled = false
                     darkPickerTheme = darkStored
                 }
-                fontFollowTheme = SharedPreferences.tailscaleSSHTerminalFontFollowTheme.getBlocking()
-                fontFamily = SharedPreferences.tailscaleSSHTerminalFontFamily.getBlocking()
-                fontSize = SharedPreferences.tailscaleSSHTerminalFontSize.getBlocking()
+                fontFollowTheme = await SharedPreferences.tailscaleSSHTerminalFontFollowTheme.get()
+                fontFamily = await SharedPreferences.tailscaleSSHTerminalFontFamily.get()
+                fontSize = await SharedPreferences.tailscaleSSHTerminalFontSize.get()
                 isLoading = false
             }
         }

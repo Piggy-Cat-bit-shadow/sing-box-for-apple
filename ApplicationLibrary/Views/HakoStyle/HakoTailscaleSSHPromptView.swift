@@ -169,7 +169,7 @@ public struct HakoTailscaleSSHPromptView: View {
 
         onConnect(TailscaleSSHPresentedSession(
             endpointTag: endpointTag,
-            peerHostName: peer.hostName,
+            peerDisplayName: peer.displayName,
             peerAddress: peer.tailscaleIPs.first!,
             username: trimmed,
             terminalType: effectiveTerm,

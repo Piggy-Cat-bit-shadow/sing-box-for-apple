@@ -138,3 +138,8 @@ public struct HakoSTUNTestView: View {
         }
     }
 }
+
+// See `HakoNetworkQualityView.swift`: the view model is shared with the iPad, so its conformance to
+// the original `OutboundSelectable` is declared where it lives and the phone's copy of the protocol
+// is satisfied here.
+extension STUNTestViewModel: HakoOutboundSelectable {}
