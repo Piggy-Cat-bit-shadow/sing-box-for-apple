@@ -35,8 +35,22 @@ audit asks the other question, and the two must not be substitutable for each ot
   * `UNVERIFIED` - the original reaches something this audit cannot resolve statically.
   * `INTENTIONAL_UI_CHANGE` - not used. The correction order forbids it without explicit approval.
 
+# Where the pinned original is read from, and what happens when it cannot be found
+
+The original is read out of a checkout that already has commit `c1935cf`, through `git show`. That
+checkout is looked for in `DSH_REPO`, then beside this working tree, then in any worktree of the same
+repository. A **worktree counts**: its `.git` is a file holding a `gitdir:` pointer, not a directory, and
+the first version of this function tested `os.path.isdir(candidate/.git)` - so the audit silently failed to
+find an original that was sitting right next to it and fell through to its `UNKNOWN` branch.
+
+`UNKNOWN` used to return **0**. That is the same false-green shape as the parse check's undecided files and
+the import check's unguarded `UIFont`: a run that compared nothing reported a clean bill of health. A
+missing original is now a non-zero result on both the text and the `--json` path, because the caller cannot
+tell "the port is lossless" from "the comparison never ran" by exit code alone otherwise.
+
 Usage:
     python audit_hako_lossless_parity.py [--root DIR] [--json] [--only GROUP]
+    DSH_REPO=/path/to/checkout-with-the-pinned-commit python audit_hako_lossless_parity.py
 """
 from __future__ import annotations
 
@@ -181,16 +195,101 @@ def git_executable() -> str:
     return _GIT
 
 
-def find_repo_with_fork_ref() -> str | None:
-    """A checkout that has the pinned commit, so `git show` can read the original."""
-    for candidate in (os.environ.get("DSH_REPO"), os.path.dirname(os.path.dirname(HERE))):
-        if candidate and os.path.isdir(os.path.join(candidate, ".git")):
+def _is_git_checkout(path: str) -> bool:
+    """True for a checkout **and** for a linked worktree of one.
+
+    A worktree's `.git` is a regular file containing `gitdir: …`, so `os.path.isdir` is false for it. This
+    repository's own round-8 layout keeps the integration tree as a worktree, which is exactly the shape
+    the first version of this function rejected.
+    """
+    return os.path.exists(os.path.join(path, ".git"))
+
+
+def _worktrees_of(repo: str) -> list[str]:
+    """Every worktree git reports for `repo`, absolute, existing ones only."""
+    try:
+        listed = git("worktree", "list", "--porcelain", repo=repo)
+    except RuntimeError:
+        return []
+    out = []
+    for line in listed.splitlines():
+        if line.startswith("worktree "):
+            candidate = line[len("worktree "):].strip()
+            if candidate and os.path.isdir(candidate):
+                out.append(candidate)
+    return out
+
+
+def candidate_repos() -> list[tuple[str, str]]:
+    """`(path, why)` for where the pinned original might be readable, most specific first.
+
+    `DSH_REPO` first because that is the escape hatch that works from anywhere. Then the tree the scripts
+    themselves live in - which, when this tree is a linked worktree, is the worktree rather than the
+    repository behind it, so a `.git` *file* has to be accepted. Then every worktree of that tree, so a
+    sibling worktree parked on the original is found rather than missed. The `why` is carried through to the
+    diagnostic: "read from <path>" is only useful evidence if the reader can see how it was chosen.
+    """
+    here = os.path.abspath(HERE)
+    beside = os.path.dirname(os.path.dirname(here))
+    ordered: list[tuple[str | None, str]] = [
+        (os.environ.get("DSH_REPO"), "DSH_REPO"),
+        (beside, "the tree these scripts live in"),
+    ]
+    for root, _why in list(ordered):
+        if root and _is_git_checkout(root):
+            ordered.extend((path, f"a worktree of {root}") for path in _worktrees_of(root))
+
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for candidate, why in ordered:
+        if not candidate:
+            continue
+        absolute = os.path.abspath(candidate)
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        out.append((absolute, why))
+    return out
+
+
+def fork_ref_names() -> list[str]:
+    """Names under which the pinned commit may be reachable, in the order they are tried.
+
+    The commit object is what is wanted, so the full SHA is tried first and always works in a checkout that
+    fetched the original even once; `origin/hako-ui` is the fork's own branch and is what this project's
+    existing layout actually has.
+    """
+    names = [FORK_REF]
+    if os.environ.get("DSH_FORK_REF"):
+        names.insert(0, os.environ["DSH_FORK_REF"])
+    names.extend(["origin/hako-ui", "hako-ui"])
+    out: list[str] = []
+    for name in names:
+        if name not in out:
+            out.append(name)
+    return out
+
+
+def find_repo_with_fork_ref() -> tuple[str | None, str, list[str]]:
+    """A checkout that has the pinned commit, so `git show` can read the original.
+
+    Returns the checkout, how it was chosen, and the reasons nothing was found, so the caller can report
+    which paths were tried and why each failed instead of only that the original is missing.
+    """
+    tried: list[str] = []
+    for candidate, why in candidate_repos():
+        if not _is_git_checkout(candidate):
+            tried.append(f"{candidate} ({why}): not a git checkout (no .git file or directory)")
+            continue
+        for name in fork_ref_names():
             try:
-                git("cat-file", "-e", f"{FORK_REF}^{{commit}}", repo=candidate)
-                return candidate
+                git("cat-file", "-e", f"{name}^{{commit}}", repo=candidate)
             except RuntimeError:
                 continue
-    return None
+            return candidate, f"{why}; {name} resolved to a commit", tried
+        tried.append(f"{candidate} ({why}): a git checkout, but none of "
+                     f"{', '.join(fork_ref_names())} resolves to a commit")
+    return None, "", tried
 
 
 def read(path: str) -> str | None:
@@ -249,7 +348,11 @@ def audit_port(port: dict, root: str, repo: str) -> dict:
 
 
 def audit_design_system(root: str, repo: str) -> dict:
-    """The design system files must be identical to the original's, byte for byte."""
+    """The design system files must be identical to the original's, byte for byte.
+
+    A file the audit could not read is a difference, and the count of files actually compared is reported so
+    a partial comparison cannot be read as a complete one.
+    """
     differences = []
     checked = 0
     for name in DESIGN_SYSTEM:
@@ -269,8 +372,13 @@ def audit_design_system(root: str, repo: str) -> dict:
             ours_lines, original_lines = ours.splitlines(), original.splitlines()
             differences.append(
                 f"{path}: {len(ours_lines)} lines vs the original's {len(original_lines)}")
-    return {"checked": checked, "differences": differences,
-            "status": "SOURCE_EQUIVALENT" if not differences else "MISSING_OR_DIFFERENT"}
+    incomplete = checked != len(DESIGN_SYSTEM)
+    return {"checked": checked, "expected": len(DESIGN_SYSTEM), "differences": differences,
+            "status": "SOURCE_EQUIVALENT" if not differences else "MISSING_OR_DIFFERENT",
+            "complete": not incomplete,
+            "note": (None if not incomplete else
+                     f"only {checked} of {len(DESIGN_SYSTEM)} design-system file(s) could be compared; "
+                     f"this is not a full byte-for-byte comparison")}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -282,14 +390,24 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     root = os.path.abspath(args.root)
-    repo = find_repo_with_fork_ref()
+    repo, chosen_because, tried = find_repo_with_fork_ref()
     if repo is None:
-        payload = {"reference": FORK_REF, "status": "UNKNOWN",
+        # A missing original is not a pass. The earlier version printed UNKNOWN and returned 0, so a run
+        # that compared nothing was indistinguishable from a run that found nothing wrong.
+        payload = {"reference": FORK_REF, "root": root, "status": "UNKNOWN",
                    "reason": f"{FORK_REF} is not present in any checkout this audit can read; the "
-                             f"original cannot be compared and the comparison is not assumed"}
-        print(json.dumps(payload, indent=2) if args.json else
-              f"UNKNOWN: {payload['reason']}")
-        return 0
+                             f"original cannot be compared and the comparison is not assumed",
+                   "tried": tried,
+                   "hint": "point DSH_REPO at a checkout that has the pinned commit, or set DSH_FORK_REF "
+                           "to a ref name that resolves to it"}
+        if args.json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print(f"UNKNOWN: {payload['reason']}")
+            for line in tried:
+                print(f"  tried {line}")
+            print(f"  {payload['hint']}")
+        return 1
 
     ports = [port for port in PORTS if args.only in (None, port["group"])]
     results = [audit_port(port, root, repo) for port in ports]
@@ -301,25 +419,43 @@ def main(argv: list[str] | None = None) -> int:
     if design and design["status"] == "MISSING_OR_DIFFERENT":
         failed.append({"group": "design-system", "page": "Design system", "lost": {},
                        "notes": design["differences"]})
+    # `--only <group>` compares one group on purpose, so a short page list is expected there. What is never
+    # acceptable is a **silent** short comparison: a page whose original could not be read is `UNVERIFIED`
+    # and fails the run, and a design-system comparison that did not reach every file is reported as
+    # incomplete rather than printed with a count nobody checked.
+    expected_pages = [port for port in PORTS if args.only in (None, port["group"])]
+    coverage = {
+        "pages_expected": len(expected_pages),
+        "pages_compared": len([r for r in results if r["status"] != "UNVERIFIED"]),
+        "design_system_compared": (design or {}).get("checked", 0),
+        "design_system_expected": (design or {}).get("expected", 0),
+        "selected_by_only": args.only,
+    }
 
     payload = {
         "reference": FORK_REF,
         "root": root,
+        "original_read_from": repo,
+        "original_chosen_because": chosen_because,
         "verdict": ("STATIC_LOSSLESS_PORT_READY_FOR_APPLE_ACCEPTANCE" if not failed and not unverified
                     else "PARTIAL"),
         "claim": "STATIC_PARITY_EVIDENCE",
         "not_claimed": ["PIXEL_PARITY_PASS", "DEVICE_PASS"],
         "pages": results,
         "design_system": design,
+        "coverage": coverage,
         "lost_tokens": lost_total,
     }
+    if design and not design.get("complete", True):
+        payload["verdict"] = "PARTIAL"
 
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
-        return 0 if not failed and not unverified else 1
+        incomplete_design = bool(design and not design.get("complete", True))
+        return 1 if (failed or unverified or incomplete_design) else 0
 
     print("Hako original-UI parity audit")
-    print(f"reference: {FORK_REF[:7]}  (read from {repo})")
+    print(f"reference: {FORK_REF[:7]}  (read from {repo} - {chosen_because})")
     print(f"root:      {root}")
     print(f"claim:     {payload['claim']} - not {', '.join(payload['not_claimed'])}")
     print()
@@ -338,13 +474,20 @@ def main(argv: list[str] | None = None) -> int:
     if design:
         print()
         print(f"  [{'SOURCE_EQUIVALENT' if not design['differences'] else 'MISSING_OR_DIFFERENT':20s}] "
-              f"design system ({design['checked']} file(s) compared byte for byte)")
+              f"design system ({design['checked']} of {design['expected']} file(s) compared byte for byte)")
         for difference in design["differences"]:
             print(f"        {difference}")
+        if not design.get("complete", True):
+            print(f"        INCOMPLETE: {design['note']}")
     print()
+    print(f"coverage: {coverage['pages_compared']} of {coverage['pages_expected']} page(s) compared; "
+          f"design system {coverage['design_system_compared']} of {coverage['design_system_expected']}")
     print(f"verdict: {payload['verdict']}")
     print(f"lost UI tokens: {lost_total}")
-    return 0 if not failed and not unverified else 1
+    # An incomplete comparison fails the text path exactly as `--json` does. The two must not disagree about
+    # the same tree - that is how `0 broken` came to be read as a pass over files nobody had looked at.
+    incomplete_design = bool(design and not design.get("complete", True))
+    return 1 if (failed or unverified or incomplete_design) else 0
 
 
 if __name__ == "__main__":
