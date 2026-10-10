@@ -230,6 +230,12 @@ enum ScreenStatePolicy {
     ///    `notify_get_state` answers `NOTIFY_STATUS_OK` with `0` for a name whose state was never
     ///    set - which on the lock source would read as an unlock. The value is still remembered, so
     ///    the next real transition is measured against it.
+    /// 5. An unlock is a transition, so it is only published when the lock source was actually
+    ///    observed locked (`1`) first. `.unlocked` is the one fact that lifts the device pause
+    ///    (`lifecycle.woke()`), and a `0` from an axis whose prior value is unknown is
+    ///    indistinguishable from the never-set `0` rule 4 refuses on a snapshot - so it is refused
+    ///    on an event too. The value is still remembered, so the next read is measured against it
+    ///    and a genuine lock-then-unlock still publishes.
     static func decide(read: NotifyStateRead,
                        source: ScreenStateSource,
                        provenance: ScreenStateProvenance,
@@ -244,6 +250,9 @@ enum ScreenStatePolicy {
             return ScreenStateDecision(rememberValue: raw, publish: nil)
         }
         if provenance == .snapshot, !fact.isSleep {
+            return ScreenStateDecision(rememberValue: raw, publish: nil)
+        }
+        if fact == .unlocked, lastObserved != 1 {
             return ScreenStateDecision(rememberValue: raw, publish: nil)
         }
         return ScreenStateDecision(rememberValue: raw, publish: fact)
