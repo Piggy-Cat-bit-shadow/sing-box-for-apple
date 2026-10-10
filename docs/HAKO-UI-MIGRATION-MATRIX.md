@@ -20,11 +20,11 @@ Last verified: `b0f35a6`.
 | **Home** | `HakoStyle/HakoHomeView.swift` (616 lines) | `HakoHomeView` | `HakoStyle/HakoHomeView.swift` (600 lines) | `DashboardViewModel` (profile list, proxy snapshot, card configuration), `ExtensionEnvironments`, `ExtensionProfile`, `CommandTarget` for the outbound mode | **MIGRATED** | `hako-page-coverage`, `hako-feature-preservation` | Home draws; start/stop; mode rows; shortcuts open Proxies/Activity/Logs; configuration centre opens with new/edit/delete/reorder/QR/update; quota row shows and is absent when the panel reports no total |
 | **Proxies** (`groups`) | `Groups/GroupListView.swift` Hako mode | `GroupListView` (upstream) | — | upstream `GroupListViewModel`, `CommandClient` | **PENDING** | `hako-page-coverage` names it as still upstream | — |
 | **Activity** (`connections`) | `Connections/ConnectionListView.swift` Hako mode | `ConnectionListView` (upstream) | — | upstream `ConnectionListViewModel`, `CommandClient` | **PENDING** | same | — |
-| **Logs** | `Log/LogView.swift` Hako mode | `LogView` (upstream) | — | upstream `LogViewModel` | **PENDING** | same | — |
+| **Logs** | `Log/LogView.swift` Hako mode (+52/-10) | `HakoLogView` | `HakoStyle/HakoLogView.swift` | upstream `LogViewContent` through the raised visibility; `LogViewModel`, `CommandClient` | **MIGRATED** | `hako-page-coverage`, `hako-feature-preservation` | Logs streams; level filter; search; export; scroll follows; the detail chrome shows a disc rather than the platform chevron. **Not done:** the four `HakoEmptyState` texts and the `HakoCardSurface` around the log surface — both are private members of a private inner view, recorded below rather than approximated |
 | **Tools** | `Tools/ToolsView.swift` Hako presentation | `ToolsView` (upstream) | — | shared services, `TailscaleStatusViewModel`, report managers | **PENDING** | same | — |
 | **More** (`settings`) | `Setting/SettingView.swift` Hako presentation | `SettingView` (upstream) | — | `SettingsPage` navigation, `FormNavigationLink` | **PENDING** | same | — |
 
-**1 of 6 migrated.** The audit reports the other five by name.
+**2 of 6 migrated.** The audit reports the other four by name.
 
 ---
 
@@ -40,12 +40,12 @@ read from a diff rather than from a file:
 | Tools | `ApplicationLibrary/Views/Tools/ToolsView.swift` | +304 / -237 |
 | Proxies (`groups`) | `ApplicationLibrary/Views/Groups/GroupListView.swift` | +273 / -30 |
 | Activity (`connections`) | `ApplicationLibrary/Views/Connections/ConnectionListView.swift` | +207 / -34 |
-| Logs | `ApplicationLibrary/Views/Log/LogView.swift` | +52 / -10 |
+| ~~Logs~~ (done) | `ApplicationLibrary/Views/Log/LogView.swift` | +52 / -10 |
 
 Read one with:
 
 ```bash
-git diff 2b1763a..origin/hako-ui -- ApplicationLibrary/Views/Log/LogView.swift
+git diff 2b1763a..origin/hako-ui -- ApplicationLibrary/Views/Tools/ToolsView.swift
 ```
 
 **Do not copy the diff over the upstream file.** Each of these files is on

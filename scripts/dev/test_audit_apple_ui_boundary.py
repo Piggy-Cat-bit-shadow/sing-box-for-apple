@@ -275,7 +275,11 @@ def mutate_official_picker_gains_quota(root: str) -> str:
 
 
 def mutate_upstream_file(root: str) -> str:
-    path = os.path.join(root, "ApplicationLibrary/Views/Log/LogView.swift")
+    # A file that is genuinely not on the reviewed list. This was `LogView.swift`, which was the right
+    # choice while the list was shorter and stopped being one the moment the Logs slice added it - a
+    # case whose expectation is "this file is unreviewed" has to name a file that is, and the suite
+    # says so rather than passing for the wrong reason.
+    path = os.path.join(root, "ApplicationLibrary/Views/Groups/GroupListView.swift")
     with open(path, "a", encoding="utf-8") as handle:
         handle.write("\n// an unreviewed edit to an upstream file\n")
     return "an upstream-owned file edited without a decision"
@@ -398,7 +402,7 @@ def main() -> int:
         description = mutate_upstream_file(copy)
         code, payload = run_audit(copy, only="upstream-files-untouched", upstream_ref=UPSTREAM_REF)
         state = statuses(payload).get("upstream-files-untouched")
-        if state == "FAIL" and "LogView.swift" in detail_of(payload, "upstream-files-untouched"):
+        if state == "FAIL" and "GroupListView.swift" in detail_of(payload, "upstream-files-untouched"):
             print(f"[ ok ] upstream-file-edited: FAIL and named  ({description})")
         elif state == "UNKNOWN":
             failures.append("upstream-file-edited: the check could not run, so the edit was not "

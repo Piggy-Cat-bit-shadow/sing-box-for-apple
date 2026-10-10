@@ -3,7 +3,7 @@
 Running record of what the second phase has actually done, so progress does not have to be
 reconstructed from a commit log or a chat.
 
-**Last updated:** at `b0f35a6`.
+**Last updated:** at `c18d712`.
 
 ---
 
@@ -32,12 +32,13 @@ reconstructed from a commit log or a chat.
 | Implementation changes | **none.** The code already matches the contract |
 | Tests | `Tests/HakoScreenState`, 33 cases over the pure policy and the observer, written and **not executed** (no Swift toolchain) |
 
-### Track U — the phone's pages — **in progress, 1 of 6**
+### Track U — the phone's pages — **in progress, 2 of 6**
 
 | Page | Status |
 |---|---|
-| Home | **MIGRATED** — `HakoStyle/HakoHomeView.swift`, routed by `SFI/HakoPageContent.swift` |
-| Proxies, Activity, Logs, Tools, More | **PENDING** — still upstream's pages |
+| Home | **MIGRATED** — `HakoStyle/HakoHomeView.swift` |
+| Logs | **MIGRATED** — `HakoStyle/HakoLogView.swift`, a wrapper over upstream's `LogViewContent` |
+| Proxies, Activity, Tools, More | **PENDING** — still upstream's pages |
 
 The per-page detail, the reference diffs to read and the rule for adding a page are in
 `docs/HAKO-UI-MIGRATION-MATRIX.md`.
@@ -85,7 +86,7 @@ python scripts/dev/test_audit_apple_ui_boundary.py
     16/16 cases as designed
 ```
 
-The one `UNKNOWN` is `hako-page-coverage`, which is the honest count: 1 of 6 pages migrated. Without
+The one `UNKNOWN` is `hako-page-coverage`, which is the honest count: 2 of 6 pages migrated. Without
 `--allow-partial` that check is a `FAIL`, deliberately, so the incomplete state cannot be read as a
 finished one.
 
@@ -101,9 +102,12 @@ finished one.
 
 ## The next concrete step
 
-Migrate **Logs**, then **Proxies** and **Activity**, then **Tools** and **More**. Logs first because
-its reference diff is the smallest (+52/-10) and it settles the pattern for a page that carries a
-subscription with a lifecycle - which is what the other four need too.
+Logs is done and settled the pattern: apply the fork's presentation to upstream's content by raising
+the content's visibility, rather than copying the page. The next four are expected to need the same,
+and each such change belongs on `REVIEWED_UPSTREAM_MODIFICATIONS` with its reason.
+
+Next: **Proxies** and **Activity** (+273/-30 and +207/-34), then **Tools** and **More**
+(+304/-237 and +427/-191).
 
 For each: create `HakoStyle/Hako…View.swift`, point the arm in `SFI/HakoPageContent.swift` at it, set
 the entry in `HAKO_PAGE_ROUTING`, add any new wiring to `hako-feature-preservation`, run both scripts,
