@@ -24,28 +24,35 @@ public struct HakoNewProfileView: View {
     @StateObject private var viewModel: NewProfileViewModel
     private var onSuccess: ((Profile) async -> Void)?
 
-    /// The two import requests are the shared view's own types, not copies.
+    /// The two import requests are the shared view's own types, under the names its callers use.
     ///
-    /// They were copies, and that was a **compile error**: `NewProfileViewModel.init` takes
-    /// `NewProfileView.ImportRequest?`, so passing `HakoImportRequest?` does not type-check. The
-    /// migration tool renamed every module-scope type it found, and these two are nested inside the
-    /// view - so they were renamed too, and their only consumer still wants the originals.
+    /// # The defect, twice
     ///
-    /// Re-declaring them was never necessary. A nested type is scoped to its enclosing type, so
-    /// `NewProfileView.ImportRequest` and a `HakoImportRequest` cannot collide, and this file needs no
-    /// type of its own: both are passed straight through to the view model, and nothing constructs
-    /// either. Using the shared types is therefore the smaller change *and* the one that keeps the two
-    /// sides of the call in agreement.
+    /// The migration renamed these nested types to `HakoImportRequest` / `HakoLocalImportRequest`, which
+    /// was a compile error: `NewProfileViewModel.init` takes `NewProfileView.ImportRequest?`, so a copy
+    /// under another name does not type-check.
     ///
-    /// They stay spelled `HakoImportRequest` / `HakoLocalImportRequest` at the API surface because the
-    /// phone's own call sites already pass those names, and a typealias keeps that working without a
-    /// second declaration anywhere.
-    public typealias HakoImportRequest = NewProfileView.ImportRequest
-    public typealias HakoLocalImportRequest = NewProfileView.LocalImportRequest
+    /// The first repair aliased them under the **renamed** names - `HakoImportRequest = NewProfileView
+    /// .ImportRequest` - which fixed the initialiser and left the other half broken:
+    /// `HakoNewProfileMenuView` holds its state as `HakoNewProfileView.ImportRequest?` and constructs
+    /// `HakoNewProfileView.ImportRequest(name:url:)` at four sites. Those members did not exist. An alias
+    /// only helps if it wears the name its callers already spell.
+    ///
+    /// So the aliases now use the **original** names, and both sides agree:
+    ///
+    ///     HakoNewProfileMenuView:  HakoNewProfileView.ImportRequest   -> resolves
+    ///     the initialiser:         ImportRequest                      -> is NewProfileView.ImportRequest
+    ///     the view model:          NewProfileView.ImportRequest       -> the same type
+    ///
+    /// Re-declaring the types was never necessary. They are nested, so they cannot collide with a
+    /// module-scope name, and nothing outside the shared view constructs them - the menu only ever holds
+    /// and passes one.
+    public typealias ImportRequest = NewProfileView.ImportRequest
+    public typealias LocalImportRequest = NewProfileView.LocalImportRequest
 
     public init(
-        _ importRequest: HakoImportRequest? = nil,
-        localImportRequest: HakoLocalImportRequest? = nil,
+        _ importRequest: ImportRequest? = nil,
+        localImportRequest: LocalImportRequest? = nil,
         onSuccess: ((Profile) async -> Void)? = nil
     ) {
         _viewModel = StateObject(wrappedValue: NewProfileViewModel(importRequest: importRequest, localImportRequest: localImportRequest))
