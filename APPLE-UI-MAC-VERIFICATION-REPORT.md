@@ -23,10 +23,10 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | iPhone simulator build | **PASS** |
 | iPad simulator build | **PASS** |
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
-| Swift tests — `HakoScreenState` | **FAIL — does not compile** |
+| Swift tests — `HakoScreenState` | **compiles; 11 of 33 cases fail** (was: did not compile) |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
-| Snapshot UI tests (`HakoSnapshotUITests`) | not run this round |
-| Family routing | **PASS by construction, not by test** (see §5.4) |
+| Snapshot UI tests (`HakoSnapshotUITests`) | **3 of 28 verified** — `test10Home` fixed and passing; `test11Tools`, `test12More` passing. The remaining 25 were not run; iPad and macOS UI are device-only (see §5.3) |
+| Family routing | **PASS by construction, not by test** (see §5.3) |
 | ABI gate, Apple layers | **PASS** (21 violations → 0) |
 
 **The headline finding is that the pinned revision did not compile at all.** Two independent
@@ -86,9 +86,9 @@ to get a compiling client — that is the user's call and was deliberately not t
 | Test | Result | Count / Notes |
 | --- | --- | --- |
 | `HakoSubscriptionUsage` (SwiftPM) | **PASS** | 24 tests, 0 failures |
-| `HakoScreenState` (SwiftPM) | **FAIL** | does not compile — `ScreenStateObserverTests.swift:421,441,533`: `cannot use mutating member on immutable value: 'calls' setter is inaccessible` |
+| `HakoScreenState` (SwiftPM) | **11 of 33 FAIL** | now compiles; 9 `ScreenStatePolicyTests` + 5 `ScreenStateObserverTests` cases fail, dominated by `screen(false)` published where nothing should be |
 | `HakoNavigationUITests` | **PASS** | 18 tests, 0 failures, 513 s |
-| `HakoSnapshotUITests` | **NOT RUN** | superseded by the navigation suite for this round's question; see §9 |
+| `HakoSnapshotUITests` | **3 of 28 verified** | `test10Home` (was failing, fixed), `test11Tools`, `test12More` pass. Not run to completion; iPad/macOS UI are device-only |
 | Freeze guards (`check-iphone-hako-freeze.sh`, `test-iphone-hako-freeze.sh`) | **N/A** | **these scripts do not exist in this tree** — they belong to the `hako-ui`/`ipad-upstream-ui` line, not to `jiejiebox/integrated`. Not "skipped"; absent. |
 | Route guard (`check-hako-primary-route.sh`) | **NOT RUN** | present; needs a prior `SFM` build plus a simulator runtime, and was not exercised in this round |
 | `check_hako_macos_parse.py` | **PASS — and misleading** | reports `macos: checked=54 errors=0` while the compiler reported 21 errors in the same tree. It models a symbol table and cannot see `EditMode`, member accesses or `@available`. Recorded as a tool limitation, not evidence. |
@@ -134,10 +134,12 @@ so no Split View, Slide Over, Stage Manager or narrow window can move an iPad in
 shell. The size class is consumed *inside* the iPad family by upstream's own
 `SidebarLayout.isEnabled`, which is upstream's design.
 
-**This is reasoning from the source, not a measured run.** No compact-width simulator test
-exists in this tree. It is the one ownership claim in this report that a reviewer should not
-take on trust; the fix is a `horizontalSizeClass == .compact` case in `SFIUITests`, which is
-test-authoring rather than a defect fix and was therefore left out of this round.
+**This is reasoning from the source, not a measured run.** The iPad simulator builds and installs
+(verified: `BUILD SUCCEEDED`, app installed, `Jiejiebox` on the home screen), but **iPad and macOS
+UI behaviour are device-only acceptance items by instruction** — simulator UI tests for those two
+surfaces are not treated as evidence, and were not run. The compact-width claim therefore rests on
+reading `SFIUIFamily.resolve`; the fix is a `horizontalSizeClass == .compact` case on a physical
+iPad, which is acceptance rather than defect-fixing.
 
 ### 5.4 macOS — Expected: upstream. **PASS (build-level)**
 
@@ -273,6 +275,80 @@ Commit:        b633d0b1d / 837b14923 in the PARENT repository - NOT PUSHED (see 
 
 ---
 
+## 6b. Bugs Found In The Follow-up Round
+
+### 6.7 `HakoSnapshotUITests/test10Home` failed on every run — **MEDIUM** (test was wrong)
+
+```
+Symptom:       HakoSnapshotUITests.swift:125: XCTAssertTrue failed -
+                 the core's goroutine count keeps the runtime's own name
+               Reproducible: it failed on both attempts to run the suite.
+Root cause:    The case asserted `staticTexts["Goroutine"]`. No revision of this tree has ever
+               contained that string: `git log -S'"Goroutine"' -- Localizable.xcstrings` is
+               empty, the catalog has no such key, and the product spells it one way -
+               `String(localized: "Goroutines")` in `Dashboard/Cards/StatusCard.swift:16` and
+               `Dashboard/Components/ExtensionStatusView.swift:33`. The case was written against
+               a sibling branch and asserts a key that never existed here.
+               The PROPERTY the case is about is real and does hold: `Goroutines` carries no
+               translation, because its only catalog entries are fa, ru and zh-Hant and every one
+               of them is the English word. So the term is deliberately untranslated - the case
+               just checked it through a key that does not exist.
+Files:         SFIUITests/HakoSnapshotUITests.swift
+               docs/pending/HakoSnapshotUITests.swift (the same assertion, kept in the holding
+               area for the fork assets this branch did not take)
+Fix:           Assert the label the product has. The comment now records why the singular was
+               wrong, so the next reader cannot lift the stale line back.
+Regression:    -only-testing:.../test10Home -> TEST SUCCEEDED, Executed 1 test, 0 failures.
+Commit:        3220019
+```
+
+### 6.8 `HakoScreenState` could not be built, so none of its cases had ever run — **MEDIUM**
+
+```
+Symptom:       scripts/run-screen-state-tests.sh -> error: Build failed
+                 ScreenStateObserverTests.swift:421: cannot use mutating member on immutable
+                 value: 'calls' setter is inaccessible   (also :441, :533)
+Root cause:    `RecordingPublisher.calls` is `private(set)`, and the setter is private to the
+               FILE, not to the type - a test method is not inside `RecordingPublisher`, so the
+               four `publisher.calls.removeAll()` sites were not something a case could write.
+               The type already owns its mutation API (`recordScreenState`/`recordLockState`);
+               the reset was simply missing.
+Files:         Tests/HakoScreenState/Tests/ScreenStateTests/ScreenStateObserverTests.swift
+Fix:           `resetCalls()` added to the type and the four sites call it. The alternative,
+               widening the property, would let a case assert against a history the publisher
+               never produced.
+Regression:    the suite builds and all 33 tests execute.
+Commit:        37798ea
+```
+
+**What that unlocked, and why it is not fixed here.** With the suite runnable, **11 of its 33
+cases fail** — 9 in `ScreenStatePolicyTests`, 5 in `ScreenStateObserverTests` (some cases report
+more than one assertion). The dominant shape is `screen(false)` being published where the case
+expects nothing published:
+
+```
+testTheWholeTruthTable:  "an unlock was published without a transition for 0 lock event last=nil"
+testDisplayOnNeverReachesAWakeEntryPoint:  ("[screen(false)]") is not equal to ("[screen(true)]")
+testResyncCanNeverPublishAWake:  ("[screen(false)]") is not equal to ("[]") -
+                                 resync published a non-sleep fact
+testNotificationLightsTheScreenAndTheDeviceStaysLocked:  two assertions about the resume edge
+testAFailedEventReadPublishesNothingAndKeepsTheLastValue:  no registration for
+                                 com.apple.springboard.lockstate
+```
+
+`docs/SCREEN-STATE-FACTS.md` records that one of these rules came from a correction this project
+already made once — *"a failed `notify_get_state` must not be published as `recordLockState(false)`"*,
+because on this core `false` means `lifecycle.woke()` and silently lifts the device pause. The
+`testTheWholeTruthTable` failure is the same family: a value never yet observed as 1 being
+treated as a transition away from it.
+
+**This is deliberately not decided here.** Whether the policy or the expectations are wrong is a
+question about what an unreadable lock axis means for the device pause, and the brief for this
+round excludes changing kernel behaviour (`改内核业务逻辑` is on the do-not-touch list). It is
+recorded as the top remaining risk rather than guessed at.
+
+---
+
 ## 7. Environment-only Blockers
 
 Every one of these was worked around; none remains a blocker.
@@ -351,9 +427,14 @@ kernel repository was not touched by these.
 
 ## 9. Remaining Risks
 
-1. **`HakoScreenState` does not compile.** `ScreenStateObserverTests.swift:421,441,533` —
-   `cannot use mutating member on immutable value: 'calls' setter is inaccessible`. This is a
-   new suite in this tree and was not written by this round. It is the one failing gate in §4.
+1. **`HakoScreenState`: 11 of 33 cases fail, and at least one failure is in the family this
+   project has already had to correct once.** The suite now compiles (§6.8); the failures are
+   semantic. The strongest is `testTheWholeTruthTable` — an unlock published for a lock event
+   whose last observed value was `nil` — which is the rule that a value never seen as 1 cannot be
+   a transition away from it. `docs/SCREEN-STATE-FACTS.md` documents that publishing a failed or
+   unknown lock read as `recordLockState(false)` silently lifts the device pause on this core.
+   **This is the highest-value thing left in the report** and it needs a decision about intended
+   semantics, which is why it was not guessed at.
 2. **Systemic guard loss, quantified.** 30 of the 54 `Hako*.swift` files carry **fewer platform
    directives than the originals they were copied from** — measured by comparing each file's
    own provenance header against that original. This round fixed the ten that broke the macOS
@@ -375,9 +456,14 @@ kernel repository was not touched by these.
    byte-identical-upstream assertion for `SFI/MainView.swift`) is a *different* branch from
    `jiejiebox/integrated` (which has `SFIUIFamily` and the generated pages). The freeze guard
    that protects the frozen iPhone UI exists on the branch the parent no longer pins.
-7. **Snapshot tests were not run.** The navigation suite answers this round's question
-   (is the phone running Hako?) directly, and the snapshot suite is the more expensive one.
-   Unrun is unrun, and it is recorded as such.
+7. **The snapshot suite is 3 of 28 verified, not "run".** `test10Home` (fixed here), `test11Tools`
+   and `test12More` pass on the iPhone simulator. The other 25 cases were not executed — the full
+   suite takes upwards of ten minutes per case on this M1/8 GB host, and the navigation suite
+   already answers the round's ownership question directly. Unrun is unrun, and it is recorded as
+   such rather than quietly counted as green.
+8. **iPad and macOS UI are device-only and were not accepted.** By explicit instruction,
+   simulator UI tests for those two surfaces are not evidence. The iPad simulator build and
+   install were verified, but no iPad or macOS presentation acceptance happened in this round.
 
 ---
 
