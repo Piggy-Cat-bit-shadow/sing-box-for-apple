@@ -23,7 +23,7 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | iPhone simulator build | **PASS** |
 | iPad simulator build | **PASS** |
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
-| Swift tests — `HakoScreenState` | **compiles; 11 of 33 cases fail** (was: did not compile) |
+| Swift tests — `HakoScreenState` | **compiles; 9 cases fail of 33** (was: did not compile) |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
 | Snapshot UI tests (`HakoSnapshotUITests`) | **23 of 28 pass, 5 fail** — all five are fixture/test-side, none is a proved product bug. `test10Home` was failing and is fixed; the five are diagnosed in §6c |
 | Family routing | **PASS by construction, not by test** (see §5.3) |
@@ -86,7 +86,7 @@ to get a compiling client — that is the user's call and was deliberately not t
 | Test | Result | Count / Notes |
 | --- | --- | --- |
 | `HakoSubscriptionUsage` (SwiftPM) | **PASS** | 24 tests, 0 failures |
-| `HakoScreenState` (SwiftPM) | **11 of 33 FAIL** | now compiles; 9 `ScreenStatePolicyTests` + 5 `ScreenStateObserverTests` cases fail, dominated by `screen(false)` published where nothing should be |
+| `HakoScreenState` (SwiftPM) | **9 cases FAIL of 33** | now compiles. 1 `ScreenStatePolicyTests` + 8 `ScreenStateObserverTests` cases; all fold into one rule in `ScreenStatePolicy.decide` — see §6.8 |
 | `HakoNavigationUITests` | **PASS** | 18 tests, 0 failures, 513 s |
 | `HakoSnapshotUITests` | **23 PASS / 5 FAIL** | Full suite, 720 s. Failures: `test14`, `test15`, `test17`, `test18`, `test43` — diagnosed in §6c |
 | Freeze guards (`check-iphone-hako-freeze.sh`, `test-iphone-hako-freeze.sh`) | **N/A** | **these scripts do not exist in this tree** — they belong to the `hako-ui`/`ipad-upstream-ui` line, not to `jiejiebox/integrated`. Not "skipped"; absent. |
@@ -321,31 +321,63 @@ Regression:    the suite builds and all 33 tests execute.
 Commit:        37798ea
 ```
 
-**What that unlocked, and why it is not fixed here.** With the suite runnable, **11 of its 33
-cases fail** — 9 in `ScreenStatePolicyTests`, 5 in `ScreenStateObserverTests` (some cases report
-more than one assertion). The dominant shape is `screen(false)` being published where the case
-expects nothing published:
+**What that unlocked, and what the disagreement actually is.** With the suite runnable, **9
+distinct cases fail** (15 failed assertions between them) — 1 in `ScreenStatePolicyTests` and 8 in
+`ScreenStateObserverTests`:
 
 ```
-testTheWholeTruthTable:  "an unlock was published without a transition for 0 lock event last=nil"
-testDisplayOnNeverReachesAWakeEntryPoint:  ("[screen(false)]") is not equal to ("[screen(true)]")
-testResyncCanNeverPublishAWake:  ("[screen(false)]") is not equal to ("[]") -
-                                 resync published a non-sleep fact
-testNotificationLightsTheScreenAndTheDeviceStaysLocked:  two assertions about the resume edge
-testAFailedEventReadPublishesNothingAndKeepsTheLastValue:  no registration for
-                                 com.apple.springboard.lockstate
+ScreenStatePolicyTests
+  testTheWholeTruthTable                 "an unlock was published without a transition for
+                                          0 lock event last=nil"
+
+ScreenStateObserverTests
+  testAFailedEventReadPublishesNothingAndKeepsTheLastValue
+  testAFailedStartCanBeRetried
+  testDisplayOnNeverReachesAWakeEntryPoint
+  testNotificationLightsTheScreenAndTheDeviceStaysLocked
+  testRegistrationPrecedesTheSnapshot
+  testResyncCanNeverPublishAWake
+  testStartAfterCancelWorks
+  testStartRegistersBothNamesAndReadsBothOnce
 ```
 
-`docs/SCREEN-STATE-FACTS.md` records that one of these rules came from a correction this project
-already made once — *"a failed `notify_get_state` must not be published as `recordLockState(false)`"*,
-because on this core `false` means `lifecycle.woke()` and silently lifts the device pause. The
-`testTheWholeTruthTable` failure is the same family: a value never yet observed as 1 being
-treated as a transition away from it.
+The cause is now located exactly, and it is one rule rather than a family. Everything else folds
+into it: the other eight are the observer cases asserting over the same `ScreenStatePolicy.decide`.
 
-**This is deliberately not decided here.** Whether the policy or the expectations are wrong is a
-question about what an unreadable lock axis means for the device pause, and the brief for this
-round excludes changing kernel behaviour (`改内核业务逻辑` is on the do-not-touch list). It is
-recorded as the top remaining risk rather than guessed at.
+`ScreenStatePolicy.decide` publishes the instant a value differs from the last one it saw:
+
+```swift
+if lastObserved == raw {
+    return ScreenStateDecision(rememberValue: raw, publish: nil)   // repeat
+}
+if provenance == .snapshot, !fact.isSleep {
+    return ScreenStateDecision(rememberValue: raw, publish: nil)   // snapshot may not claim a transition
+}
+return ScreenStateDecision(rememberValue: raw, publish: fact)      // <- publishes here
+```
+
+With `source: .lock`, `read: .value(0)`, `provenance: .event` and `lastObserved: nil`, that falls
+through to the last line and publishes `.unlocked` — which on this core is
+`recordLockState(false)` -> `Box.LockStateChanged(false)` -> `lifecycle.woke()`, the only fact that
+lifts the device pause. The test requires a lock value to have been observed as `1` first:
+
+```swift
+if decision.publish == .unlocked {
+    XCTAssertEqual(last, 1, "an unlock was published without a transition for \(label)")
+}
+```
+
+**So the two disagree on one point, and it is a design question of exactly the kind the brief
+reserves for the user:** may an unlock be published from a lock source whose prior value is
+*unknown* (`nil`), given that a real lock event reporting `0` is a genuine state report and not a
+snapshot's invented `0`? `docs/SCREEN-STATE-FACTS.md` records that this project already corrected
+the snapshot half of that question once. The event half is undecided.
+
+**Making the policy satisfy all nine is a small, local change** — refuse `unlocked` unless the
+prior observation was `1`, i.e. one guard in `decide` placed with the two already there. It is not
+applied, because it changes when the device pause is released and the brief puts that class of
+change (`改内核业务逻辑`) out of scope without a decision. It is recorded as the top remaining risk
+with the fix named, rather than guessed at.
 
 ---
 
@@ -563,14 +595,13 @@ kernel repository was not touched by these.
 
 ## 9. Remaining Risks
 
-1. **`HakoScreenState`: 11 of 33 cases fail, and at least one failure is in the family this
-   project has already had to correct once.** The suite now compiles (§6.8); the failures are
-   semantic. The strongest is `testTheWholeTruthTable` — an unlock published for a lock event
-   whose last observed value was `nil` — which is the rule that a value never seen as 1 cannot be
-   a transition away from it. `docs/SCREEN-STATE-FACTS.md` documents that publishing a failed or
-   unknown lock read as `recordLockState(false)` silently lifts the device pause on this core.
-   **This is the highest-value thing left in the report** and it needs a decision about intended
-   semantics, which is why it was not guessed at.
+1. **`HakoScreenState`: 9 cases fail of 33, all folding into one rule.** The suite now compiles
+   (§6.8); the failures are semantic and located: `ScreenStatePolicy.decide` publishes `.unlocked`
+   from a lock event whose prior value is unknown (`nil`), and the cases require the prior value to
+   have been `1`. On this core `.unlocked` is the only fact that lifts the device pause, so this is
+   a decision about when that release may happen — not a defect either side can be shown wrong
+   about. **This is the highest-value thing left in the report**, and the fix is named in §6.8: one
+   guard in `decide`, beside the two already there.
 2. **Systemic guard loss, quantified.** 30 of the 54 `Hako*.swift` files carry **fewer platform
    directives than the originals they were copied from** — measured by comparing each file's
    own provenance header against that original. This round fixed the ten that broke the macOS
