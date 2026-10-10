@@ -114,6 +114,12 @@ HakoScaffold、HakoStatus、HakoSurface、HakoTheme、HakoUITrace
 | `HakoProfilePickerSheet.swift` | 从原版 picker 生成的副本，保留原版配额行 |
 | `HakoNavigation.swift` | **本工程新增，原版没有此文件**。它保存手机的页面名，避免改动共享 `NavigationPage` |
 
+`HakoStyle/` **之外**还有一处必改的共享文件，单独列出以免被当成漏项：
+
+| 文件 | 身份 |
+|---|---|
+| `ApplicationLibrary/Views/EnvironmentValues.swift` | 上游文件，本轮新增**一个**成员 `hakoCompactRows`。环境键只能声明在 `EnvironmentValues` 上，而原版的 `HakoRow` 与 `HakoScaffold` 读它；没有这个声明模块就不会编译。理由见 §5.4，登记在 `REVIEWED_UPSTREAM_MODIFICATIONS` 与 `PHONE_ROOT_FILES` |
+
 ---
 
 ## 4. 生成器：它们做了什么，以及为什么可以信任
@@ -225,6 +231,38 @@ Hako 符号的文件"，又当作"不属于任何同步组的文件"。它是被
 | **仍在上游文件里** | 5 | `hako.profile.createManually`（`NewProfileMenuView`）与 `hako.report.*`（三份报告 list/detail）——正是 §5 记录的二级页面缺口 |
 
 两条证据是独立的：一条读源码，一条读原版测试自己的寻址清单，两边指向同一批文件。
+
+### 5.4 第二个编译错误：符号被使用却从未声明
+
+`HakoStyle/HakoRow.swift` 与 `HakoStyle/HakoScaffold.swift` 都是原版字节，两者都读
+`\.hakoCompactRows`，而**本树里没有任何地方声明它**。模块不会编译，且当时**没有任何检查能看见**：
+`@Environment(\.hakoCompactRows)` 是**键路径**而不是成员引用，所以搜符号只会找到两个读者、零个声明，
+看起来什么都不像，而不是像一个缺失的符号。
+
+这与 §4.1 的重复 `SettingsPage` 是同一类缺陷——模块作用域的**符号**问题，对一切读页面结构、路由或字节
+的检查隐形——只是方向相反。因此新增第 14 项检查 `hako-symbol-completeness`：文件里出现的每个
+`Hako*` 类型名与 `hako*` 环境键，都必须有地方声明。
+
+声明只能放在上游的 `ApplicationLibrary/Views/EnvironmentValues.swift`：环境键只能作为
+`EnvironmentValues` 的成员声明，而那个 extension 是上游的，没有 Hako 自己的地方可放。该文件因此新增
+**一个成员**，并以理由登记进 `REVIEWED_UPSTREAM_MODIFICATIONS` 与 `PHONE_ROOT_FILES`——边界审计当时报的
+两条 FAIL 正是在要求这件事。
+
+让检查精确花了四次修正，每次都来自一次实测：
+
+| 症状 | 原因 | 修法 |
+|---|---|---|
+| `case let HakoCard` 被当成声明 | 声明模式里有 `let`/`var` | 去掉；`let card = HakoCard(...)` 同样不是声明 |
+| `struct HakoCard<Content: View>` 反被报"未声明" | 名字后面紧跟的是 `<` | 加合法后续字符的前瞻 |
+| 6 个报告里 4 个是假的 | 注释被当成使用：`HakoCard.swift` 的文件头横幅、`HakoEmptyState`/`HakoTheme` 引用的原工程路径、`HakoPrimaryShell` 引用的原工程符号 | 匹配前先剥离注释 |
+| `HakoClientUI` 被当成类型 | 那是枚举 case 的 pattern | 同上；没有豁免名单，加一条就是一次决定而不是一个模式 |
+
+对应的负例 `environment-key-removed` 删掉该声明并断言检查失败。它试了**五次**才成立，每次失败都是本工程
+的问题而不是树的问题：前四次的锚点字面量分别被写它们的 shell 弄坏了引号、撇号、空格和转义序列；第五次
+改用裸词作锚、用 `chr(10)` 构造换行、并断言找到的那一行确实是注释。
+
+第五次跑仍失败一次，原因值得记下：直接调用时通过，在套件里失败——因为套件在用例之间用 `git checkout`
+重置副本，而当时那个声明还没提交。**套件是对的**，它测的是已提交的树，本来就应该如此。
 
 ---
 
