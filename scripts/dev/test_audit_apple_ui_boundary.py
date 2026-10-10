@@ -294,6 +294,30 @@ def mutate_submodule_url(root: str) -> str:
     return "the Runestone submodule URL pointed somewhere else"
 
 
+
+def mutate_environment_key_removed(root: str) -> str:
+    # The key `HakoRow` and `HakoScaffold` read is deleted from the shared `EnvironmentValues` extension.
+    # Both files are the original's bytes, so this is exactly the state the tree was in before it was
+    # noticed: two readers, no declaration, and no check able to see it.
+    #
+    # The anchor is the doc comment above the key, located by searching for a single word and walking
+    # back to the start of that line rather than by matching a longer literal. Four earlier versions of
+    # this anchor failed: the shell that wrote them mangled a quote, an apostrophe, a space, and finally
+    # an escape, and each failure reported "mutation could not be applied" - which reads as a problem
+    # with the tree rather than with the test. A bare word, a newline built by `chr`, and an assertion
+    # that the line really is a comment have nothing left to mangle.
+    path = os.path.join(root, "ApplicationLibrary/Views/EnvironmentValues.swift")
+    text = read(path)
+    found = text.find("compact metric")
+    if found < 0:
+        raise AssertionError("the compact-rows doc comment is not in EnvironmentValues.swift")
+    line_start = text.rfind(chr(10), 0, found) + 1
+    if not text[line_start:found].lstrip().startswith(chr(47)):
+        raise AssertionError("the line above the key is not a doc comment")
+    write(path, text[:line_start].rstrip() + chr(10))
+    return "the compact-rows environment key removed while two original files still read it"
+
+
 CASES = (
     # (label, check that must fail, mutation, upstream ref that check needs)
     ("hako-ref-in-upstream-page", "shared-pages-are-clean", mutate_hako_ref_in_upstream_page, None),
@@ -306,6 +330,7 @@ CASES = (
     ("quota-presenter-removed", "subscription-feature", mutate_quota_presenter_removed, None),
     ("page-reverted-to-upstream", "hako-page-coverage", mutate_page_reverted_to_upstream, None),
     ("official-picker-gains-quota", "ipad-mac-ui-gate", mutate_official_picker_gains_quota, UPSTREAM_REF),
+    ("environment-key-removed", "hako-symbol-completeness", mutate_environment_key_removed, None),
     ("submodule-url-moved", "repository-hygiene", mutate_submodule_url, UPSTREAM_REF),
 )
 

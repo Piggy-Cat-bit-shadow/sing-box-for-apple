@@ -108,3 +108,30 @@ public extension EnvironmentValues {
         }
     }
 }
+
+/// Whether the page's rows take the compact metric their neighbouring first-level page uses.
+///
+/// A second-level settings page sits inside a `Form`, and the platform gives each row a 44pt floor plus
+/// ~15pt of its own inset above and below. The fork's own row padding and floor then stacked on top of
+/// that, which is why a one-line settings row measured 74pt where the painted first-level pages are 57.
+/// `HakoScaffold` sets this; every other page keeps the platform's treatment.
+///
+/// It lives in upstream's file because that is where an `EnvironmentValues` member can be declared
+/// without a second declaration of the same extension member, and because this fork already owns this
+/// file's changes as reviewed modifications. Adding it is what makes `HakoRow` and `HakoScaffold`
+/// compile: both read `\.hakoCompactRows`, they are the original's bytes, and until this existed the
+/// key was read by two files and declared by none.
+private struct HakoCompactRowsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+public extension EnvironmentValues {
+    var hakoCompactRows: Bool {
+        get {
+            self[HakoCompactRowsKey.self]
+        }
+        set {
+            self[HakoCompactRowsKey.self] = newValue
+        }
+    }
+}

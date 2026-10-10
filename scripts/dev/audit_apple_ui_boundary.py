@@ -53,7 +53,17 @@ from typing import Iterable
 HAKO_PREFIX = "ApplicationLibrary/Views/HakoStyle/"
 
 #: Files that are the phone root and its page factory. These may name Hako symbols.
-PHONE_ROOT_FILES = ("SFI/Application.swift", "SFI/HakoPhoneRootView.swift", "SFI/HakoPageContent.swift")
+#: Files the phone's pages may reach, and the only places outside `HakoStyle/` that may name a Hako
+#: symbol.
+#:
+#: `EnvironmentValues.swift` is here because it is the one shared file the phone's design system cannot
+#: be served without: a `Hako`-named environment key can only be declared as a member of
+#: `EnvironmentValues`, and that extension is upstream's. It declares exactly one member and reads no
+#: other Hako symbol.
+PHONE_ROOT_FILES = (
+    "SFI/Application.swift", "SFI/HakoPhoneRootView.swift", "SFI/HakoPageContent.swift",
+    "ApplicationLibrary/Views/EnvironmentValues.swift",
+)
 
 #: The iPad root. Upstream owns it, byte for byte.
 IPAD_ROOT_FILE = "SFI/MainView.swift"
@@ -494,6 +504,11 @@ def check_no_reverse_dependency(root: str) -> Check:
 REVIEWED_UPSTREAM_MODIFICATIONS = {
     ".gitignore":
         "`__pycache__/` and `*.pyc`, for the two Python scripts under scripts/dev",
+    "ApplicationLibrary/Views/EnvironmentValues.swift":
+        "the `hakoCompactRows` environment key, which is the compact row metric the original's "
+        "`HakoScaffold` sets and its `HakoRow` reads. An environment key cannot be declared outside "
+        "`EnvironmentValues` and that extension is upstream's, so the declaration had to go here or "
+        "the phone's own rows would not compile; it adds one member and reads no other Hako symbol",
     "Localizable.xcstrings":
         "one String Catalog entry for the phone's remaining-quota row (`%@ left`)",
     "Library/Database/Database.swift":
@@ -700,6 +715,118 @@ def check_shared_declaration_duplicates(root: str) -> Check:
                    f"involving no file this fork owns, and are reported without being failed")
     return Check("shared-declaration-duplicates", "PASS", detail,
                  [str(problem) for problem in inherited])
+
+
+def check_hako_symbol_completeness(root: str) -> Check:
+    """Every Hako symbol a file names must be declared by some file.
+
+    The other direction of the duplicate check: that one finds a name declared twice, this one finds a
+    name used and never declared. `HakoRow` and `HakoScaffold` - the original's bytes - both read
+    `\.hakoCompactRows`, and for a while nothing declared it.
+
+    Why nothing else noticed: `@Environment(\.hakoCompactRows)` is a *key path*. A search for the
+    symbol finds the readers and no declaration, which looks like nothing at all rather than like a
+    missing symbol, and no check here reads Swift's type system. The compiler would have said so; the
+    compiler is not available. So this check says it instead.
+
+    It reports `UNKNOWN` rather than `PASS` when it finds no Hako symbol at all, because a scan that
+    looked at nothing must not read as a scan that found nothing wrong.
+    """
+    #: A name introduced by one of these is a declaration.
+    #:
+    #: `let`/`var` are deliberately **not** here. `case let HakoCard` and `if case .x(let HakoY)` are
+    #: pattern matches, not declarations, and matching them reported `HakoCard` and `HakoData` as
+    #: used-and-never-declared when both are structs in this tree. Only a declaration keyword
+    #: immediately followed by the name counts.
+    declaration = re.compile(
+        r"^[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*"
+        r"(?:public[ \t]+|internal[ \t]+|private[ \t]+|fileprivate[ \t]+|final[ \t]+|static[ \t]+|"
+        r"class[ \t]+|nonisolated[ \t]+|override[ \t]+|mutating[ \t]+|indirect[ \t]+)*"
+        r"(?:struct|class|enum|protocol|actor|typealias|func|case|init)\s+"
+        r"(?P<name>Hako\w*|hako\w*)"
+        # The name may be followed by a generic clause, a supertype, a raw type, an associated value or
+        # nothing at all: `struct HakoCard<Content: View>: View {`, `enum HakoAccentRole: String {`,
+        # `case hakoCard(HakoCard)`. Requiring a `:`/`{` here reported `HakoCard` itself as undeclared,
+        # because the character after the name in its own declaration is `<`.
+        r"(?=[\s<:{(]|$)", re.M)
+
+    #: An `extension Foo {` introduces `Foo`.
+    extension = re.compile(r"^[ \t]*(?:public[ \t]+|internal[ \t]+)*extension\s+(?P<name>Hako\w*)",
+                           re.M)
+
+    #: A stored or computed property, which is how an `EnvironmentKey`-backed member is declared. The
+    #: trailing `:`/`=` is what keeps `let card = HakoCard(...)` from reading as a declaration of
+    #: `HakoCard`, and lets `var hakoCompactRows: Bool {` read as a declaration of the key.
+    property_declaration = re.compile(
+        r"^[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*"
+        r"(?:public[ \t]+|internal[ \t]+|private[ \t]+|fileprivate[ \t]+|static[ \t]+|"
+        r"nonisolated[ \t]+|override[ \t]+|lazy[ \t]+)*"
+        r"(?:var|let)\s+(?P<name>Hako\w*|hako\w*)\s*[:=]", re.M)
+
+    #: Reading an environment key, which is the shape that hides.
+    key_read = re.compile(r"\\\.(?P<name>hako\w*)")
+    #: Setting an environment key.
+    key_write = re.compile(r"\.environment\(\\\.(?P<name>hako\w*)")
+    #: Naming a Hako type - a constructor call, a parameter type, a generic argument.
+    type_named = re.compile(r"\b(?P<name>Hako[A-Z]\w*)")
+
+    #: Comments are stripped before anything is matched, and that is not tidiness. The Hako files carry
+    #: attribution: `HakoCard.swift` names itself in its header banner, `HakoEmptyState.swift` and
+    #: `HakoTheme.swift` cite the original project's paths, and `HakoPrimaryShell.swift` cites a symbol
+    #: from it. Reading those as uses reported `HakoCard`, `HakoClientUI`, `HakoClient` and
+    #: `HakoClientApp` as used-and-never-declared, four false positives out of six - and a check that is
+    #: wrong more often than right is one nobody reads.
+    def without_comments(text: str) -> str:
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+        return re.sub(r"//[^\n]*", "", text)
+
+    declared: dict[str, list[str]] = {}
+    read: dict[str, list[str]] = {}
+
+    for path in swift_files(root):
+        raw = read_text(os.path.join(root, path))
+        if raw is None:
+            continue
+        text = without_comments(raw)
+        for pattern in (declaration, extension, property_declaration):
+            for match in pattern.finditer(text):
+                declared.setdefault(match.group("name"), []).append(path)
+        for pattern in (key_read, key_write, type_named):
+            for match in pattern.finditer(text):
+                read.setdefault(match.group("name"), []).append(path)
+
+    if not declared and not read:
+        return Check(
+            "hako-symbol-completeness",
+            "UNKNOWN",
+            "no Hako symbol was found anywhere, so nothing was compared",
+        )
+
+    # A symbol that is only ever named is not missing if it belongs to a framework this project links;
+    # the Hako namespace is this project's own, so there is no such case - every `Hako*` name must exist.
+    missing = []
+    for name, sites in sorted(read.items()):
+        if name in declared:
+            continue
+        # `HakoSelf`-style false positives would show here; there are none today, and an entry would be
+        # a deliberate exemption rather than a pattern, so none is written.
+        unique = sorted(set(sites))
+        missing.append(Blame(unique[0], 0,
+                             f"{name} is named by {len(unique)} file(s) and declared by none: "
+                             f"{', '.join(unique)}"))
+
+    if missing:
+        return Check(
+            "hako-symbol-completeness",
+            "FAIL",
+            f"{len(missing)} Hako symbol(s) are used and never declared, which is a compile error",
+            [str(item) for item in missing],
+        )
+    return Check(
+        "hako-symbol-completeness",
+        "PASS",
+        f"{len(declared)} Hako symbol(s) declared, and every one of the {len(read)} named is among them",
+    )
 
 def check_upstream_files_untouched(root: str, upstream_ref: str | None) -> Check:
     """The upstream-owned page files must be identical to the pinned upstream commit.
@@ -1792,6 +1919,7 @@ CHECKS = (
     check_shared_pages_are_clean,
     check_no_reverse_dependency,
     check_shared_declaration_duplicates,
+    check_hako_symbol_completeness,
     check_hako_page_coverage,
     check_hako_feature_preservation,
     check_ipad_mac_ui_gate,
