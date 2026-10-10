@@ -689,8 +689,15 @@ def check_shared_declaration_duplicates(root: str) -> Check:
             types.setdefault(match.group("name"), []).append(path)
         for match in extension.finditer(text):
             type_name = match.group("name")
+            # An extension's own access modifier scopes **every member it adds**. `private extension URL
+            # { func formattedSize() ... }` in two files is legal and is not a duplicate, exactly as two
+            # `private struct`s of one name are not. Reading only the members' own modifiers reported
+            # `URL.formattedSize` as a collision between `HakoStyle/HakoCoreView.swift` and
+            # `Setting/CoreView.swift` - the ported copy and the original, both of which declare it
+            # `private`.
+            extension_scoped = is_file_scoped(match.group("mods"))
             for mods, found in extension_members(text, match.end()):
-                if is_file_scoped(mods):
+                if extension_scoped or is_file_scoped(mods):
                     continue
                 members.setdefault(f"{type_name}.{found}", []).append(path)
 

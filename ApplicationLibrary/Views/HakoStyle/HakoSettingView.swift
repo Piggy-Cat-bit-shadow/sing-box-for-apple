@@ -290,7 +290,7 @@ public struct HakoSettingView: View {
                     subtitle: String(localized: "When the tunnel connects and disconnects by itself"),
                     systemImage: "filemenu.and.selection",
                     accent: HakoAccentRole.neutral,
-                    content: { AnyView(OnDemandRulesView()) }
+                    content: { AnyView(HakoOnDemandRulesView()) }
                 ),
                 HakoSettingsDestination(
                     pageKey: "packetTunnel",
@@ -298,7 +298,7 @@ public struct HakoSettingView: View {
                     subtitle: String(localized: "What the system routes through the tunnel"),
                     systemImage: "aspectratio.fill",
                     accent: HakoAccentRole.neutral,
-                    content: { AnyView(PacketTunnelView()) }
+                    content: { AnyView(HakoPacketTunnelView()) }
                 ),
                 HakoSettingsDestination(
                     pageKey: "profileOverride",
@@ -306,7 +306,7 @@ public struct HakoSettingView: View {
                     subtitle: String(localized: "Routes the client adjusts for compatibility"),
                     systemImage: "square.dashed.inset.filled",
                     accent: HakoAccentRole.neutral,
-                    content: { AnyView(ProfileOverrideView()) }
+                    content: { AnyView(HakoProfileOverrideView()) }
                 ),
             ]),
             HakoSettingsSectionGroup(title: String(localized: "Core Settings"), destinations: [
@@ -316,7 +316,7 @@ public struct HakoSettingView: View {
                     subtitle: String(localized: "Version and working directory"),
                     systemImage: "shippingbox.fill",
                     accent: HakoAccentRole.neutral,
-                    content: { AnyView(CoreView()) }
+                    content: { AnyView(HakoCoreView()) }
                 ),
             ]),
             HakoSettingsSectionGroup(title: String(localized: "App Settings"), destinations: [
@@ -326,7 +326,7 @@ public struct HakoSettingView: View {
                     subtitle: String(localized: "Language, menu bar, updates and caches"),
                     systemImage: "app.badge.fill",
                     accent: HakoAccentRole.neutral,
-                    content: { AnyView(AppView()) }
+                    content: { AnyView(HakoAppView()) }
                 ),
             ]),
             HakoSettingsSectionGroup(title: String(localized: "Integrations"), destinations: [
