@@ -18,3 +18,7 @@ AGENTS.md
 # Python bytecode from scripts/dev/*.py
 __pycache__/
 *.pyc
+
+# SwiftPM build products. `swift test` writes these into the package directory, and they
+# are the compiler's output rather than anything the repository owns.
+.build/

@@ -88,6 +88,17 @@ final class RecordingPublisher: ScreenStatePublishing {
     func recordLockState(locked: Bool) {
         calls.append(.lock(locked))
     }
+
+    /// Forget what was recorded so far.
+    ///
+    /// The four cases that need this used to write `publisher.calls.removeAll()`, which the
+    /// `private(set)` above does not allow: the setter is private to this file, and a test method
+    /// is not inside the type. Mutating through the type's own API keeps the recording the type's
+    /// business - the alternative, widening the property, would let a case assert against a
+    /// history the publisher never produced.
+    func resetCalls() {
+        calls.removeAll()
+    }
 }
 
 private let displayName = ScreenStateSource.display.notificationName
@@ -349,7 +360,7 @@ final class ScreenStateObserverTests: XCTestCase {
         let (observer, notify, publisher) = makeObserver()
         notify.stateResult[100] = .value(1)
         XCTAssertEqual(observer.start(), .started)
-        publisher.calls.removeAll()
+        publisher.resetCalls()
 
         notify.stateResult[100] = .value(0)
         notify.deliver(displayName)
@@ -418,7 +429,7 @@ final class ScreenStateObserverTests: XCTestCase {
     func testACallbackAfterCancelPublishesNothing() {
         let (observer, notify, publisher) = makeObserver()
         XCTAssertEqual(observer.start(), .started)
-        publisher.calls.removeAll()
+        publisher.resetCalls()
 
         let queued = notify.handlers[lockName]
         observer.cancel()
@@ -438,7 +449,7 @@ final class ScreenStateObserverTests: XCTestCase {
     func testCancelDuringAnInFlightReadStopsThePublish() {
         let (observer, notify, publisher) = makeObserver()
         XCTAssertEqual(observer.start(), .started)
-        publisher.calls.removeAll()
+        publisher.resetCalls()
 
         var cancelled = false
         notify.stateResult[101] = .value(1)
@@ -530,7 +541,7 @@ final class ScreenStateObserverTests: XCTestCase {
         notify.deliver(lockName) // not registered yet: harmless
         XCTAssertEqual(observer.start(), .started)
         XCTAssertEqual(publisher.calls, [.lock(true)])
-        publisher.calls.removeAll()
+        publisher.resetCalls()
 
         notify.stateResult[101] = .failed(status: 1)
         notify.deliver(lockName)
