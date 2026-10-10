@@ -1952,9 +1952,12 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
         "the `noClashModes` UI-test state and publishing `ScreenshotFixtureGroups` so Home and the "
         "proxy sheet count the same groups. The fixture half is inert unless `Variant.screenshotMode`",
     "Library/Network/ExtensionEnvironments.swift":
-        "FIXTURE ONLY: the mock tunnel profile goes through `Variant.usesMockTunnelProfile`, so a UI "
-        "test can ask for `notInstalled`. Production takes the branch it always took; see "
-        "docs/SNAPSHOT-FIXTURE-CONTRACT.md",
+        "FIXTURE ONLY, two additions. The mock tunnel profile goes through "
+        "`Variant.usesMockTunnelProfile`, so a UI test can ask for `notInstalled`; and the new "
+        "`profileLoadFailure` property is the state the phone page has always read and nothing ever "
+        "set, which the `profileError` fixture now populates. `reload()` still discards the real "
+        "reason (`try?`), so a production launch sets neither and takes the branch it always took. "
+        "See docs/SNAPSHOT-FIXTURE-CONTRACT.md",
     "Library/Shared/Variant.swift":
         "FIXTURE ONLY: `uiTestFixtureState` and `usesMockTunnelProfile`, each requiring `-ui_testing` "
         "**and** `SCREENSHOT_STATE` together. A production launch carries neither and reads `nil`; "
