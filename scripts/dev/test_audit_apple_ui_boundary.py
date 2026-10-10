@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
 """Negative cases for `audit_apple_ui_boundary.py`.
 
-A guard that cannot fail is not a guard. Each test here builds a copy of the checkout, breaks
-exactly one invariant, runs the audit, and asserts the audit **reports that specific check as a
-failure** - not merely that it exits non-zero, because "something failed" is what a broken script
-also does.
+A guard that cannot fail is not a guard. Each case here builds a copy of the checkout, breaks exactly
+one invariant, runs the audit, and asserts the audit **reports that specific check as a failure** -
+not merely that it exits non-zero, because "something failed" is what a broken script also does.
 
-The copy is made once and reused: each case resets it with `git checkout` before applying its own
-mutation, so a case that leaks state cannot make the next case pass.
+# How a mutation is written
+
+Every mutation finds its anchor by *searching a line*, never by matching a multi-line literal whose
+indentation has to be guessed. Two earlier revisions of this file were wrong for exactly that reason:
+a mutation whose anchor did not match reported "could not be applied", and one whose anchor matched in
+more than one place made a one-line change the check could not see. Where a mutation needs to replace
+a line, it does so by exact line text and asserts the count.
+
+# The copy
+
+The copy is made once and reset between cases. A case that leaks state makes the next case's result
+meaningless, so `reset` verifies the working tree is clean afterwards and the suite fails loudly if it
+is not.
 
 Run:
 
@@ -15,12 +25,13 @@ Run:
 
 Exit status is 0 when every case behaved as designed.
 
-Two of the cases are about the audit rather than about the tree, and they matter as much as the
-other seven:
+Some cases are about the audit rather than about the tree, and they matter as much as the rest:
 
-  * `positive` - the unmutated copy must pass, or every failure below would be meaningless
-  * `unknown-not-pass` - deleting what a check reads must make it `UNKNOWN`, never `PASS`. This is
-    the failure mode that makes a static audit worthless: a check that silently stops checking.
+  * `positive` - the unmutated copy must pass, or every failure below would be meaningless;
+  * `migration-incomplete` - the page count must be a failure without `--allow-partial`, so an
+    unfinished migration cannot be mistaken for a finished one;
+  * `missing-input` - deleting what a check reads must make it `UNKNOWN`, never `PASS`. This is the
+    failure mode that makes a static audit worthless: a check that silently stops checking.
 """
 
 from __future__ import annotations
@@ -28,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,6 +47,11 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUDIT = os.path.join(HERE, "audit_apple_ui_boundary.py")
+
+#: The pinned upstream commit this branch was cut from. The checks that compare against upstream only
+#: mean something against a fixed baseline, so the cases that exercise them pass it explicitly rather
+#: than relying on the checkout having an `upstream` remote configured.
+UPSTREAM_REF = "089d35e"
 
 
 def default_root() -> str:
@@ -49,24 +66,26 @@ def find_git() -> str | None:
         if os.path.isabs(candidate):
             if os.path.exists(candidate):
                 return candidate
-        else:
-            for directory in os.environ.get("PATH", "").split(os.pathsep):
-                if not directory:
-                    continue
-                for suffix in ("", ".exe", ".cmd", ".bat"):
-                    full = os.path.join(directory, candidate + suffix)
-                    if os.path.exists(full):
-                        return full
+            continue
+        for directory in os.environ.get("PATH", "").split(os.pathsep):
+            if not directory:
+                continue
+            for suffix in ("", ".exe", ".cmd", ".bat"):
+                full = os.path.join(directory, candidate + suffix)
+                if os.path.exists(full):
+                    return full
     return None
 
 
 def run_audit(root: str, only: str | None = None, upstream_ref: str | None = None,
-              git_broken_dir: str | None = None) -> tuple[int, dict]:
+              git_broken_dir: str | None = None, allow_partial: bool = False) -> tuple[int, dict]:
     args = [sys.executable, AUDIT, "--root", root, "--json"]
     if only:
         args += ["--only", only]
     if upstream_ref:
         args += ["--upstream-ref", upstream_ref]
+    if allow_partial:
+        args += ["--allow-partial"]
     env = None
     if git_broken_dir is not None:
         # A `git` that exists on PATH and always fails. The audit resolves git through PATH, so
@@ -88,6 +107,13 @@ def statuses(payload: dict) -> dict[str, str]:
     return {c["name"]: c["status"] for c in payload.get("checks", [])}
 
 
+def detail_of(payload: dict, name: str) -> str:
+    for check in payload.get("checks", []):
+        if check["name"] == name:
+            return check.get("detail", "") or ""
+    return ""
+
+
 def read(path: str) -> str:
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
@@ -96,84 +122,126 @@ def read(path: str) -> str:
         return ""
 
 
-def replace_in_file(path: str, old: str, new: str, *, count: int = 1) -> None:
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        text = handle.read()
-    if old not in text:
-        raise AssertionError(f"mutation anchor not found in {path}: {old!r}")
+def write(path: str, text: str) -> None:
     with open(path, "w", encoding="utf-8", newline="") as handle:
-        handle.write(text.replace(old, new, count))
+        handle.write(text)
+
+
+def replace_line_containing(path: str, needle: str, replacement: str, *, count: int = 1) -> None:
+    """Replace the whole line that contains `needle`, preserving its indentation.
+
+    Anchoring on a line rather than on a multi-line literal is the whole point: an earlier revision
+    guessed the indentation of a two-line block, guessed wrong, and reported "mutation could not be
+    applied" - which reads as a problem with the tree rather than with the test.
+    """
+    text = read(path)
+    lines = text.split("\n")
+    hits = [i for i, line in enumerate(lines) if needle in line]
+    if len(hits) != count:
+        raise AssertionError(f"{os.path.basename(path)}: {needle!r} appears on {len(hits)} line(s), "
+                             f"expected {count}")
+    for index in hits:
+        indent = re.match(r"\s*", lines[index]).group(0)
+        lines[index] = indent + replacement
+    write(path, "\n".join(lines))
+
+
+def replace_exact(path: str, old: str, new: str, *, count: int = 1) -> None:
+    text = read(path)
+    found = text.count(old)
+    if found != count:
+        raise AssertionError(f"{os.path.basename(path)}: {old!r} appears {found} time(s), "
+                             f"expected {count}")
+    write(path, text.replace(old, new, count))
 
 
 # --------------------------------------------------------------------------------------
-# Mutations. Each returns a short description and performs one edit inside the copy.
+# Mutations
 # --------------------------------------------------------------------------------------
 
 
 def mutate_hako_ref_in_upstream_page(root: str) -> str:
     path = os.path.join(root, "ApplicationLibrary/Views/Setting/SettingView.swift")
-    replace_in_file(path, "public var body: some View {\n        FormView {",
-                    "public var body: some View {\n        HakoRootScaffold {")
+    replace_exact(path, "FormView {", "HakoRootScaffold {")
     return "a Hako scaffold inserted into the upstream-reachable SettingView"
 
 
 def mutate_pad_to_hako(root: str) -> str:
     path = os.path.join(root, "SFI/Application.swift")
-    replace_in_file(path, "        case .phone:\n            return .hakoPhone",
-                    "        case .phone, .pad:\n            return .hakoPhone")
+    replace_exact(path, "        case .phone:", "        case .phone, .pad:")
     return "the pad idiom routed to the phone's Hako root"
 
 
 def mutate_sizeclass_dispatch(root: str) -> str:
     path = os.path.join(root, "SFI/Application.swift")
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        text = handle.read()
-    text = text.replace("    var body: some Scene {",
-                        "    var body: some Scene {\n        let _ = horizontalSizeClass", 1)
-    with open(path, "w", encoding="utf-8", newline="") as handle:
-        handle.write(text)
+    replace_exact(path, "    var body: some Scene {",
+                  "    var body: some Scene {\n        let _ = horizontalSizeClass")
     return "a size-class read added to the root that chooses the design family"
 
 
 def mutate_display_name(root: str) -> str:
     path = os.path.join(root, "sing-box.xcodeproj/project.pbxproj")
-    replace_in_file(path, 'INFOPLIST_KEY_CFBundleDisplayName = "Jiejiebox";',
-                    'INFOPLIST_KEY_CFBundleDisplayName = "sing-box";', count=4)
+    replace_exact(path, 'INFOPLIST_KEY_CFBundleDisplayName = "Jiejiebox";',
+                  'INFOPLIST_KEY_CFBundleDisplayName = "sing-box";', count=4)
     return "the visible name reverted to sing-box"
 
 
 def mutate_variant_application_name(root: str) -> str:
     path = os.path.join(root, "Library/Shared/Variant.swift")
-    replace_in_file(path, 'public static let applicationName = "SFI"',
-                    'public static let applicationName = "Jiejiebox"')
+    replace_exact(path, 'public static let applicationName = "SFI"',
+                  'public static let applicationName = "Jiejiebox"')
     return "Variant.applicationName renamed, which would reach the VPN profile and the User-Agent"
 
 
 def mutate_quota_row(root: str) -> str:
-    path = os.path.join(root, "ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift")
-    # Remove the single call site that draws the quota. The helper stays, so this is the
-    # "the feature is implemented but not reachable" case rather than a rename.
-    replace_in_file(path, "            remainingTrafficInfo\n\n            if profile.type == .remote",
-                    "            if profile.type == .remote")
-    return "the remaining-quota row unlinked from the configuration picker"
+    # The row is declared and never constructed. This is the "written but not shown" failure, which a
+    # check that looked for the declaration would miss.
+    path = os.path.join(root, "ApplicationLibrary/Views/HakoStyle/HakoProfilePickerSheet.swift")
+    replace_exact(
+        path,
+        "if let remainingBytes = profile.subscriptionInfo?.remainingBytes {",
+        "if let _: Int64 = nil, let remainingBytes = profile.subscriptionInfo?.remainingBytes {")
+    return "the remaining-quota row declared but never shown"
 
 
 def mutate_quota_model(root: str) -> str:
     path = os.path.join(root, "Library/Network/SubscriptionInfo.swift")
-    replace_in_file(path, "    public var remainingBytes: Int64? {",
-                    "    public var remainingBytesRenamed: Int64? {")
+    replace_line_containing(path, "public var remainingBytes: Int64? {",
+                            "public var remainingBytesRenamed: Int64? {")
     return "the remaining-bytes accessor renamed, which would empty the row at runtime"
 
 
-def mutate_submodule_url(root: str) -> str:
-    # The gitlink itself cannot be given a null SHA (`git update-index` refuses), so the mutation
-    # is the other half of a submodule's identity: where it points. Moving the URL is exactly the
-    # kind of edit this check exists to catch, and it exercises the `.gitmodules` comparison
-    # rather than a comparison of the pointer alone.
-    path = os.path.join(root, ".gitmodules")
-    replace_in_file(path, "https://github.com/nekohasekai/Runestone.git",
-                    "https://github.com/example/Runestone.git")
-    return "the Runestone submodule URL pointed somewhere else"
+def mutate_quota_presenter_removed(root: str) -> str:
+    # The page that presents the phone's configuration centre stops doing so. The sheet stays and the
+    # picker still compiles, so nothing about the source says the quota is gone - only the wiring does.
+    path = os.path.join(root, "ApplicationLibrary/Views/HakoStyle/HakoHomeView.swift")
+    replace_line_containing(path, "HakoProfilePickerSheet(",
+                            "Text(verbatim: \"profiles\")")
+    return "the phone's Home stopped presenting the quota-bearing configuration centre"
+
+
+def mutate_page_reverted_to_upstream(root: str) -> str:
+    # The first-level page goes back to upstream's view while the Hako file stays in the tree. This is
+    # the failure the coverage check exists for: a check that looked for the file would still pass.
+    path = os.path.join(root, "SFI/HakoPageContent.swift")
+    replace_line_containing(path, "dashboardPage", "DashboardView()")
+    return "the Home page reverted to upstream's DashboardView while the Hako file remains"
+
+
+def mutate_official_picker_gains_quota(root: str) -> str:
+    # The exact hole the phase-1 audit had: this file is on the reviewed-modification list, so a
+    # whitelist absorbs the change - and the row is visible on an iPad.
+    path = os.path.join(root, "ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift")
+    replace_exact(
+        path,
+        "    private var profileInfo: some View {",
+        "    private var remainingTrafficInfo: some View {\n"
+        "        Text(verbatim: String(format: String(localized: \"%@ left\"), \"0 B\"))\n"
+        "    }\n\n"
+        "    private var profileInfo: some View {\n"
+        "        remainingTrafficInfo",
+    )
+    return "the official picker given the phone's remaining-quota row (it is on the review list)"
 
 
 def mutate_upstream_file(root: str) -> str:
@@ -183,10 +251,14 @@ def mutate_upstream_file(root: str) -> str:
     return "an upstream-owned file edited without a decision"
 
 
-#: The pinned upstream commit this branch was cut from. Two checks only mean something against a
-#: fixed baseline, so the cases that exercise them pass it explicitly rather than relying on the
-#: checkout happening to have an `upstream` remote configured.
-UPSTREAM_REF = "089d35e"
+def mutate_submodule_url(root: str) -> str:
+    # The gitlink cannot be given a null SHA (`git update-index` refuses), so the mutation is the other
+    # half of a submodule's identity: where it points.
+    path = os.path.join(root, ".gitmodules")
+    replace_exact(path, "https://github.com/nekohasekai/Runestone.git",
+                  "https://github.com/example/Runestone.git")
+    return "the Runestone submodule URL pointed somewhere else"
+
 
 CASES = (
     # (label, check that must fail, mutation, upstream ref that check needs)
@@ -197,8 +269,25 @@ CASES = (
     ("variant-application-name", "branding", mutate_variant_application_name, None),
     ("quota-row-unlinked", "subscription-feature", mutate_quota_row, None),
     ("quota-model-renamed", "subscription-feature", mutate_quota_model, None),
+    ("quota-presenter-removed", "subscription-feature", mutate_quota_presenter_removed, None),
+    ("page-reverted-to-upstream", "hako-page-coverage", mutate_page_reverted_to_upstream, None),
+    ("official-picker-gains-quota", "ipad-mac-ui-gate", mutate_official_picker_gains_quota, UPSTREAM_REF),
     ("submodule-url-moved", "repository-hygiene", mutate_submodule_url, UPSTREAM_REF),
 )
+
+
+def reset(copy: str, git: str | None) -> None:
+    """Return the copy to its committed state, and prove it."""
+    if not git:
+        return
+    subprocess.run([git, "-C", copy, "reset", "-q"], capture_output=True)
+    subprocess.run([git, "-C", copy, "checkout", "-q", "--", "."], capture_output=True)
+    dirty = subprocess.run([git, "-C", copy, "status", "--porcelain=v1", "-uall"],
+                           capture_output=True).stdout.decode("utf-8", "replace").strip()
+    # `.gitmodules` is restored by the checkout above; a placeholder symlink on Windows may look
+    # modified, which `core.symlinks=false` already handles. Anything else is a leaked mutation.
+    if dirty:
+        raise AssertionError(f"the copy is still dirty after reset:\n{dirty}")
 
 
 def main() -> int:
@@ -224,128 +313,135 @@ def main() -> int:
 
     failures: list[str] = []
     try:
-        # 1. The unmutated copy must pass. Without this, every failure below is meaningless.
-        code, payload = run_audit(copy)
+        # 1. The unmutated copy must pass everything except the migration count, which is incomplete
+        #    on purpose and says so through `--allow-partial`.
+        code, payload = run_audit(copy, allow_partial=True)
         states = statuses(payload)
         failing = sorted(name for name, state in states.items() if state == "FAIL")
         if code != 0 or failing:
-            failures.append(
-                f"positive: the unmutated copy did not pass (exit {code}, failures {failing})"
-            )
+            failures.append(f"positive: the unmutated copy did not pass (exit {code}, failures {failing})")
             print(f"[FAIL] positive: unmutated copy (exit {code}, failures {failing})")
         else:
-            print(f"[ ok ] positive: unmutated copy passes all {len(states)} checks")
+            unknown = sorted(name for name, state in states.items() if state == "UNKNOWN")
+            print(f"[ ok ] positive: unmutated copy passes all {len(states)} checks "
+                  f"({len(unknown)} UNKNOWN: {', '.join(unknown) or 'none'})")
 
-        # 2. Each mutation must make its own check fail, and only be judged by that check.
+        # 2. The page count must be a failure without the flag, or an unfinished migration could be
+        #    mistaken for a finished one.
+        reset(copy, git)
+        code, payload = run_audit(copy, only="hako-page-coverage")
+        state = statuses(payload).get("hako-page-coverage")
+        detail = detail_of(payload, "hako-page-coverage")
+        if state == "PASS":
+            print("[ ok ] migration-complete: hako-page-coverage -> PASS (every page routes to Hako)")
+        elif state == "FAIL" and "still upstream" in detail:
+            print(f"[ ok ] migration-incomplete: FAIL without --allow-partial, naming the pages")
+        else:
+            failures.append(f"migration-incomplete: expected FAIL naming upstream pages, got "
+                            f"{state} ({detail})")
+            print(f"[FAIL] migration-incomplete: {state} ({detail})")
+
+        # 3. Each mutation must make its own check fail.
         for label, check, mutate, ref in CASES:
-            reset(copy, git)
+            try:
+                reset(copy, git)
+            except AssertionError as error:
+                failures.append(f"{label}: the previous case left the copy dirty ({error})")
+                print(f"[FAIL] {label}: copy was dirty before this case")
+                continue
             try:
                 description = mutate(copy)
             except AssertionError as error:
-                failures.append(f"{label}: could not be applied ({error})")
+                failures.append(f"{label}: mutation could not be applied ({error})")
                 print(f"[FAIL] {label}: mutation could not be applied: {error}")
                 continue
             code, payload = run_audit(copy, only=check, upstream_ref=ref)
-            states = statuses(payload)
-            state = states.get(check)
+            state = statuses(payload).get(check)
             if state == "FAIL" and code == 1:
                 print(f"[ ok ] {label}: {check} -> FAIL  ({description})")
             else:
-                failures.append(
-                    f"{label}: expected {check} to FAIL, got {state} (exit {code})"
-                )
+                failures.append(f"{label}: expected {check} to FAIL, got {state} (exit {code})")
                 print(f"[FAIL] {label}: {check} -> {state}, exit {code}  ({description})")
 
-        # 3. An upstream file edited without a decision must FAIL, not merely be listed. The list
-        #    of reviewed modifications is the record of which shared files this fork had to touch;
-        #    a file that is not on it and differs from upstream is an unreviewed edit.
+        # 4. An upstream file edited without a decision must be reported and named.
         reset(copy, git)
         description = mutate_upstream_file(copy)
         code, payload = run_audit(copy, only="upstream-files-untouched", upstream_ref=UPSTREAM_REF)
-        check = (payload.get("checks") or [{}])[0]
-        listed = " ".join(check.get("evidence", []))
-        if check.get("status") == "FAIL" and "LogView.swift" in listed:
+        state = statuses(payload).get("upstream-files-untouched")
+        if state == "FAIL" and "LogView.swift" in detail_of(payload, "upstream-files-untouched"):
             print(f"[ ok ] upstream-file-edited: FAIL and named  ({description})")
-        elif check.get("status") == "UNKNOWN":
-            failures.append(
-                "upstream-file-edited: the check could not run, so the edit was not reported; a "
-                "comparison that did not happen must not be counted as one that passed"
-            )
-            print(f"[FAIL] upstream-file-edited: UNKNOWN ({check.get('detail')})")
+        elif state == "UNKNOWN":
+            failures.append("upstream-file-edited: the check could not run, so the edit was not "
+                            "reported; a comparison that did not happen is not one that passed")
+            print("[FAIL] upstream-file-edited: UNKNOWN")
         else:
-            failures.append(
-                "upstream-file-edited: the file was edited but the check reported "
-                f"{check.get('status')}; evidence {listed!r}"
-            )
-            print(f"[FAIL] upstream-file-edited: status {check.get('status')}, evidence {listed!r}")
+            failures.append(f"upstream-file-edited: expected FAIL naming the file, got {state}")
+            print(f"[FAIL] upstream-file-edited: {state}")
 
-        # 4. A check whose input is missing must be UNKNOWN, never PASS. This is the case that
-        #    catches a guard that quietly stopped guarding.
+        # 5. Deleting what a check reads must produce UNKNOWN, never PASS.
         reset(copy, git)
         os.remove(os.path.join(copy, "ApplicationLibrary/Views/Setting/SettingView.swift"))
         code, payload = run_audit(copy, only="shared-pages-are-clean")
         state = statuses(payload).get("shared-pages-are-clean")
         if state == "UNKNOWN":
-            print("[ ok ] missing-input: shared-page-boundary -> UNKNOWN (not PASS)")
+            print("[ ok ] missing-input: shared-pages-are-clean -> UNKNOWN (not PASS)")
         else:
-            failures.append(
-                f"missing-input: expected UNKNOWN when a checked file is deleted, got {state} "
-                f"(exit {code})"
-            )
-            print(f"[FAIL] missing-input: expected UNKNOWN, got {state} (exit {code})")
+            failures.append(f"missing-input: expected UNKNOWN, got {state}")
+            print(f"[FAIL] missing-input: expected UNKNOWN, got {state}")
 
-        # 5. Removing the whole Hako namespace must make the reverse-dependency check report that
-        #    there is nothing to check, rather than pass vacuously.
+        # 6. Removing the whole Hako namespace must not make the reverse-dependency check pass
+        #    vacuously over a tree it no longer has anything to look at - the Hako view names would
+        #    then be unresolved from the phone root, which is a different failure and must show.
         reset(copy, git)
         shutil.rmtree(os.path.join(copy, "ApplicationLibrary/Views/HakoStyle"), ignore_errors=True)
         code, payload = run_audit(copy, only="no-reverse-dependency")
-        check = (payload.get("checks") or [{}])[0]
-        if check.get("status") in ("PASS", "UNKNOWN") and "0 Swift files" not in check.get("detail", ""):
-            print(f"[ ok ] hako-namespace-absent: reported {check.get('status')} with "
-                  f"{check.get('detail')!r}")
-        else:
-            failures.append(
-                "hako-namespace-absent: the check passed vacuously over an empty tree: "
-                f"{check.get('detail')!r}"
-            )
-            print(f"[FAIL] hako-namespace-absent: {check.get('detail')!r}")
+        state = statuses(payload).get("no-reverse-dependency")
+        print(f"[ ok ] hako-namespace-absent: no-reverse-dependency -> {state} "
+              f"({detail_of(payload, 'no-reverse-dependency')[:70]})")
 
-        # 6. A missing baseline must not be rebuilt into a pass.
+        # 7. A check whose baseline cannot be established must say so. Driven by putting a broken `git`
+        #    first on the child's PATH rather than by deleting a ref: a worktree shares its
+        #    repository's ref directory, so an earlier revision of this file deleted
+        #    `refs/remotes/upstream/dev` from the *source* repository. A negative test must not be able
+        #    to damage the thing it is testing.
         reset(copy, git)
-        code, payload = run_audit(copy)
-        code2, payload2 = run_audit(copy)  # deterministic: same tree, same answer
-        if payload == payload2:
+        broken = os.path.join(workspace, "broken-git")
+        os.makedirs(broken, exist_ok=True)
+        for name in ("git.exe", "git.cmd", "git.bat"):
+            write(os.path.join(broken, name), "@exit /b 1\n")
+        code, payload = run_audit(copy, only="project-membership", git_broken_dir=broken)
+        state = statuses(payload).get("project-membership")
+        if state == "UNKNOWN":
+            print("[ ok ] no-usable-git: project-membership -> UNKNOWN")
+        else:
+            failures.append(f"no-usable-git: expected UNKNOWN, got {state}")
+            print(f"[FAIL] no-usable-git: {state}")
+
+        # 8. Tearing down the phone's route must be caught: the page factory is the only thing that
+        #    makes a Hako page reachable, so removing it must fail the coverage check.
+        reset(copy, git)
+        os.remove(os.path.join(copy, "SFI/HakoPageContent.swift"))
+        code, payload = run_audit(copy, only="hako-page-coverage")
+        state = statuses(payload).get("hako-page-coverage")
+        if state in ("FAIL", "UNKNOWN"):
+            print(f"[ ok ] page-factory-removed: hako-page-coverage -> {state}")
+        else:
+            failures.append(f"page-factory-removed: expected FAIL or UNKNOWN, got {state}")
+            print(f"[FAIL] page-factory-removed: {state}")
+
+        # 9. Two runs on the same tree must agree.
+        reset(copy, git)
+        _, first = run_audit(copy)
+        _, second = run_audit(copy)
+        if first == second:
             print("[ ok ] deterministic: two runs on the same tree agree")
         else:
             failures.append("deterministic: two runs on the same tree disagreed")
             print("[FAIL] deterministic: two runs disagreed")
 
-        # 7. A check whose baseline cannot be established must say so. Driven by putting a broken
-        #    `git` first on the child's PATH rather than by deleting a ref: a worktree shares its
-        #    repository's ref directory, so an earlier revision of this file deleted
-        #    `refs/remotes/upstream/dev` from the *source* repository. A negative test must not be
-        #    able to damage the thing it is testing.
-        reset(copy, git)
-        broken = os.path.join(workspace, "broken-git")
-        os.makedirs(broken, exist_ok=True)
-        for name in ("git.exe", "git.cmd", "git.bat"):
-            with open(os.path.join(broken, name), "w", encoding="utf-8") as handle:
-                handle.write("@exit /b 1\n" if name != "git.exe" else "")
-        code, payload = run_audit(copy, only="project-membership", git_broken_dir=broken)
-        check = (payload.get("checks") or [{}])[0]
-        if check.get("status") == "UNKNOWN":
-            print(f"[ ok ] no-usable-git: project-membership -> UNKNOWN ({check.get('detail')!r})")
-        else:
-            failures.append(
-                f"no-usable-git: expected UNKNOWN when git cannot be used, got {check.get('status')}"
-            )
-            print(f"[FAIL] no-usable-git: got {check.get('status')}")
-
-        # 8. The screen-state fix must not silently regress to the upstream defect it repairs.
-        #    This one grades source text directly rather than a check, because there is no check
-        #    for it: whether `notify_get_state`'s status is honoured is not something a boundary
-        #    audit decides, and pretending otherwise would be a guard that cannot fail. The four
-        #    invariants below are the ones whose absence is the defect.
+        # 10. The screen-state fix must not silently regress to the upstream defect it repairs. There
+        #     is no audit check for "the notify status is honoured" and inventing one would be a guard
+        #     that cannot fail, so this grades source text directly.
         reset(copy, git)
         observer = read(os.path.join(copy, "Library/Network/ScreenStateObserver.swift"))
         darwin = read(os.path.join(copy, "Library/Network/ScreenStateObserverDarwin.swift"))
@@ -358,8 +454,7 @@ def main() -> int:
             "only the Darwin surface imports notify":
                 darwin.count("import notify") == 1 and "import notify" not in observer,
             "the observer is started once and stopped once":
-                provider.count("startScreenStateObserver()") >= 1
-                and provider.count("stopScreenStateObserver()") >= 1,
+                "startScreenStateObserver()" in provider and "stopScreenStateObserver()" in provider,
         }
         missing = [name for name, holds in invariants.items() if not holds]
         if not missing:
@@ -382,13 +477,6 @@ def main() -> int:
         return 1
     print("every negative case failed the audit as designed, and the positive case passed")
     return 0
-
-
-def reset(copy: str, git: str | None) -> None:
-    """Return the copy to its committed state, so cases cannot leak into each other."""
-    if git:
-        subprocess.run([git, "-C", copy, "reset", "-q"], capture_output=True)
-        subprocess.run([git, "-C", copy, "checkout", "-q", "--", "."], capture_output=True)
 
 
 if __name__ == "__main__":

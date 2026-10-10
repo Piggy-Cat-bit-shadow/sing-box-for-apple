@@ -58,6 +58,18 @@ struct HakoPhoneRootView: View {
     @State private var importRemoteProfile: LibboxImportRemoteProfile?
     @State private var alert: AlertState?
 
+    /// The configuration list and the system-proxy snapshot, for the phone's pages.
+    ///
+    /// The dashboard already builds this object and reloads it; the phone's Home reads the same one
+    /// rather than growing a second. `DashboardView` creates its own for the iPad, which is correct:
+    /// the two roots are never alive together.
+    @StateObject private var dashboard = DashboardViewModel()
+    @StateObject private var cardConfiguration = DashboardCardConfiguration()
+    /// Groups and connections are presented as sheets, so their presentation state lives at the root
+    /// and reaches the page through `\.hakoHomeActions`.
+    @State private var showGroups = false
+    @State private var showConnections = false
+
     private let profileEditor: (Binding<String>, Bool) -> AnyView = { text, isEditable in
         AnyView(ProfileEditorWrapperView(text: text, isEditable: isEditable))
     }
@@ -91,7 +103,7 @@ struct HakoPhoneRootView: View {
     /// first card instead of under a large headline.
     @ViewBuilder
     private func pageContent(for page: NavigationPage) -> some View {
-        HakoPageContent(page: page)
+        HakoPageContent(page: page, dashboard: dashboard, cardConfiguration: cardConfiguration)
             .navigationTitle(page.hakoTitle)
             .hakoInlineNavigationTitle()
             .modifier(RemoteControlChipModifier())
@@ -148,6 +160,11 @@ struct HakoPhoneRootView: View {
         shell
             .onAppear {
                 environments.postReload()
+                // The Home page reads this object, and the dashboard's own view is what normally
+                // calls this. The phone's root is the equivalent owner here.
+                dashboard.setEnvironments(environments)
+                Task { await dashboard.reload() }
+                Task { await cardConfiguration.reload() }
             }
             .alert($alert)
             .globalChecks()
@@ -156,12 +173,40 @@ struct HakoPhoneRootView: View {
             .environment(\.importRemoteProfile, $importRemoteProfile)
             .environment(\.profileEditor, profileEditor)
             .environment(\.ghosttyConfigEditor, ghosttyConfigEditor)
+            // The extension profile is injected where the dashboard's card grid injects it, so the
+            // Home page reads it from the same place rather than from a second owner.
+            .environment(\.hakoHomeActions, HakoHomeActions(
+                showGroups: { showGroups = true },
+                showConnections: { showConnections = true }
+            ))
             .handlesExternalEvents(preferring: [], allowing: ["*"])
             .onOpenURL(perform: openURL)
+            .sheet(isPresented: $showGroups) {
+                GroupsSheetContent()
+            }
+            .sheet(isPresented: $showConnections) {
+                ConnectionsSheetContent()
+            }
+            .onReceive(environments.profileUpdate) { _ in
+                Task {
+                    await dashboard.reload()
+                    await cardConfiguration.reload()
+                }
+            }
+            .onReceive(environments.selectedProfileUpdate) { _ in
+                Task { await dashboard.updateSelectedProfile() }
+            }
             .onChangeCompat(of: scenePhase) { newValue in
                 if newValue == .active {
                     environments.postReload()
+                    Task { await dashboard.reloadSystemProxy() }
                 }
+            }
+            .onReceive(environments.$extensionProfile) { profile in
+                // `DashboardView` does this for the same reason: the Home page's environment needs
+                // the profile object, and its presence is what tells the page a tunnel exists.
+                dashboard.setEnvironments(environments)
+                _ = profile
             }
             .onChangeCompat(of: selection) { newValue in
                 // Upstream's iOS root does this too: the log view is a stream from the

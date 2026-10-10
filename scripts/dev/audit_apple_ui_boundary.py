@@ -659,7 +659,7 @@ def check_project_membership(root: str, upstream_ref: str | None = None) -> Chec
     )
 
 
-def check_branding(root: str) -> Check:
+def check_branding(root: str, upstream_ref: str | None = None) -> Check:
     """The visible name is Jiejiebox; identity, protocol and signing surface is untouched."""
     pbx = os.path.join(root, "sing-box.xcodeproj/project.pbxproj")
     text = read_text(pbx)
@@ -669,34 +669,67 @@ def check_branding(root: str) -> Check:
     evidence = []
     problems = []
 
-    display_names = re.findall(r"INFOPLIST_KEY_CFBundleDisplayName = ([^;]+);", text)
-    if not display_names:
-        problems.append("no INFOPLIST_KEY_CFBundleDisplayName is set anywhere")
-    # The app targets are the ones we care about. Extensions keep their own names, which is
-    # correct: "Share Extension" is not the product's name.
-    app_targets = 0
-    for target, names in target_lines(text, "INFOPLIST_KEY_CFBundleDisplayName"):
-        for value in names:
-            value = value.strip().strip('"')
-            if value == BRAND_DISPLAY_NAME:
-                app_targets += 1
-                evidence.append(f"target {target}: CFBundleDisplayName = {value}")
-    if app_targets == 0:
-        problems.append(
-            f"no target sets CFBundleDisplayName = {BRAND_DISPLAY_NAME}; the user-visible rename "
-            "is missing"
-        )
+    # Attribute every display name to the plist of its build configuration. Counting occurrences
+    # says nothing about *which* target still carries the old name; grouping by the plist is what
+    # lets this check assert that the share extension is deliberately not branded rather than that
+    # eight entries happen to remain.
+    settings = display_name_by_plist(text)
+    if not settings:
+        problems.append("no INFOPLIST_KEY_CFBundleDisplayName is set in any build configuration")
+    else:
+        for plist in BRANDED_TARGET_PLISTS:
+            values = settings.get(plist)
+            if values is None:
+                problems.append(f"{plist} sets no CFBundleDisplayName")
+            elif set(values) != {BRAND_DISPLAY_NAME}:
+                problems.append(
+                    f"{plist} sets CFBundleDisplayName to {sorted(set(values))}, expected "
+                    f"[{BRAND_DISPLAY_NAME!r}] in every configuration"
+                )
+            else:
+                evidence.append(f"{plist}: {BRAND_DISPLAY_NAME} in {len(values)} configuration(s)")
+        others = sorted(set(settings) - set(BRANDED_TARGET_PLISTS))
+        for plist in others:
+            if BRAND_DISPLAY_NAME in set(settings[plist]):
+                problems.append(f"{plist} was branded; only the two app targets may be")
+        if others:
+            evidence.append(
+                f"{len(others)} component plist(s) deliberately unbranded: "
+                + ", ".join(os.path.basename(p) for p in others)
+            )
 
-    # Identity surface must not carry the brand.
+    # Identity surface must not carry the brand, and must still be upstream's value when the pinned
+    # commit is available - a value that is merely plausible is not the same as an unchanged one.
     for setting in PROTECTED_NAME_SETTINGS:
-        for target, values in target_lines(text, setting):
-            for value in values:
-                value = value.strip().strip('"')
-                if BRAND_DISPLAY_NAME.lower() in value.lower():
-                    problems.append(
-                        f"{setting} in target {target} carries the product name ({value}); the "
-                        "rename must not reach bundle identifiers or product names"
-                    )
+        local_values = [
+            value.strip().strip('"')
+            for _, values in target_lines(text, setting)
+            for value in values
+        ]
+        for value in local_values:
+            if BRAND_DISPLAY_NAME.lower() in value.lower():
+                problems.append(
+                    f"{setting} carries the product name ({value}); the rename must not reach "
+                    "bundle identifiers or product names"
+                )
+        upstream_values = setting_values_at(root, upstream_ref, setting)
+        if upstream_values is None:
+            evidence.append(f"{setting}: {len(local_values)} occurrence(s); no upstream comparison")
+            continue
+        if len(upstream_values) != len(local_values):
+            problems.append(
+                f"{setting} appears {len(local_values)} times here and {len(upstream_values)} times "
+                f"at {upstream_ref}; a merge probably moved a build configuration"
+            )
+        elif sorted(upstream_values) != sorted(local_values):
+            problems.append(
+                f"{setting} differs from {upstream_ref}: {sorted(local_values)} vs "
+                f"{sorted(upstream_values)}"
+            )
+        else:
+            evidence.append(
+                f"{setting}: {len(local_values)} occurrence(s), identical to {upstream_ref}"
+            )
 
     # `Variant.applicationName` feeds the VPN profile's localizedDescription, the User-Agent and
     # Siri, so it is protocol surface, not presentation.
@@ -714,8 +747,6 @@ def check_branding(root: str) -> Check:
             )
         else:
             evidence.append(f"Variant.applicationName = {match.group(1)} (unchanged)")
-
-    evidence.append(f"CFBundleDisplayName occurrences: {sorted(set(n.strip().strip(chr(34)) for n in display_names))}")
 
     if problems:
         return Check("branding", "FAIL", "; ".join(problems), evidence)
@@ -815,7 +846,21 @@ def is_declaration_of(blame: Blame, symbol: str) -> bool:
 
 
 def check_subscription_feature(root: str) -> Check:
-    """The newest phone feature must be present, reachable and wired end to end."""
+    """The newest phone feature must be present, reachable, and phone-only.
+
+    # What "reachable" means now
+
+    The remaining-quota row moved from the official picker into
+    `ApplicationLibrary/Views/HakoStyle/HakoProfilePickerSheet.swift`, because an iPad and a Mac can
+    open the official picker and the requirement for both is upstream's presentation untouched. That
+    move changes what this check has to prove:
+
+      * the **data** chain is still shared and still present, and
+      * the **row** is present and reachable *inside the phone's own presentation*.
+
+    The second half guards the failure the move could have introduced - a quota row that exists and is
+    never presented - and it is checked by finding a presenter, not by finding the declaration.
+    """
     required_files = {
         "Library/Network/SubscriptionInfo.swift": (r"func parse\s*\(\s*header", "remainingBytes", "usedBytes"),
         "Library/Network/RemoteProfileFetcher.swift": ("subscription-userinfo", "HTTPClient.userAgent"),
@@ -823,7 +868,6 @@ def check_subscription_feature(root: str) -> Check:
         "Library/Database/RemoteRefreshApplier.swift": ("RemoteRefreshApplier",),
         "Library/Database/Profile.swift": ("subscriptionInfo", "subscriptionUpload"),
         "Library/Database/Database.swift": ("add_subscription_info",),
-        "ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift": ("remainingTrafficInfo",),
         "Localizable.xcstrings": ('"%@ left"',),
     }
     problems = []
@@ -839,61 +883,78 @@ def check_subscription_feature(root: str) -> Check:
         else:
             evidence.append(path)
 
-    # The row must read the value from the snapshot it holds, not from a second fetch.
-    picker = read_text(os.path.join(root, "ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift"))
-    if picker and "profile.subscriptionInfo?.remainingBytes" not in picker:
+    # The phone's picker carries the row, reads the value out of the snapshot it already holds, and
+    # is presented by a page the phone reaches. Each is a separate way the feature could be present
+    # in the source and absent on the device.
+    hako_picker = HAKO_PREFIX + "HakoProfilePickerSheet.swift"
+    hako_picker_text = read_text(os.path.join(root, hako_picker))
+    if hako_picker_text is None:
+        problems.append(f"{hako_picker} is missing, so the phone has no configuration centre")
+    else:
+        for needle, why in (
+            ("remainingTrafficInfo", "the quota item"),
+            ("profile.subscriptionInfo?.remainingBytes", "reading the remainder from the snapshot"),
+            ("remainingTrafficText", "the quota formatter"),
+        ):
+            if needle not in hako_picker_text:
+                problems.append(f"{hako_picker} does not contain {needle} ({why})")
+        evidence.append(hako_picker)
+
+    presenters = [
+        path for path in swift_files(root)
+        if not path.endswith("HakoProfilePickerSheet.swift")
+        and re.search(r"\bHakoProfilePickerSheet\b", read_text(os.path.join(root, path)) or "")
+    ]
+    if not presenters:
         problems.append(
-            "the profile row does not read `profile.subscriptionInfo?.remainingBytes`, so it "
-            "cannot show the remainder from the snapshot it already has"
+            "nothing presents `HakoProfilePickerSheet`, so the remaining-quota row is declared and "
+            "never shown"
         )
+    else:
+        evidence.append(f"presented by {', '.join(presenters)}")
 
-    # A feature is not present merely because a helper exists. Every symbol on the chain that the
-    # row depends on must be declared *and* named somewhere the phone actually reaches, which is
-    # what distinguishes "written" from "wired up" - the failure this check exists for.
+    # A feature is not reachable merely because a helper exists. Every symbol on the chain that the
+    # row depends on must be *used* somewhere the phone reaches as well as declared, and the reading
+    # is taken over the phone's own files - the phone root, the page factory and the Hako namespace -
+    # because that is the surface the row has to arrive on.
     #
-    # Two independent readings are taken, because each can miss a different thing and a guard is
-    # only as good as its weakest one:
-    #
-    #   * a declaration scan, which catches a renamed or deleted member; and
-    #   * a plain occurrence count outside the Hako namespace, which catches a helper that is
-    #     declared and then never called.
-    #
-    # The occurrence reading deliberately does not try to resolve types. A symbol named anywhere
-    # outside the fork's presentation is enough to say the feature is reachable from code that is
-    # not the presentation, which is the property being asserted.
-    outside_hako: dict[str, list[Blame]] = {}
-    for path in swift_files(root):
-        if path.startswith(HAKO_PREFIX):
-            continue
-        text = read_text(os.path.join(root, path))
-        if text is None:
-            continue
-        for number, line in enumerate(text.splitlines(), start=1):
-            for symbol in ("remainingTrafficInfo", "remainingBytes", "remainingTrafficText",
-                           "subscriptionInfo", "updateRemoteProfile"):
-                if re.search(rf"\b{symbol}\b", line):
-                    outside_hako.setdefault(symbol, []).append(Blame(path, number, line))
-
+    # This replaces a reading taken over everything *except* the Hako namespace. That premise inverted
+    # when the quota row moved into `HakoProfilePickerSheet`: a symbol used only inside the fork's
+    # presentation is now the success case, and requiring a use outside it would demand the row be
+    # drawn by a file an iPad can open - which is the thing the move exists to prevent.
+    reaching = [
+        path for path in swift_files(root)
+        if path in PHONE_ROOT_FILES or path.startswith(HAKO_PREFIX)
+    ]
+    texts = {path: read_text(os.path.join(root, path)) or "" for path in reaching}
     declared, _ = inventory_symbols(root)
+
     for symbol, where in (
-        ("remainingTrafficInfo", "the picker row's quota item"),
+        ("remainingTrafficInfo", "the quota item"),
         ("remainingBytes", "the remaining-bytes accessor"),
         ("remainingTrafficText", "the quota formatter"),
         ("subscriptionInfo", "the profile's stored metadata"),
-        ("updateRemoteProfile", "the refresh entry point"),
     ):
         if symbol not in declared:
             problems.append(f"{symbol} ({where}) is not declared anywhere in the tree")
             continue
-        # One occurrence is the declaration itself; the feature needs a second, elsewhere.
-        uses = [b for b in outside_hako.get(symbol, []) if not is_declaration_of(b, symbol)]
-        if not uses:
+        users = [p for p, t in texts.items() if re.search(rf"\b{symbol}\b", t)]
+        if not users:
             problems.append(
-                f"{symbol} ({where}) is declared but used nowhere outside the Hako namespace, so "
-                "the feature it belongs to is not reachable"
+                f"{symbol} ({where}) is declared but named nowhere the phone reaches, so the "
+                "feature it belongs to is not reachable"
             )
         else:
-            evidence.append(f"{symbol}: {len(uses)} use(s) outside the Hako namespace, first at {uses[0]}")
+            evidence.append(f"{symbol} ({where}): named in {len(users)} phone file(s)")
+
+    # The refresh entry point is the one symbol on the chain that deliberately stays outside the
+    # presentation: it is business logic, and it has to be reachable from the shared layer.
+    if not any(
+        re.search(r"\bupdateRemoteProfile\b", read_text(os.path.join(root, path)) or "")
+        for path in swift_files(root)
+        if path in PHONE_ROOT_FILES or path.startswith(HAKO_PREFIX) or path.startswith("Library/")
+    ):
+        problems.append("updateRemoteProfile is named nowhere in the shared layer or the phone")
 
     # The migration must be additive: no drop or rename of a column that already shipped.
     db = read_text(os.path.join(root, "Library/Database/Database.swift"))
@@ -909,6 +970,333 @@ def check_subscription_feature(root: str) -> Check:
         "subscription-feature",
         "PASS",
         "the metadata chain is present from the response header to the picker row",
+        evidence,
+    )
+
+
+#: The two build configurations' plists whose visible name is the product's. Kept as a list so the
+#: check and the negative suite read the same source.
+BRANDED_TARGET_PLISTS = ("SFI/Info.plist", "SFM/Info.plist")
+
+
+def display_name_by_plist(pbxproj: str) -> dict[str, list[str]]:
+    """`CFBundleDisplayName` values grouped by the `INFOPLIST_FILE` of their build configuration.
+
+    The split is on **any** `\t\t<24 hex> /* <comment> */ = {` block rather than on blocks whose
+    comment reads `Debug` or `Release`. A build configuration's comment names its *target*
+    (`3AEC20FF2A459AB500A63465 /* Debug */` is the project-level one, but every target's reads
+    `/* SFI */`), so matching the comment matched almost nothing - which is how an earlier revision of
+    this function returned an empty table and the branding check reported that no target sets a
+    display name at all.
+
+    `INFOPLIST_FILE` is the anchor that actually identifies a configuration, and it is required to end
+    in `.plist` so a neighbouring setting whose value happens to contain that word cannot be taken for
+    one.
+    """
+    out: dict[str, list[str]] = {}
+    segments = re.split(r"\n\t\t[0-9A-F]{24} /\* [^*]+ \*/ = \{", pbxproj)
+    for block in segments[1:]:
+        plist = re.search(r"INFOPLIST_FILE = ([^;\n]+\.plist);", block)
+        names = re.findall(r"INFOPLIST_KEY_CFBundleDisplayName = ([^;\n]+);", block)
+        if plist and names:
+            out.setdefault(plist.group(1).strip(), []).extend(
+                n.strip().strip('"') for n in names)
+    return out
+
+
+def setting_values_at(root: str, ref: str | None, setting: str) -> list[str] | None:
+    """Every value of a build setting at the pinned upstream commit, or `None` when unavailable."""
+    if not ref:
+        return None
+    git = which_git()
+    if git is None:
+        return None
+    rc, out, _ = run([git, "-C", root, "show", f"{ref}:sing-box.xcodeproj/project.pbxproj"])
+    if rc != 0:
+        return None
+    return [v.strip().strip('"') for v in re.findall(rf"{re.escape(setting)} = ([^;]+);", out)]
+
+
+#: Each first-level destination and the Hako view it must route to. `None` means the page is still
+#: upstream's, and it is listed rather than omitted so the coverage count is a fact, not an
+#: inference from a diff. A page becomes `"Hako…View"` when `SFI/HakoPageContent.swift` routes it.
+HAKO_PAGE_ROUTING = {
+    "dashboard": "HakoHomeView",
+    "groups": None,
+    "connections": None,
+    "logs": None,
+    "tools": None,
+    "settings": None,
+}
+
+#: The views `HakoPageContent` may name. A routing to anything else is a routing nobody decided.
+KNOWN_PAGE_VIEWS = (
+    "HakoHomeView", "HakoToolsView", "HakoSettingView", "HakoGroupListView",
+    "HakoConnectionListView", "HakoLogView",
+    "GroupListView", "ConnectionListView", "LogView", "ToolsView", "SettingView",
+)
+
+
+def hako_page_content_routing(root: str) -> dict[str, str] | None:
+    """What `SFI/HakoPageContent.swift` routes each `NavigationPage` case to.
+
+    Parsed from the switch, because the property being audited is what the source does rather than
+    what a table claims. An arm that renders a helper property is followed into that property, so
+    `case .dashboard: dashboardPage` resolves to the view the helper builds.
+    """
+    text = read_text(os.path.join(root, "SFI/HakoPageContent.swift"))
+    if text is None:
+        return None
+
+    # Walked line by line rather than with one regex. An arm runs from `case .name:` to the next arm,
+    # the next preprocessor directive, or the end of the switch, and it can contain a nested block
+    # whose closing brace is followed by a view modifier on the same line - which is what defeated an
+    # earlier lookahead-based attempt and made this function report that the first case did not exist.
+    arms: list[tuple[str, list[str]]] = []
+    current: str | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("case ."):
+            name = re.match(r"case \.(\w+)", stripped)
+            if name:
+                current = name.group(1)
+                arms.append((current, []))
+            continue
+        if current is None:
+            continue
+        if stripped.startswith(("#if", "#endif", "#else")) or stripped == "}":
+            current = None
+            continue
+        arms[-1][1].append(line)
+
+    out: dict[str, str] = {}
+    for case, body_lines in arms:
+        body = "\n".join(body_lines)
+        view = re.search(r"\b(" + "|".join(KNOWN_PAGE_VIEWS) + r")\s*\(", body)
+        if view:
+            out[case] = view.group(1)
+            continue
+        helper = re.search(r"^\s*([A-Za-z_]\w*)\s*$", body.strip(), re.M)
+        if not helper:
+            continue
+        name = helper.group(1)
+        prop = re.search(
+            rf"private var {re.escape(name)}: some View \{{(.*?)\n    \}}", text, re.S)
+        if not prop:
+            continue
+        inner = re.search(r"\b(" + "|".join(KNOWN_PAGE_VIEWS) + r")\s*\(", prop.group(1))
+        if inner:
+            out[case] = inner.group(1)
+    return out
+
+
+def check_hako_page_coverage(root: str, allow_partial: bool = False) -> Check:
+    """Every first-level page must route to a Hako view, and the count must be reported honestly.
+
+    The failure this guards is a page that looks migrated because a file exists while
+    `HakoPageContent` still renders upstream's. The check reads the switch, so the only way to make a
+    page count is to route it.
+    """
+    routing = hako_page_content_routing(root)
+    if routing is None:
+        return Check("hako-page-coverage", "UNKNOWN", "SFI/HakoPageContent.swift is missing")
+    if not routing:
+        return Check(
+            "hako-page-coverage",
+            "UNKNOWN",
+            "no `case .<NavigationPage>` arm could be parsed from SFI/HakoPageContent.swift; the "
+            "file may have been restructured",
+        )
+
+    migrated: list[str] = []
+    pending: list[str] = []
+    problems: list[str] = []
+
+    for page, expected in HAKO_PAGE_ROUTING.items():
+        actual = routing.get(page)
+        if actual is None:
+            problems.append(f"`{page}` has no case in SFI/HakoPageContent.swift")
+        elif expected is None:
+            pending.append(f"{page} -> {actual} (upstream, not yet migrated)")
+        elif actual != expected:
+            problems.append(f"`{page}` routes to {actual}, expected {expected}")
+        else:
+            migrated.append(f"{page} -> {actual}")
+
+    for page in routing:
+        if page not in HAKO_PAGE_ROUTING:
+            problems.append(f"`{page}` is routed but not listed in HAKO_PAGE_ROUTING")
+
+    total = len(HAKO_PAGE_ROUTING)
+    done = len(migrated)
+    if problems:
+        return Check("hako-page-coverage", "FAIL", "; ".join(problems), migrated + pending)
+    if done < total:
+        detail = (
+            f"{done} of {total} first-level pages route to a Hako view; still upstream: "
+            + ", ".join(p.split(" ")[0] for p in pending)
+        )
+        if allow_partial:
+            return Check("hako-page-coverage", "UNKNOWN", detail, migrated + pending)
+        return Check(
+            "hako-page-coverage",
+            "FAIL",
+            detail + ". A partial migration is a failure on purpose: this check exists to stop 'the "
+            "file exists' from being read as 'the page is migrated'. Pass --allow-partial while the "
+            "migration is in flight.",
+            migrated + pending,
+        )
+    return Check(
+        "hako-page-coverage",
+        "PASS",
+        f"all {total} first-level pages route to a Hako view",
+        migrated,
+    )
+
+
+def check_hako_feature_preservation(root: str) -> Check:
+    """The phone's features must have a consumer on a path the phone reaches.
+
+    A declaration inside the Hako namespace that nothing else names is the shape of a feature that was
+    moved and then dropped. "Reached" means named from the phone root, the page factory, or another
+    Hako file - which is why each symbol below is required to appear in at least one file other than
+    the one that declares it, or to be a value the page factory passes on.
+    """
+    reaching = [
+        path for path in swift_files(root)
+        if path in PHONE_ROOT_FILES or path.startswith(HAKO_PREFIX)
+    ]
+    texts = {path: read_text(os.path.join(root, path)) or "" for path in reaching}
+
+    required = (
+        ("HakoPrimaryShell", "the three-destination shell"),
+        ("HakoHomeView", "the Home page"),
+        ("HakoProfilePickerSheet", "the configuration centre, with the quota row"),
+        ("HakoNavigationRow", "the shortcut rows"),
+        ("HakoPageSection", "the painted sections"),
+        ("HakoRootScaffold", "the page canvas"),
+    )
+    problems: list[str] = []
+    evidence: list[str] = []
+    for symbol, why in required:
+        naming = [p for p, t in texts.items() if re.search(rf"\b{symbol}\b", t)]
+        if not naming:
+            problems.append(f"{symbol} ({why}) is named nowhere the phone reaches")
+            continue
+        evidence.append(f"{symbol} ({why}): {len(naming)} reaching file(s)")
+
+    # Features must be *wired*, not merely declared: a closure nothing invokes is a control that does
+    # nothing, and `private var x` is a declaration whose name appears exactly once whatever it is
+    # used for - which is why counting a symbol's occurrences cannot answer this. Each entry states
+    # the wiring it wants as two patterns over the phone's own files: the thing that opens it and the
+    # thing that consumes it.
+    wiring = (
+        (r"showsConfigurationCentre\s*=\s*true",
+         r"\.sheet\(isPresented:\s*\$showsConfigurationCentre",
+         "the way into the configuration centre is a button that presents the sheet"),
+        (r"HakoProfilePickerSheet\s*\(",
+         r"profileList:\s*\$",
+         "the configuration centre is presented with the profile list it edits"),
+        (r"selectClashMode\(",
+         r"setClashMode\(",
+         "the outbound-mode row sends the chosen mode to the core"),
+        (r"installTunnel",
+         r"await installTunnel\(\)",
+         "the install notice's button awaits the install path"),
+        (r"\.hakoHomeActions",
+         r"HakoHomeActions\(",
+         "the proxies and activity presenters reach the page through the environment"),
+        (r"shortcutRow\(",
+         r"selection\.wrappedValue\s*=\s*\.logs",
+         "the shortcuts select the pages they name"),
+    )
+    for opener, consumer, why in wiring:
+        openers = [p for p, t in texts.items() if re.search(opener, t)]
+        consumers = [p for p, t in texts.items() if re.search(consumer, t)]
+        if not openers:
+            problems.append(f"{why}: nothing opens it ({opener})")
+        elif not consumers:
+            problems.append(f"{why}: nothing consumes it ({consumer})")
+        else:
+            evidence.append(f"{why}: {openers[0]} -> {consumers[0]}")
+
+    if problems:
+        return Check("hako-feature-preservation", "FAIL", "; ".join(problems), evidence)
+    return Check(
+        "hako-feature-preservation",
+        "PASS",
+        f"{len(required)} reached type(s) and {len(wiring)} wiring path(s) verified on the phone's "
+        "own files",
+        evidence,
+    )
+
+
+def check_ipad_mac_ui_gate(root: str, upstream_ref: str | None) -> Check:
+    """No Hako symbol may be reachable from an iPad or a Mac, and the picker must be upstream's.
+
+    This is the strengthened form of the phase-1 boundary checks, and the reason it exists as its own
+    check is the remaining-quota row. That row is exactly the kind of change a whitelist absorbs: it
+    was a reviewable modification to a shared file, it was *listed* with a reason, and it was still a
+    visible change on a device the product says must show upstream's UI untouched.
+
+    So the official picker is called out by name, and its content is asserted rather than its
+    whitelist entry. A whitelist can say "this file was changed on purpose"; it cannot say "this file
+    shows the user something upstream's does not".
+    """
+    problems: list[str] = []
+    evidence: list[str] = []
+    official = "ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift"
+
+    for path in (IPAD_ROOT_FILE, MAC_ROOT_FILE,
+                 "ApplicationLibrary/Views/SidebarView.swift",
+                 "ApplicationLibrary/Views/Abstract/SidebarLayout.swift",
+                 UPSTREAM_PAGE_FACTORY, official):
+        if not os.path.exists(os.path.join(root, path)):
+            problems.append(f"{path} is missing, so upstream's presentation is not reachable")
+            continue
+        hits = grep(root, path, HAKO_TYPES + HAKO_MEMBERS)
+        if hits:
+            problems.append(f"{path} names a Hako symbol: {hits[0]}")
+        else:
+            evidence.append(f"{path}: no Hako symbol")
+
+    official_text = read_text(os.path.join(root, official)) or ""
+    for needle, why in (
+        ("remainingTrafficInfo", "the phone's remaining-quota item"),
+        ("remainingTrafficText", "the phone's quota formatter"),
+        ("subscriptionInfo", "the subscription metadata"),
+        ("%@ left", "the quota's own localisation key"),
+    ):
+        if needle in official_text:
+            problems.append(
+                f"{official} contains {needle} ({why}); the official picker must not show a change "
+                "the phone made, whatever the reviewed-modification list says"
+            )
+
+    if upstream_ref:
+        git = which_git()
+        if git is None:
+            evidence.append(f"{official}: byte comparison unavailable (no git)")
+        else:
+            rc, upstream_blob, _ = run([git, "-C", root, "rev-parse", f"{upstream_ref}:{official}"])
+            rc2, local_blob, _ = run(
+                [git, "-C", root, "hash-object", os.path.join(root, official)])
+            if rc != 0 or rc2 != 0:
+                evidence.append(f"{official}: byte comparison unavailable")
+            elif upstream_blob.strip() == local_blob.strip():
+                evidence.append(f"{official} is byte-identical to {upstream_ref}")
+            else:
+                problems.append(
+                    f"{official} differs from {upstream_ref} ({local_blob.strip()[:12]} vs "
+                    f"{upstream_blob.strip()[:12]}); it must be upstream's file, unmodified"
+                )
+
+    if problems:
+        return Check("ipad-mac-ui-gate", "FAIL", "; ".join(problems), evidence)
+    return Check(
+        "ipad-mac-ui-gate",
+        "PASS",
+        "no Hako symbol is reachable from the iPad or the Mac, and the official picker is upstream's",
         evidence,
     )
 
@@ -1126,6 +1514,9 @@ CHECKS = (
     check_tablet_and_mac_entry,
     check_shared_pages_are_clean,
     check_no_reverse_dependency,
+    check_hako_page_coverage,
+    check_hako_feature_preservation,
+    check_ipad_mac_ui_gate,
     check_upstream_files_untouched,
     check_project_membership,
     check_branding,
@@ -1135,10 +1526,15 @@ CHECKS = (
 
 #: Checks that take the pinned upstream ref as a second argument.
 TAKES_UPSTREAM_REF = (
+    check_branding,
+    check_ipad_mac_ui_gate,
     check_upstream_files_untouched,
     check_project_membership,
     check_repository_hygiene,
 )
+
+#: Checks that take `allow_partial` as a second argument instead.
+TAKES_ALLOW_PARTIAL = (check_hako_page_coverage,)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1148,6 +1544,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="print a JSON result instead of a report")
     parser.add_argument("--strict", action="store_true", help="treat UNKNOWN as a failure")
     parser.add_argument("--only", action="append", default=None, help="run only the named check(s)")
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="report an incomplete Hako page migration as UNKNOWN instead of FAIL")
     args = parser.parse_args(argv)
 
     root = args.root
@@ -1167,6 +1565,8 @@ def main(argv: list[str] | None = None) -> int:
             continue
         if check in TAKES_UPSTREAM_REF:
             results.append(check(root, args.upstream_ref))
+        elif check in TAKES_ALLOW_PARTIAL:
+            results.append(check(root, args.allow_partial))
         else:
             results.append(check(root))
     if wanted is not None and not results:
