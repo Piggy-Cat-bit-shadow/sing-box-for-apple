@@ -54,6 +54,50 @@
 
 import SwiftUI
 
+/// The phone's modal close, attached to a shared container's **content**.
+///
+/// # Why it is a modifier on the content and not a change to the container
+///
+/// `Profile/ProfileSheetHelpers.swift` is upstream's and an iPad compiles it. The original fork put
+/// `HakoCloseButton()` inside that container's own `iOSBody`, under `#if os(iOS)` - which is true on an
+/// iPad as well, so every iPad modal built on the container wore the fork's close mark. That is the one
+/// remaining piece of Hako in a shared file, and it cannot be fixed by editing the container without
+/// either taking the close away from the phone or leaving a Hako symbol in a file the iPad builds.
+///
+/// It does not have to be fixed there. A presentation's `content` is rendered **inside** the container's
+/// `NavigationStackCompat`:
+///
+///     NavigationStackCompat { content().navigationTitle(...) }
+///
+/// so a `.toolbar` applied to the content reaches the same navigation bar the container's own toolbar
+/// would have. Attaching it at the call site therefore produces the same bar, and the Hako symbol stays
+/// in the fork's own namespace.
+///
+/// The placement matches the original's: `cancellationAction` on iOS, `.navigation` elsewhere, which is
+/// exactly what `HakoScaffold`'s own leading control does so that one control looks the same wherever it
+/// appears.
+public extension View {
+    func hakoModalClose() -> some View {
+        modifier(HakoModalCloseModifier())
+    }
+}
+
+private struct HakoModalCloseModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.toolbar {
+            #if os(iOS)
+                ToolbarItem(placement: .cancellationAction) {
+                    HakoCloseButton()
+                }
+            #elseif !os(tvOS)
+                ToolbarItem(placement: .navigation) {
+                    HakoCloseButton()
+                }
+            #endif
+        }
+    }
+}
+
 /// The one navigation container a phone workspace sheet needs.
 ///
 /// Mirrors upstream's `SheetContent` minus the title: upstream's own `GroupsSheetContent` is

@@ -75,25 +75,6 @@ public struct NavigationSheet<Content: View>: View {
                     .navigationTitle(title ?? "")
                 #if os(iOS)
                     .navigationBarTitleDisplayMode(.inline)
-                    // Every modal carries a close control.
-                    //
-                    // This one had none: a sheet could only be dismissed by dragging it down or by
-                    // swiping, and the manual's modal chrome is a close on the leading side, a centred
-                    // title and the page's own actions on the trailing side (§46's golden sample, and
-                    // §14 for the control itself). The reference uses an icon-only `xmark` in the
-                    // leading slot for exactly this.
-                    //
-                    // It lives here rather than in each sheet so that it cannot be forgotten: eight
-                    // modals are built on this container, and this fork's phone pages are among them.
-                    // The change is not phone-specific - a sheet with no way out is a defect on an iPad
-                    // and a Mac too - so it is applied to the shared container and registered as a
-                    // reviewed modification rather than forked, which would have meant retargeting
-                    // eight shared call sites to a Hako-only type.
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            HakoCloseButton()
-                        }
-                    }
                 #endif
             }
             .sheetDetent(size)

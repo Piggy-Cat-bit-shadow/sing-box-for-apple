@@ -206,8 +206,14 @@ public struct HakoHomeView: View {
         .sheet(isPresented: $showsConfigurationCentre) {
             // Wrapped the way the card that used to present it wrapped it: the centre is a
             // `NavigationSheet`, and that is what gives it a title, a toolbar for its own
-            // actions, and a close control. Presented bare, its `.toolbar` had no navigation
-            // container to attach to and the sheet had no way out.
+            // actions, and a navigation container for the close control below.
+            //
+            // The close is attached **here**, to the content, rather than to the shared container. A
+            // presentation's content is rendered inside the container's `NavigationStackCompat`, so a
+            // `.toolbar` on it reaches the same bar - and that keeps the Hako symbol out of
+            // `Profile/ProfileSheetHelpers.swift`, which an iPad also compiles. The shared container's own
+            // close was the original fork's, and it reached every iPad modal; this reaches only the
+            // phone's.
             NavigationSheet(
                 title: String(localized: "Profiles"),
                 size: .large,
@@ -217,6 +223,7 @@ public struct HakoHomeView: View {
                         selectedProfileID: $selectedProfileID
                     )
                     .environmentObject(environments)
+                    .hakoModalClose()
                 }
             )
         }

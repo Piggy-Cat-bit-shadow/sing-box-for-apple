@@ -319,6 +319,30 @@ def mutate_environment_key_removed(root: str) -> str:
             "files still read it")
 
 
+
+def mutate_shared_container_gains_hako_close(root: str) -> str:
+    # The P0 this project shipped and then removed: `HakoCloseButton()` inside the **shared** modal
+    # container's iOS body. `os(iOS)` is true on an iPad too, so that reaches every iPad modal built on
+    # the container. The phone's modals attach their close to the content instead, through
+    # `hakoModalClose()`, and the shared file is byte-identical to upstream - so re-injecting the call
+    # must fail the reverse-dependency gate.
+    path = os.path.join(root, "ApplicationLibrary/Views/Profile/ProfileSheetHelpers.swift")
+    anchor = "                    .navigationBarTitleDisplayMode(.inline)"
+    if anchor not in read(path):
+        raise AssertionError("the iOS body anchor is not in ProfileSheetHelpers.swift")
+    replace_exact(
+        path,
+        anchor,
+        anchor
+        + "\n                    .toolbar {\n"
+          "                        ToolbarItem(placement: .cancellationAction) {\n"
+          "                            HakoCloseButton()\n"
+          "                        }\n"
+          "                    }",
+    )
+    return "HakoCloseButton put back into the shared modal container, where an iPad compiles it"
+
+
 CASES = (
     # (label, check that must fail, mutation, upstream ref that check needs)
     ("hako-ref-in-upstream-page", "shared-pages-are-clean", mutate_hako_ref_in_upstream_page, None),
@@ -331,6 +355,8 @@ CASES = (
     ("quota-presenter-removed", "subscription-feature", mutate_quota_presenter_removed, None),
     ("page-reverted-to-upstream", "hako-page-coverage", mutate_page_reverted_to_upstream, None),
     ("official-picker-gains-quota", "ipad-mac-ui-gate", mutate_official_picker_gains_quota, UPSTREAM_REF),
+    ("shared-container-gains-hako-close", "no-reverse-dependency",
+     mutate_shared_container_gains_hako_close, None),
     ("environment-key-removed", "hako-symbol-completeness", mutate_environment_key_removed, None),
     ("submodule-url-moved", "repository-hygiene", mutate_submodule_url, UPSTREAM_REF),
 )

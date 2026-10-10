@@ -56,20 +56,20 @@ HAKO_PREFIX = "ApplicationLibrary/Views/HakoStyle/"
 #: Files the phone's pages may reach, and the only places outside `HakoStyle/` that may name a Hako
 #: symbol.
 #:
-#: Two shared files are here, and both for the same reason: the phone's design cannot be served without
-#: a change that has nowhere else to live.
+#: Two shared files were on this list and neither is any more. Each entry outlived the difference it was
+#: written for, and an allow-list entry for a file that no longer differs is a hole - it would silently
+#: absorb the next real edit to that file:
 #:
-#:   * `Profile/ProfileSheetHelpers.swift` - the modal container every one of the client's modals is
-#:     built on, and a file whose Hako reference **is the original fork's own design** rather than an
-#:     edit of this work. See the note on it below.
+#:   * `ApplicationLibrary/Views/EnvironmentValues.swift` - the `hakoCompactRows` key moved to
+#:     `HakoStyle/HakoEnvironmentValues.swift` in `ed1698e`.
+#:   * `Profile/ProfileSheetHelpers.swift` - the modal container's `HakoCloseButton()` is gone; the phone's
+#:     modals attach their close to the content instead, through `hakoModalClose()`. The shared file is now
+#:     byte-identical to the pinned upstream and names no Hako symbol.
 #:
-#: `ApplicationLibrary/Views/EnvironmentValues.swift` was on this list for one commit and is not any
-#: more: the `hakoCompactRows` key moved to `HakoStyle/HakoEnvironmentValues.swift`, the shared file went
-#: back to its pinned bytes, and an allow-list entry for a file that no longer differs is a hole - it
-#: would silently absorb the next real edit to it.
+#: The list is kept as a mechanism rather than deleted, because the next shared file that genuinely cannot
+#: be served otherwise should be named here with its reason rather than edited quietly.
 PHONE_ROOT_FILES = (
     "SFI/Application.swift", "SFI/HakoPhoneRootView.swift", "SFI/HakoPageContent.swift",
-    "ApplicationLibrary/Views/Profile/ProfileSheetHelpers.swift",
 )
 
 #: The iPad root. Upstream owns it, byte for byte.
@@ -520,18 +520,6 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
         "an iPad and a Mac too, which is why it belongs in the shared view model rather than in a "
         "phone-only copy. `finishLoading()` is idempotent, so a disconnect after a delivered list is a "
         "no-op",
-    "ApplicationLibrary/Views/Profile/ProfileSheetHelpers.swift":
-        "PROVENANCE: the `HakoCloseButton()` this file calls on its toolbar is the **original fork's own "
-        "code at c1935cf** (blob b5da8118, line 90), introduced upstream by b0a71b7 \"feat(ui): give the "
-        "configuration centre the manual's modal chrome\", whose message says the close \"lives in the "
-        "container rather than in each sheet, so it cannot be forgotten\". This entry therefore records "
-        "a divergence that exists **between the original fork and upstream/dev** - upstream's copy has "
-        "no such toolbar at all - and not an edit made here. Our bytes are the fork's; the only "
-        "difference from c1935cf is that this work re-wrapped the comment above it. It is registered "
-        "rather than removed because removing it would take the close control away from the phone's "
-        "modals, which is the original's design; and it is named here rather than left implicit because "
-        "the alternative - forking the container into the Hako namespace - is the change that would "
-        "actually isolate an iPad, and it is not done yet",
     "Localizable.xcstrings":
         "one String Catalog entry for the phone's remaining-quota row (`%@ left`)",
     "Library/Database/Database.swift":

@@ -123,6 +123,7 @@ struct HakoProfilePickerSheet: View {
                         EditProfileView()
                             .environmentObject(profile)
                             .environmentObject(environments)
+                            .hakoModalClose()
                     }
                 }
                 .alert($alert)
@@ -187,6 +188,7 @@ struct HakoProfilePickerSheet: View {
                         EditProfileView()
                             .environmentObject(profile)
                             .environmentObject(environments)
+                            .hakoModalClose()
                     }
                 }
                 .alert($alert)

@@ -197,11 +197,8 @@ struct HakoReportFileContentView: View {
                         .keyboardShortcut(.defaultAction)
                     }
                 }
-
-
+                .hakoModalClose()
             }
-
-
         }
     }
 
