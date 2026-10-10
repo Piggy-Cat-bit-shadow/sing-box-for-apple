@@ -258,3 +258,53 @@ macos-arm64_x86_64               ['arm64', 'x86_64']
 So the blocker was a build-script path defect misreported as an environment limitation. It is worth
 naming precisely, because "macOS cannot be built here" was recorded as a property of the host for
 long enough to shape the plan around it.
+
+## 8. The iOS Simulator slice, and how to get one
+
+The same class of blocker has a second instance, and this one is real rather than a defect. A bare
+`build-apple-libbox.sh both` produces the two slices the *shipped* products link, and neither is a
+simulator slice:
+
+```
+ios-arm64                        ['arm64']
+macos-arm64_x86_64               ['arm64', 'x86_64']
+```
+
+So building `SFI` for an iPhone or iPad simulator fails with
+
+```
+Libbox.xcframework:1:1: error: While building for iOS Simulator, no library for this platform was found
+```
+
+That is not an oversight in the release matrix — it is deliberate. gomobile expands the platform
+named `iossimulator` to **both** `arm64` and `amd64`, and the pinned cronet-go publishes no
+`lib/ios_amd64_simulator` payload (only a `.mod`, no `.zip`), so the x86_64 simulator half cannot
+link at all. Asking for `iossimulator` by name therefore fails the build, which is why no shipped
+artifact carries a simulator slice.
+
+The way through is to name the architecture instead of the platform, and to keep it out of the
+release path:
+
+```bash
+# in the parent repository
+./scripts/ci/build-apple-libbox.sh dev
+```
+
+`dev` asks gomobile for `ios/arm64,iossimulator/arm64,macos` — arm64 alone, never amd64 — and the
+framework it installs carries three slices:
+
+```
+ios-arm64                        ['arm64']
+ios-arm64-simulator              ['arm64']
+macos-arm64_x86_64               ['arm64', 'x86_64']
+```
+
+The slice directory is `ios-arm64-simulator`, not `ios-arm64_x86_64-simulator`: `xcodebuild
+-create-xcframework` names a slice after the architectures actually in it, and this one holds arm64
+alone. Its `LC_BUILD_VERSION` platform is `7` (iOS Simulator) against the device slice's `2` (iOS),
+which is what lets Xcode tell them apart.
+
+`both` is unchanged and still emits exactly the two slices the release pipeline links. **`dev` is
+for local simulator verification only and must not be used to produce a shipped artifact.** Nothing
+about the release matrix, the signing flow or the pivot to TestFlight moves because a developer
+wanted to run the app on their own machine.
