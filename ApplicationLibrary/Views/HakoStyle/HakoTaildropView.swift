@@ -19,8 +19,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 
+#if canImport(QuickLook)
     import QuickLook
+#endif
+#if canImport(UIKit)
     import UIKit
+#endif
 
 
     @MainActor

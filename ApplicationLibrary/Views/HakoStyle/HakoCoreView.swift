@@ -17,7 +17,9 @@ import Library
 import SwiftUI
 
     import FileProvider
+#if canImport(UIKit)
     import UIKit
+#endif
 
 
 @MainActor

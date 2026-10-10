@@ -13,11 +13,15 @@
 //
 
 
+#if canImport(GhosttyTerminal)
     import GhosttyTerminal
+#endif
     import Library
     import SwiftUI
 
-        import UIKit
+#if canImport(UIKit)
+    import UIKit
+#endif
 
 
     @MainActor

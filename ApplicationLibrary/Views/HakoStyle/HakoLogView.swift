@@ -30,7 +30,9 @@ import SwiftUI
 
     import UniformTypeIdentifiers
 
-        import UIKit
+#if canImport(UIKit)
+    import UIKit
+#endif
 
 
 public struct HakoLogView: View {

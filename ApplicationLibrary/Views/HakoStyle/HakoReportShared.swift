@@ -18,7 +18,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 
+#if canImport(UIKit)
     import UIKit
+#endif
 
 
 struct HakoReportLabel: View {

@@ -18,7 +18,9 @@
     import UniformTypeIdentifiers
 
 
-        import UIKit
+#if canImport(UIKit)
+    import UIKit
+#endif
 
 
     public struct HakoFontPickerView: View {
