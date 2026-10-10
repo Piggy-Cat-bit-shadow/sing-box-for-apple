@@ -50,7 +50,7 @@ defects broke it, and neither was visible from the branch that reported it ready
 | --- | --- |
 | Client repository | `Piggy-Cat-bit-shadow/sing-box-for-apple` |
 | Branch | `jiejiebox/integrated` |
-| **Revision verified** | **`ee428f729b2900ab99535691d9c5db0881d267ea`** |
+| **Revision verified** | **`522cc6548f263e927c3cf0a1ba672db843ca1d4a`** |
 | Revision this was built on (parent's pin) | `2a189686ae382d860f643ec53b64cbdb6cca562e` |
 | Kernel revision used for libbox | `Piggy-Cat-bit-shadow/sing-box` @ `315c34e44` (+ local script fixes) |
 | Xcode | 27.0 (27A266a) |
@@ -64,7 +64,7 @@ defects broke it, and neither was visible from the branch that reported it ready
 
 **Parent gitlink vs tested SHA.** The parent's `clients/apple` gitlink still records
 `2a18968`. This round verified `2a18968` **plus six commits**, which is what
-`jiejiebox/integrated` now points at. The parent pin must be moved to `ee428f7` for a clean clone
+`jiejiebox/integrated` now points at. The parent pin must be moved to `522cc65` for a clean clone
 to get a compiling client — that is the user's call and was deliberately not taken (see §10).
 
 ---
@@ -995,7 +995,7 @@ configuration — verified, so it stays out of the repository) and
    testable, and the compact-width claim in §5.3 rests on reading it. The project has no unit
    test target; a `#if os(iOS)`-guarded SwiftPM test could not compile the file either.
 4. **The parent pin is stale.** A clean clone of the parent still gets `2a18968`, which does not
-   compile. Until the pin moves to `ee428f7`, "the parent's pin is the source of truth" and "the
+   compile. Until the pin moves to `522cc65`, "the parent's pin is the source of truth" and "the
    client compiles" cannot both hold.
 5. **`check_hako_macos_parse.py` reports PASS on a tree that fails to compile.** It is the
    project's own macOS gate and it is currently not load-bearing.
@@ -1053,7 +1053,7 @@ belongs in the same place.
 ### What the user owns
 
 * **The client pin.** The parent still records `2a189686…`; the verified client revision is
-  `ee428f7…` on `jiejiebox/integrated`. A clean clone therefore still gets a client that does not
+  `522cc65…` on `jiejiebox/integrated`. A clean clone therefore still gets a client that does not
   compile, until the pin moves. Per instruction, only the client repository was touched.
 * **`test15`'s wording.** Wiring `profileLoadFailure` means deciding what the page says when a
   configuration cannot be read — a product surface decision, not a test fix.
@@ -1061,7 +1061,7 @@ belongs in the same place.
 
 ### Suggested next round
 
-1. Move the parent pin to `ee428f7` and re-run `check-libbox-abi.sh`.
+1. Move the parent pin to `522cc65` and re-run `check-libbox-abi.sh`.
 2. Decide `test15`'s wording and thread the load failure through to `HakoHomeView`, which is the one
    remaining product defect this report found and did not fix (§6d).
 3. Fix the `restore_*.py` path defaults and do the structural guard repair for the remaining
