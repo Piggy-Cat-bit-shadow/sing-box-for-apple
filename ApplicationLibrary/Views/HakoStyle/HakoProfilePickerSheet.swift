@@ -120,7 +120,7 @@ struct HakoProfilePickerSheet: View {
                 })
                 .sheet(item: $profileToEdit) { profile in
                     NavigationSheet(title: "Edit Profile") {
-                        EditProfileView()
+                        HakoEditProfileView()
                             .environmentObject(profile)
                             .environmentObject(environments)
                             .hakoModalClose()
@@ -185,7 +185,7 @@ struct HakoProfilePickerSheet: View {
                 }
                 .sheet(item: $profileToEdit) { profile in
                     NavigationSheet(title: "Edit Profile") {
-                        EditProfileView()
+                        HakoEditProfileView()
                             .environmentObject(profile)
                             .environmentObject(environments)
                             .hakoModalClose()
@@ -435,7 +435,7 @@ private struct HakoProfilePickerRow: View {
                     },
                     content: {
                         if let data = qrsShareData {
-                            QRSSheet(profileName: profile.name, profileData: data)
+                            HakoQRSSheet(profileName: profile.name, profileData: data)
                         } else {
                             ProgressView()
                         }
@@ -796,7 +796,7 @@ private struct HakoProfilePickerRow: View {
                 },
                 content: {
                     if let data = qrsShareData {
-                        QRSSheet(profileName: profile.name, profileData: data)
+                        HakoQRSSheet(profileName: profile.name, profileData: data)
                     } else {
                         ProgressView()
                     }

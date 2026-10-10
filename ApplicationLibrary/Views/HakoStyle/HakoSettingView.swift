@@ -336,7 +336,7 @@ public struct HakoSettingView: View {
                     subtitle: String(localized: "Drive another device from this one"),
                     systemImage: "antenna.radiowaves.left.and.right",
                     accent: HakoAccentRole.neutral,
-                    content: { AnyView(RemoteControlView()) }
+                    content: { AnyView(HakoRemoteControlView()) }
                 ),
             ]),
         ]

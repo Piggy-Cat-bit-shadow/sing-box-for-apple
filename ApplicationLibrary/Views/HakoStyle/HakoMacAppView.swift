@@ -83,7 +83,7 @@ public struct HakoAppView: View {
                             .hakoStandardRowMetric()
 
                             FormNavigationLink {
-                                GhosttyConfigurationView()
+                                HakoGhosttyConfigurationView()
                             } label: {
                                 HakoNavigationRow(
                                     title: String(localized: "Terminal Appearance"),
