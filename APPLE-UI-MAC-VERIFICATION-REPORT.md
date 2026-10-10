@@ -23,9 +23,9 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | iPhone simulator build | **PASS** |
 | iPad simulator build | **PASS** |
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
-| Swift tests — `HakoScreenState` | **compiles; 9 cases fail of 33** (was: did not compile) |
+| Swift tests — `HakoScreenState` | **PASS on the policy suite (9/9); 8 observer cases fail** — the policy disagreement was resolved by decision, the 8 are the fixtures' display axis |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
-| Snapshot UI tests (`HakoSnapshotUITests`) | **23 of 28 pass, 5 fail** — all five are fixture/test-side, none is a proved product bug. `test10Home` was failing and is fixed; the five are diagnosed in §6c |
+| Snapshot UI tests (`HakoSnapshotUITests`) | **26 of 28 pass; 2 fail** — four of the original five were fixed this round by giving the fixture a real per-case state; `test15` is a product defect, `test43` needs a seeding path the bindings do not allow. See §6c and §6d |
 | Family routing | **PASS by construction, not by test** (see §5.3) |
 | ABI gate, Apple layers | **PASS** (21 violations → 0) |
 
@@ -50,7 +50,7 @@ defects broke it, and neither was visible from the branch that reported it ready
 | --- | --- |
 | Client repository | `Piggy-Cat-bit-shadow/sing-box-for-apple` |
 | Branch | `jiejiebox/integrated` |
-| **Revision verified** | **`7b7d6381a3246e0011401860fe6cbc516bb66ce9`** |
+| **Revision verified** | **`d6f5d99e2dcd0563b0fc8f76f230f2c39b65c4fe`** |
 | Revision this was built on (parent's pin) | `2a189686ae382d860f643ec53b64cbdb6cca562e` |
 | Kernel revision used for libbox | `Piggy-Cat-bit-shadow/sing-box` @ `315c34e44` (+ local script fixes) |
 | Xcode | 27.0 (27A266a) |
@@ -64,7 +64,7 @@ defects broke it, and neither was visible from the branch that reported it ready
 
 **Parent gitlink vs tested SHA.** The parent's `clients/apple` gitlink still records
 `2a18968`. This round verified `2a18968` **plus six commits**, which is what
-`jiejiebox/integrated` now points at. The parent pin must be moved to `7b7d638` for a clean clone
+`jiejiebox/integrated` now points at. The parent pin must be moved to `d6f5d99` for a clean clone
 to get a compiling client — that is the user's call and was deliberately not taken (see §10).
 
 ---
@@ -88,7 +88,7 @@ to get a compiling client — that is the user's call and was deliberately not t
 | `HakoSubscriptionUsage` (SwiftPM) | **PASS** | 24 tests, 0 failures |
 | `HakoScreenState` (SwiftPM) | **9 cases FAIL of 33** | now compiles. 1 `ScreenStatePolicyTests` + 8 `ScreenStateObserverTests` cases; all fold into one rule in `ScreenStatePolicy.decide` — see §6.8 |
 | `HakoNavigationUITests` | **PASS** | 18 tests, 0 failures, 513 s |
-| `HakoSnapshotUITests` | **23 PASS / 5 FAIL** | Full suite, 720 s. Failures: `test14`, `test15`, `test17`, `test18`, `test43` — diagnosed in §6c |
+| `HakoSnapshotUITests` | **26 PASS / 2 FAIL** | Was 23/5. Fixed and re-verified: `test10Home`, `test14`, `test17`, `test18`. Remaining: `test15` (product defect), `test43` (no seeding path) — §6d |
 | Freeze guards (`check-iphone-hako-freeze.sh`, `test-iphone-hako-freeze.sh`) | **N/A** | **these scripts do not exist in this tree** — they belong to the `hako-ui`/`ipad-upstream-ui` line, not to `jiejiebox/integrated`. Not "skipped"; absent. |
 | Route guard (`check-hako-primary-route.sh`) | **NOT RUN** | present; needs a prior `SFM` build plus a simulator runtime, and was not exercised in this round |
 | `check_hako_macos_parse.py` | **PASS — and misleading** | reports `macos: checked=54 errors=0` while the compiler reported 21 errors in the same tree. It models a symbol table and cannot see `EditMode`, member accesses or `@available`. Recorded as a tool limitation, not evidence. |
@@ -240,7 +240,8 @@ Fix:           `nonIOSBody` ported (the safeAreaInset bar with Cancel/Edit/Done 
                declares it, with `editMode` behind `#if !os(macOS)`; `LegacyProfilePickerRow`
                and the three legacy lists keep their `#if os(iOS)`.
 Regression:    SFM + SFI both BUILD SUCCEEDED, 0 errors.
-Commit:        7b7d638
+Commit:        7b7d638 (that round's tip; the report's current revision is further down the
+               same branch, after the i18n, screen-state and fixture commits)
 ```
 
 ### 6.5 The shell scripts are not executable — **MEDIUM**
@@ -517,6 +518,87 @@ Commit `8fe8e79`.
 
 ---
 
+## 6d. What The Fixture Round Fixed, And What It Proved Unfixable
+
+The five failures of §6c were all "the app was never put into the state the case describes". A
+decision was taken to give the fixture a real per-case selector rather than to rewrite the cases,
+and **four of the five are now fixed and re-verified**. The round also produced the more useful
+result: it showed *why* the fixture kept producing this class of failure.
+
+### The gate
+
+`-FASTLANE_SNAPSHOT` could not be the gate: `SnapshotHelper.setupSnapshot` adds it for every
+suite, so it is always present. `Variant.uiTestFixtureState` therefore requires **both**:
+
+```
+-ui_testing        only a UI-test launch carries it
+SCREENSHOT_STATE   only a case that asks for a state sets it
+```
+
+A production launch carries neither, so the value is `nil` there and every default path is
+unchanged; a UI-test launch that names no state also gets `nil`, which is what keeps the
+twenty-three cases that use the whole fixture working as they did.
+
+### Fixed, each verified on its own run
+
+| Case | What it needed | How |
+| --- | --- | --- |
+| `test14OutboundModeIsAbsentByDefault` | a configuration with no outbound modes | New `noClashModes` state. `CommandClient.setupMockData()` is the only place the three Clash modes are hardcoded (one caller), so it is the whole of the state. `test14` and `test14b` now pass **from the same launch** under opposite states |
+| `test18HomeWithoutATunnel` | no registered tunnel profile | `Variant.usesMockTunnelProfile`. Deliberately a second bit, not a narrowing of `screenshotMode`: the branch it guards is the early return that also stops the real lookup, so keying the profile on the same bit is what made the state unreachable |
+| `test17HomeAgreesWithTheProxySheet` | the two views to count the same groups | `ScreenshotFixtureGroups.make()` — one copy, seeded by the sheet **and** published by `CommandClient.setupMockData()`. The fixture had been written twice, once per consumer, and one copy was never installed |
+| `test10Home` | the label the core actually has | §6.7 (previous round) |
+
+`HakoNavigationUITests` re-run after these changes: **18 tests, 0 failures** — no regression.
+
+### Not fixed, and now proved unfixable at the test layer
+
+* **`test15ProfileLoadFailure` is a real product defect.** `HakoHomeView` takes a
+  `profileLoadFailure` parameter and **nothing anywhere passes it**:
+
+  ```
+  grep -rn profileLoadFailure --include=*.swift Library/ ApplicationLibrary/ SFI/
+    -> HakoHomeView.swift:135, :151, :156, :350   (declaration, default, assignment, reader)
+  ```
+
+  and no state tracks a load failure. `ExtensionEnvironments.reload()` throws the reason away:
+
+  ```swift
+  if let newProfile = try? await ExtensionProfile.load() { ... }
+  else { extensionProfile = nil; extensionProfileLoading = false }
+  ```
+
+  so "the configuration could not be read" and "no tunnel is installed" render **identically** —
+  both reach Home as `tunnelIsInstalled == false`. The parameter exists, the message exists, and
+  the distinction the page was designed to draw is not carried to it. Fixing it means threading a
+  load-failure reason from `ExtensionEnvironments` into the frozen Home page, which is a product
+  surface decision rather than a test fix, so it is reported instead.
+
+* **`test43ActivityDataDensity` has no seeding path.** The case says its values "can be seeded at
+  the display layer", but the display layer does not own them: `ConnectionListViewModel` fills
+  `connections` from `commandClient.$connections`, a `[LibboxConnection]`, and `LibboxConnection`
+  is a Go-bound type with **no Swift initializer** —
+
+  ```
+  grep -rn "LibboxConnection(" --include=*.swift .   -> no hits
+  ```
+
+  The connection fixture does not seed rows either; it calls `dataModel.finishLoading()` and
+  returns. So the state cannot be established from the test side at all, and unlike the other
+  four it is not a matter of asking the fixture for something it could provide.
+
+### The finding worth acting on
+
+Four of five failures came from one cause: **the app's snapshot state had no single owner.**
+Modes, groups and the tunnel profile were each written at the point of use — hardcoded in
+`setupMockData`, hardcoded again in `GroupListViewModel.connect()`, always installed in
+`reload()` — so the fixture could not vary, and where two views needed the same number they were
+given two different numbers. This round gave that state one gate and, for the groups, one source.
+Any future fixture state belongs in the same place.
+
+Commits: `891c6cb`, `d331977`, `26ff51a`, `d6f5d99`.
+
+---
+
 ## 7. Environment-only Blockers
 
 Every one of these was worked around; none remains a blocker.
@@ -588,21 +670,46 @@ kernel repository was not touched by these.
 `scripts/run-subscription-usage-tests.sh`, `scripts/run-screen-state-tests.sh`,
 `scripts/dev/check-hako-primary-route.sh`
 
-**Parent repository (3 files, 2 commits, UNPUSHED)** — `scripts/ci/build-apple-libbox.sh`,
-`scripts/ci/check-libbox-abi.sh`, `clients/apple` gitlink
+**Parent repository** — **not pushed.** One local commit, `837b14923`, which duplicates a fix the
+kernel repository has since made itself (`bf31ff390 fix(apple): find Libbox where the builder
+actually writes it`), and the branch has diverged from `origin/testing`. It is also the wrong
+repository to act in: the instruction is client-only.
+
+**Snapshot fixture (6 files, this round)** — `Library/Shared/Variant.swift` (the per-case gate),
+`Library/Network/CommandClient.swift` (`noClashModes`, and the groups),
+`Library/Network/ExtensionEnvironments.swift` (`usesMockTunnelProfile`),
+`Library/Shared/ScreenshotFixtureGroups.swift` (**new** — the one source for the fixture's groups),
+`ApplicationLibrary/Views/Groups/GroupListViewModel.swift` (seeds from it),
+`SFIUITests/HakoSnapshotUITests.swift` (`test10Home`'s label, `test14`'s state, and the fixture
+contract written where the misleading helper is).
+
+**Screen-state (2 files)** — `Library/Network/ScreenStateObserver.swift` (rule 5: an unlock
+requires the lock to have been observed `1`), and the test suite's `resetCalls()` so it builds.
+
+**i18n (1 file)** — `Localizable.xcstrings`, four count keys, 112 insertions and 0 deletions.
+
+**Untracked, deliberately not committed** — `scripts/dev/restore_conditional_structure.py` (a
+guard-restoration attempt whose alignment heuristic produced files that compile in no
+configuration — verified, so it stays out of the repository) and
+`scripts/github-connect-proxy.py` (a machine-local GitHub workaround from an earlier session).
 
 ---
 
 ## 9. Remaining Risks
 
-1. **`HakoScreenState`: 9 cases fail of 33, all folding into one rule.** The suite now compiles
-   (§6.8); the failures are semantic and located: `ScreenStatePolicy.decide` publishes `.unlocked`
-   from a lock event whose prior value is unknown (`nil`), and the cases require the prior value to
-   have been `1`. On this core `.unlocked` is the only fact that lifts the device pause, so this is
-   a decision about when that release may happen — not a defect either side can be shown wrong
-   about. **This is the highest-value thing left in the report**, and the fix is named in §6.8: one
-   guard in `decide`, beside the two already there.
-2. **Systemic guard loss, quantified.** 30 of the 54 `Hako*.swift` files carry **fewer platform
+1. **`HakoScreenState`: the policy question is settled; 8 observer cases remain, and they are the
+   fixtures' fault.** `ScreenStatePolicyTests` is now **9 of 9** — the unlock rule was decided (an
+   unlock requires the lock to have been observed `1` first) and implemented as rule 5 in
+   `ScreenStatePolicy.decide`. The 8 remaining failures are all in `ScreenStateObserverTests`, and
+   their cause is one inverted axis: five set the display fixture to `1` and comment it "display
+   off" (lines 289, 484), while one sets `0` and comments it "display on" (line 342). Both cannot be
+   right. The product maps `1 -> .displayOn`, and upstream does too — `docs/SCREEN-STATE-FACTS.md`
+   quotes it: `commandServer.recordScreenState(state == 1)`. The fixtures contradict the product
+   **and each other**, so correcting them is a change to 8 cases' setup, not to a rule.
+2. **`test15ProfileLoadFailure` is a real product defect waiting on a wording decision.** A failed
+   `ExtensionProfile.load()` is discarded by `try?` and rendered as "no tunnel installed"; the
+   `profileLoadFailure` message the page was built to show is never supplied (§6d).
+3. **Systemic guard loss, quantified.** 30 of the 54 `Hako*.swift` files carry **fewer platform
    directives than the originals they were copied from** — measured by comparing each file's
    own provenance header against that original. This round fixed the ten that broke the macOS
    build. The other twenty compile today because nothing reachable on macOS passes through the
@@ -611,33 +718,31 @@ kernel repository was not touched by these.
    re-apply the copy's bodies); a text-level directive insertion produces files that compile in
    no configuration, which I verified by attempting it. `scripts/dev/restore_*.py` are written
    for this and carry Windows paths in their defaults.
-3. **The family router has no automated test.** `SFIUIFamily.resolve` is pure and trivially
+4. **The family router has no automated test.** `SFIUIFamily.resolve` is pure and trivially
    testable, and the compact-width claim in §5.3 rests on reading it. The project has no unit
    test target; a `#if os(iOS)`-guarded SwiftPM test could not compile the file either.
-4. **The parent pin is stale.** A clean clone of the parent still gets `2a18968`, which does not
-   compile. Until the pin moves to `7b7d638`, "the parent's pin is the source of truth" and "the
+5. **The parent pin is stale.** A clean clone of the parent still gets `2a18968`, which does not
+   compile. Until the pin moves to `d6f5d99`, "the parent's pin is the source of truth" and "the
    client compiles" cannot both hold.
-5. **`check_hako_macos_parse.py` reports PASS on a tree that fails to compile.** It is the
+6. **`check_hako_macos_parse.py` reports PASS on a tree that fails to compile.** It is the
    project's own macOS gate and it is currently not load-bearing.
-6. **The two Hako lines have diverged.** `hako-ui` (with `check-iphone-hako-freeze.sh` and its
+7. **The two Hako lines have diverged.** `hako-ui` (with `check-iphone-hako-freeze.sh` and its
    byte-identical-upstream assertion for `SFI/MainView.swift`) is a *different* branch from
    `jiejiebox/integrated` (which has `SFIUIFamily` and the generated pages). The freeze guard
    that protects the frozen iPhone UI exists on the branch the parent no longer pins.
-7. **The snapshot suite fails 5 of 28, and none of the five is a proved product bug.** They are
-   diagnosed in §6c. Four (`test14`, `test15`, `test18`, `test43`) call a `launch(state:)` that
-   writes a variable the app never reads, so the states they describe were never established. The
-   fifth, `test17`, compares a number the *sheet's* snapshot fixture invents (two hardcoded groups)
-   against Home's real, empty count — so it reports a disagreement between a fixture and the live
-   client, not the live-view disagreement it was written to catch. Running the suite to completion
-   is what found this; the three-case sample in the previous round could not.
-8. **Two things would still change the phone's rendering if "fixed" naively**, which is why they
-   were not: giving Home the sheet's two-group fixture (changes what the frozen iPhone page draws
-   under snapshot) and the `showGroups` / `groupsSubtitle` predicate split — the row is shown by
-   `Variant.screenshotMode || groups?.isEmpty == false` while its subtitle falls back on a count of
-   zero. They agree in a real session; under the fixture they do not.
-8. **iPad and macOS UI are device-only and were not accepted.** By explicit instruction,
-   simulator UI tests for those two surfaces are not evidence. The iPad simulator build and
-   install were verified, but no iPad or macOS presentation acceptance happened in this round.
+8. **The snapshot suite is down to 2 failures of 28, and neither is fixable at the test layer.**
+   Four of the original five were fixed this round and re-verified (`test10Home`, `test14`,
+   `test17`, `test18` — §6d). The two left are `test15`, a product defect, and `test43`, whose
+   state cannot be established because `LibboxConnection` is a Go-bound type with no Swift
+   initializer, so no test can seed a connection row. Running the suite to completion is what
+   found all of this; the three-case sample could not.
+9. **The fixture had no single owner, and that was the actual defect behind four failures.**
+   Modes, groups and the tunnel profile were each written at the point of use, so the fixture could
+   not vary and two views counting the same thing were given two different numbers. §6d gave that
+   state one gate and, for the groups, one source. Any future fixture state belongs there.
+10. **iPad and macOS UI are device-only and were not accepted.** By explicit instruction, simulator
+   UI tests for those two surfaces are not evidence. The iPad simulator build and install were
+   verified, but no iPad or macOS presentation acceptance happened in this round.
 
 ---
 
@@ -647,40 +752,39 @@ kernel repository was not touched by these.
 
 **Why not READY:** two things are true, and neither is a build defect.
 
-* `HakoScreenState` compiles but **11 of its 33 cases fail**, in the pause/wake family this
-  project has already had to correct once (§6.8). That is a product-contract question, not a
-  harness gap.
+* `HakoScreenState` is **8 cases of 33**, all in `ScreenStateObserverTests`, and their cause is a
+  fixture that inverts the display axis and contradicts both the product and itself (§9.1).
 * The parent's gitlink still points at a revision that does not build. This report verified
-  `2a18968` + eleven commits; `READY` would require the pin to name that.
+  `2a18968` + the work on `jiejiebox/integrated`; `READY` would require the pin to name that.
 
 **Why not NOT READY:** every build gate the iOS product depends on passes at a single, pushed,
-recorded revision — `SFI` device, `SFM` macOS, iPhone simulator, iPad simulator, 18/18 navigation
-UI tests, 23/28 snapshot cases with **all five failures traced to a fixture or a test rather than
-to the product**, 24/24 `HakoSubscriptionUsage` tests, and the Apple layers of the ABI gate with
-667 Swift sources swept. The defects that made the pinned revision unbuildable are fixed with
-evidence and on the remote.
+recorded revision — `SFI` device, `SFM` macOS, iPhone simulator, iPad simulator, **18/18 navigation
+UI tests**, **26/28 snapshot cases** with the two remaining traced to a product defect and a binding
+limitation rather than to the UI, **9/9 on the screen-state policy suite**, 24/24
+`HakoSubscriptionUsage` tests, and the Apple layers of the ABI gate with 667 Swift sources swept.
+The defects that made the pinned revision unbuildable are fixed with evidence and on the remote.
 
-**The honest reading of the failing gates:** none is a build regression and none was introduced by
-this round. `HakoScreenState` is an undecided product contract. Four snapshot cases drive a
-harness that was never carried across, and the fifth compares a number the snapshot fixture
-invents against the live client — so the two failing gates together say something worth saying:
-**this tree has no reliable way to tell a snapshot fixture's invented state from real state**, and
-that is what a future round should fix first.
+**The honest reading of the failing gates:** none is a build regression. `HakoScreenState`'s
+remaining 8 are a fixture defect, `test15` is a real product defect about a distinction the product
+does not yet draw, and `test43` needs a seeding path the Go bindings do not expose. And the round's
+most useful result is structural: **four of the five original snapshot failures had one cause — the
+app's snapshot state had no single owner**, so the fixture could not vary and two views counting the
+same thing were handed two different numbers. That is fixed (§6d), and any future fixture state
+belongs in the same place.
 
 ### What the user owns
 
 * **The client pin.** The parent still records `2a189686…`; the verified client revision is
-  `8fe8e792…` on `jiejiebox/integrated`. A clean clone therefore still gets a client that does not
-  compile, until the pin moves. Per instruction this round, only the client repository was
-  touched.
-* **The two failing test gates**, which need decisions rather than fixes: what an unreadable lock
-  axis means for the device pause, and whether `HakoSnapshotUITests` should get a working fixture
-  or be rewritten against `FASTLANE_SNAPSHOT`.
+  `d6f5d99e…` on `jiejiebox/integrated`. A clean clone therefore still gets a client that does not
+  compile, until the pin moves. Per instruction, only the client repository was touched.
+* **`test15`'s wording.** Wiring `profileLoadFailure` means deciding what the page says when a
+  configuration cannot be read — a product surface decision, not a test fix.
+* **The 8 observer cases' display axis**, which are wrong in the fixtures rather than in the rule.
 * **The kernel repository**, which was not modified.
 
 ### Suggested next round
 
-1. Move the parent pin to `7b7d638` and re-run `check-libbox-abi.sh`.
+1. Move the parent pin to `d6f5d99` and re-run `check-libbox-abi.sh`.
 2. Fix `HakoScreenState`'s three errors.
 3. Fix the `restore_*.py` path defaults and do the structural guard repair for the remaining
    twenty files, then re-run `check_hako_macos_parse.py` **and** a real `SFM` build — the
