@@ -7,12 +7,17 @@ Every item is a source-level fact about a declaration, a use, or a condition.
 ## Everything that was fixable in this round is fixed
 
 `port_tools_and_more.py`, `port_hako_pages.py` and `port_hako_components.py` no longer overwrite an existing
-differing target without an explicit per-target, per-blob authorization (`fd27efe`), and the phone root
-observes the tunnel's status again (`6a9d7eb`). Both are described in `HAKO-ROUND9-HANDOFF.md` §2.
+differing target without an explicit per-target, per-blob authorization (`fd27efe`); the phone root observes
+the tunnel's status again (`6a9d7eb`); the audit's two detector holes are closed and it now walks the whole
+shared target (`116ae6f`); two ported types that had lost their only caller are wired up again (`116ae6f`);
+`hako-type-has-caller` is registered and distinguishes an orphan the port introduced from one the frozen
+original shipped (`116ae6f`); the parity audit no longer counts a missing file as compared (`116ae6f`); and
+four smaller guard and tool defects are repaired (`932bf1c`). All of it is described in
+`HAKO-ROUND9-HANDOFF.md`.
 
-`audit_apple_ui_boundary.py --upstream-ref 089d35e6… --strict` reports **PASS 18 FAIL 0 UNKNOWN 0
-UNDECIDABLE 0**, and `test_audit_apple_ui_boundary.py` reports every negative case failing as designed with
-the positive case passing.
+`audit_apple_ui_boundary.py --upstream-ref 089d35e6… --strict` reports **PASS 19 FAIL 0 UNKNOWN 0
+UNDECIDABLE 0** — 19 checks, where round 8 ran 18 and one of them was not registered. Every suite is green
+except the two tvOS tools below.
 
 ## 1. `check_hako_macos_parse.py --platform tvos` and `gate_hako_platform_imports.py --check` — red, and accepted
 
@@ -71,19 +76,34 @@ than becoming a guess or a silent pass, on both the text and the `--json` path.
 
 ## 3. Open findings from the red-team audit, which are not failures of a command
 
-These do not make any command red, and each needs a decision rather than a fix:
+These do not make any command red, and each needs a decision or a Mac rather than a fix:
 
-* **`audit_apple_ui_boundary.py`'s detector has two holes** (`:1349`, `:1367`, `:1280-1284`), proven by
-  injection with no live instance: `platform-guard-agreement` sees uses only inside `HakoStyle/`, and an
-  `#if`'s atoms are unioned into its `#else` arm.
-* **`hako-type-has-caller`'s exclusion is not justified by the evidence** — its five findings on a correct
-  tree are all true.
+* **`hako-type-has-caller` cannot see an orphan whose upstream twin is called from the same file that
+  declares it** — `hako-ui`'s `ConnectionListView.swift` declares `ConnectionMenuButton` at :99 in one
+  platform arm and calls it at :19 in another. The check asks the narrower question and reports three such
+  declarations as inherited rather than failing on them; closing it needs arm-level analysis.
+* **None of round 9's Swift changes has been compiled.** There is no Xcode, no Swift toolchain and no device
+  here. `6a9d7eb`'s status observer and the four restored guards have runtime meaning; whether they behave as
+  intended needs a Mac.
 * **The audit's negative-case harness acts on the real repository's git index** because a
-  `shutil.copytree` copies a worktree's `.git` **file**, which points at the shared git directory.
+  `shutil.copytree` copies a worktree's `.git` **file**, which points at the shared git directory. Both
+  `test_audit_apple_ui_boundary.py` and `test_fail_closed_exit_codes.py` reset a copy.
 * **`jiejiebox-integrated` has 23 staged deletions and 50 staged modifications, uncommitted.** All the
   deleted files are in `HEAD`, so nothing is lost.
+* **The 66-page census was not verified bucket by bucket** — only the page count and two of the six refusal
+  codes.
 
-## 4. What is not a concern, stated so a red gate is not read as a broken port
+## 4. Two findings that are not defects
+
+Recorded so a later round does not "fix" them:
+
+* `HakoSettingView.allSettingsKeys` omits `.sponsors` while `settingsKey` spells it. The frozen original's
+  list omits it too — the two lists disagree upstream, and the port is faithful.
+* `dup_module_scope.py` exits 1 with 18 name-only duplicates on a correct tree. They are legal code
+  (`private extension URL` in two files, `extension View` by design), which is why the enforced
+  `shared-declaration-duplicates` passes on the same tree.
+
+## 5. What is not a concern, stated so a red gate is not read as a broken port
 
 * **iPad and macOS isolation**: `ipad-mac-ui-gate`, `tablet-and-mac-entry` and `phone-entry` all `PASS`.
   `MAINVIEW_IPAD` never enters the Hako UI.

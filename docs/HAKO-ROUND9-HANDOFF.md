@@ -10,17 +10,18 @@ repeated here except where round 9 changed it.
 |---|---|
 | Repository | `https://github.com/Piggy-Cat-bit-shadow/sing-box-for-apple` |
 | Integration branch | `jiejiebox/integrated` |
-| **Final SHA on `r8/main`** | **`6a9d7eb`** (round 9 made `fd27efe` and `6a9d7eb`) |
+| **Final SHA on `r8/main`** | **`932bf1c`** (round 9 made `fd27efe`, `6a9d7eb`, `91896a5`, `116ae6f`, `d8240eb`, `932bf1c`) |
 | Round 9 start | `2207852` (which is what `jiejiebox/integrated` and the remote both still point at) |
 | iPhone UI gold standard | `hako-ui@c1935cff77246f97498400f5a0a7f430cfabbd55` |
 | Upstream comparison baseline | `SagerNet/sing-box-for-apple dev@089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85` |
-| `r8/main` on the remote? | **No.** `fd27efe` and `6a9d7eb` are local only; pushing was not requested. |
+| `r8/main` on the remote? | **No.** Round 9's commits are local only; pushing was not requested. |
 
 ```text
 IPHONE_HAKO_UI=STATIC_VERIFIED
 IPAD_MAC_OFFICIAL_ISOLATION=PASS_STATIC
 GENERATOR_SAFETY=PASS
 INDEPENDENT_DEBUG=COMPLETED              <- round 8's missing deliverable, done in round 9
+AUDIT_DETECTOR=WIDENED_AND_REGISTERED
 APPLE_BUILD_DEVICE_PIXEL=UNVERIFIED
 TVOS=OUT_OF_SCOPE                        <- the user's decision, see §3
 ```
@@ -31,6 +32,57 @@ Set the environment up exactly as `HAKO-ROUND8-HANDOFF.md` §1 says. `python` an
 `_work/r8/scratch/run-suite.ps1` runs the whole 16-command suite and prints one line per command. **It has a
 UTF-8 BOM on purpose** — without it PowerShell 7 reads the Chinese path in it as GBK and every command
 fails with a path error. Copy that habit for any script containing a non-ASCII path.
+
+### `116ae6f`, `d8240eb`, `932bf1c` — the rest of the red-team findings that a Mac is not needed for
+
+**The audit's own detector had two holes**, both proved by injection before they were closed.
+
+`platform-guard-agreement` decided a use site from a **set of atoms**, and an atom set cannot represent
+`#else` or tell `&&` from `||`. So a use inside the `#else` of `#if !os(tvOS)` was judged to be inside
+`!os(tvOS)` — the one place it definitely is not — and a declaration under
+`#if os(iOS) && canImport(GhosttyTerminal)` could be satisfied by a use under `#if os(macOS)`. A condition
+is now evaluated per platform into a three-valued state and a branch is built from the **negation of the
+branches before it**. It also walked `HakoStyle/` alone while the target is one synchronized group that
+compiles for `appletvos` too, so the same unguarded use was FAIL there and PASS one directory away; it now
+walks all of `ApplicationLibrary` — **224 files, 168 conditional imports, 696 use sites**, where it was 54,
+28 and 113.
+
+Three bugs inside that new model were found by measuring rather than by reading it, and they are the reason
+the negative cases exist: the state was recorded *before* the directive was applied, so `#else` reported its
+parent's state; the `#if` branch was never recorded in its own frame's `taken` list, so the `#else` unioned
+in an empty history; and an occurrence count came to count files instead of matches, which nearly reported
+`HakoBackButton` and `HakoQRSDisplayView` — both live — as orphans.
+
+**Two ported types had lost their only caller**, the same defect class round 8 repaired in five other
+places. `HakoReportLabel` was declared and never called because the three report list views lost the
+`#if os(tvOS)` arm that called it; `HakoReportShareAction` had no caller because the three report detail
+views spelled the shared `ReportShareAction` while `HakoReportZipDocument` and `HakoReportSharePopup` beside
+them are spelled with their Hako names. Both are wired up now. Neither was visible to
+`audit_hako_lossless_parity.py` — no token changed — and neither was reported by any *enforced* check,
+because `hako-type-has-caller` was written in round 8 and left out of `CHECKS`.
+
+**`hako-type-has-caller` is registered**, so it runs. It distinguishes an orphan the **port** introduced
+from one the **frozen original** shipped — `hako-ui` declares `ConnectionMenuButton`, `ConnectionMenuView`
+and `PrimaryTintModifier` and names each exactly once, at its own declaration — and fails only on the first
+kind. The audit is now **PASS 19 FAIL 0**, where it was PASS 18.
+
+**`audit_hako_lossless_parity.py` counted a missing file as "compared"**: `pages_compared` was every page
+that was not `UNVERIFIED`, and a page whose file does not exist returns before any token comparison, so a
+tree with all six ported pages deleted reported 6 of 6 and `lost_tokens` 0 — exactly the two figures
+`test_fail_closed_exit_codes.py` asserts as its evidence that every page was compared. A new case deletes
+the six pages and requires 0 compared and 6 accounted for as missing.
+
+Plus four smaller repairs: `HakoNewProfileView.ownsDismiss` was the constant `true` where the original's tvOS
+arm returns `onSuccess == nil`; the phone root's `selectedProfileUpdate` handler did not refresh the proxy
+snapshot, the last of the original's three `reloadSystemProxy` sites; `check_swift_structure.py` returned 1
+for a usage error as well as for a structural one; and `test_platform_gates.py` defaulted to one fixed
+scratch path, so two concurrent runs crashed each other with a `FileExistsError` two frames from its cause.
+
+**Two findings are not defects**, and are recorded as such rather than "fixed":
+`HakoSettingView.allSettingsKeys` omits `.sponsors` while `settingsKey` spells it — the frozen original's
+list omits it too, so the two lists disagree upstream and the port is faithful;
+and `dup_module_scope.py`'s 18 name-only duplicates are legal code (file-private extensions, `extension
+View` by design), which is why the enforced `shared-declaration-duplicates` passes on the same tree.
 
 ## 2. What round 9 changed
 
@@ -132,28 +184,30 @@ repositories.
 
 ### The findings that are still open, in the order I would take them
 
-1. **HIGH — the audit's detector has two holes** (`audit_apple_ui_boundary.py:1349`, `:1367`, `:1280-1284`).
-   `platform-guard-agreement` inspects uses only inside `ApplicationLibrary/Views/HakoStyle/`, although all of
-   `ApplicationLibrary` compiles for tvOS; and `:1280-1284` unions an `#if`'s atoms into its `#else` arm, so a
-   use inside the `#else` of the `#if` that declares it is PASS. **Proven by injection, no live instance
-   found.** Both are worth closing because a detector hole is what let the `port_*.py` regression hide.
-2. **MEDIUM — `hako-type-has-caller`'s exclusion is not justified.** It reports five findings on a correct
-   tree, and the red team checked all five: they are true. Five unused private ported types are untracked by
-   any check. Round 8 kept the check out of the enforced set; the evidence says it should be brought in, or
-   the five types removed.
-3. **MEDIUM — the phone root has no `onAppear`-equivalent for `connect()` when the app is already active**
-   and the tunnel arrives by another route; related to §2's fix, worth a second look now that the status
-   observation exists.
-4. **LOW/MEDIUM — the audit's negative-case harness writes to the shared git directory.**
-   `test_audit_apple_ui_boundary.py:369-370` runs `git reset` and `git checkout -- .` inside a
-   `shutil.copytree`, and every worktree here has a **`.git` file** pointing at
+Everything the red team found that can be settled in this environment has been settled; the list below is
+what is left, and each one needs a decision, a Mac, or both.
+
+1. **The audit's `hako-type-has-caller` cannot see an orphan whose upstream twin is called from the *same
+   file* that declares it.** `hako-ui`'s `ConnectionListView.swift` declares `ConnectionMenuButton` at :99
+   inside one platform arm and calls it at :19 inside another, so "is the upstream name still used" cannot
+   be answered without deciding which arm. The check deliberately asks the narrower question — is the
+   upstream name named by a file that does not declare it — and reports the three such declarations as
+   inherited rather than failing on them. Closing this needs arm-level analysis.
+2. **Needs a Mac: whether any of round 9's Swift changes behave as intended.** None of them has been
+   compiled. `6a9d7eb` (the status observer) and the four guards in `932bf1c` are the ones with runtime
+   meaning; the rest are wiring and structure.
+3. **The audit's negative-case harness writes to the shared git directory.** Both
+   `test_audit_apple_ui_boundary.py:446-447` and the copy it makes run `git reset` and
+   `git checkout -- .`, and every worktree here has a **`.git` file** pointing at
    `sing-box-for-apple/.git/worktrees/<name>` (verified in round 9), so the copy's git commands act on the
    real repository's index and reflog. That is where the repeated `reset: moving to HEAD` reflog entries come
-   from. The copy should get its own `.git` directory or none at all. **Round 9 did not prove this caused the
-   `jiejiebox-integrated` damage in §6; both are recorded as observed facts.**
-5. **LOW — `jiejiebox-integrated` has an uncommitted staged changeset**, see §6.
-6. **LOW — the six-bucket 66-page census was not independently verified.** Only the page count and two of the
+   from. The copy should get its own `.git` directory, or none at all. **Round 9 did not prove this caused
+   the `jiejiebox-integrated` damage in §6; both are recorded as observed facts.**
+4. **`jiejiebox-integrated` has a large staged, uncommitted changeset**, see §6.
+5. **The six-bucket 66-page census was never independently verified** — only the page count and two of the
    six refusal codes were confirmed firing.
+6. **GitHub Actions is unreadable from here** (`github.com` resolves to a non-public IP), but this
+   repository has no `.github/workflows` at all, so no push from it can have triggered a run.
 
 ## 6. Two things in the workspace that a fresh window must not mistake for its own mess
 
