@@ -44,7 +44,7 @@ public struct HakoOOMReportListView: View {
 
 
                                 FormNavigationLink {
-                                    OOMReportDetailView(report: report)
+                                    HakoOOMReportDetailView(report: report)
                                 } label: {
                                     reportLabel(report)
                                 }
