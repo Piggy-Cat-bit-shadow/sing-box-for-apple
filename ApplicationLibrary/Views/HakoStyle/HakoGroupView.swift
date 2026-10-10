@@ -119,7 +119,7 @@ public struct HakoGroupContentView: View {
             if group.isExpand {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: HakoGroupsLayout.itemMinWidth), spacing: 10)], spacing: 10) {
                     ForEach(group.items, id: \.tag) { item in
-                        GroupItemView(
+                        HakoGroupItemView(
                             groupTag: group.tag,
                             selectable: group.selectable,
                             isSelected: group.selected == item.tag,

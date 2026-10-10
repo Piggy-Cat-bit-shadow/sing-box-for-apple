@@ -56,20 +56,24 @@ HAKO_PREFIX = "ApplicationLibrary/Views/HakoStyle/"
 #: Files the phone's pages may reach, and the only places outside `HakoStyle/` that may name a Hako
 #: symbol.
 #:
-#: Two shared files were on this list and neither is any more. Each entry outlived the difference it was
-#: written for, and an allow-list entry for a file that no longer differs is a hole - it would silently
+#: `SFI/ProfileEditorWrapperView.swift` is here because the phone's editor toolbar cannot be chosen
+#: anywhere else. The frozen design restyled four things in that toolbar, and `SFI` is the iPhone target -
+#: both of its roots build this one wrapper, `HakoPhoneRootView` for the phone and `MainView` for an iPad.
+#: The choice is therefore a `restyled:` parameter defaulting to `false`, so `MainView` keeps upstream's
+#: toolbar without being edited at all, and only the phone root names the Hako view. Linking the toolbar
+#: instead of parametrising it would have compiled without this entry and put the phone's design on an iPad.
+#:
+#: Two shared files were on this list before and neither is any more. Each entry outlived the difference it
+#: was written for, and an allow-list entry for a file that no longer differs is a hole - it would silently
 #: absorb the next real edit to that file:
 #:
 #:   * `ApplicationLibrary/Views/EnvironmentValues.swift` - the `hakoCompactRows` key moved to
-#:     `HakoStyle/HakoEnvironmentValues.swift` in `ed1698e`.
+#:     `HakoStyle/HakoEnvironmentValues.swift`.
 #:   * `Profile/ProfileSheetHelpers.swift` - the modal container's `HakoCloseButton()` is gone; the phone's
-#:     modals attach their close to the content instead, through `hakoModalClose()`. The shared file is now
-#:     byte-identical to the pinned upstream and names no Hako symbol.
-#:
-#: The list is kept as a mechanism rather than deleted, because the next shared file that genuinely cannot
-#: be served otherwise should be named here with its reason rather than edited quietly.
+#:     modals attach their close to the content instead, through `hakoModalClose()`.
 PHONE_ROOT_FILES = (
     "SFI/Application.swift", "SFI/HakoPhoneRootView.swift", "SFI/HakoPageContent.swift",
+    "SFI/ProfileEditorWrapperView.swift",
 )
 
 #: The iPad root. Upstream owns it, byte for byte.
@@ -248,6 +252,18 @@ def read_text(path: str) -> str | None:
             return handle.read()
     except OSError:
         return None
+
+
+def strip_comment(line: str) -> str:
+    """The line with any trailing `//` comment removed.
+
+    Deliberately naive: it cannot tell a `//` inside a string literal from a comment. That is acceptable
+    here because its one caller matches declaration syntax, which does not contain string literals - and a
+    stricter version would need to track string state across lines to be right, which is the kind of
+    half-correct cleverness this project has already been bitten by twice.
+    """
+    index = line.find("//")
+    return line if index < 0 else line[:index]
 
 
 #: Directories no build target reads. A `.swift` file here is documentation or a standalone
@@ -845,6 +861,81 @@ def check_hako_symbol_completeness(root: str) -> Check:
         "PASS",
         f"{len(declared)} Hako symbol(s) declared, and every one of the {len(read)} named is among them",
     )
+
+
+def check_hako_annotation_agreement(root: str) -> Check:
+    """A stored property's declared type agrees with the type constructed for it.
+
+    # The defect this exists for
+
+    Three ported files declared and assigned two **different** types:
+
+        HakoCrashReportDetailView.swift:28  @State private var exportDocument: ReportZipDocument?
+        HakoCrashReportDetailView.swift:55        exportDocument = HakoReportZipDocument(url: zipURL)
+
+    `ReportZipDocument` is declared once in `Tools/ReportShared.swift` and `HakoReportZipDocument` once in
+    `HakoStyle/HakoReportShared.swift`; they are two unrelated structs, so the assignment cannot type-check
+    on any platform. The migration renamed the constructor and missed the annotation - its renames are
+    word-boundary substitutions, and one of the two occurrences was inside a type position it did not treat
+    as a rename site.
+
+    # Why every other check in this file is blind to it
+
+    They read names, paths, guards, imports and declarations. None of them asks whether two names that are
+    both spelled correctly refer to the same type. That is a whole class, not one instance - so this check
+    compares the annotation against the constructor for stored properties assigned a fresh value, and
+    reports a mismatch only when both names are known type names, which keeps it from firing on a factory
+    method or a local. Both are required to be types this audit can see declared somewhere in the tree.
+    """
+    #: `var name: Type?` - the `?`/`!` binds directly to the type, so there is no whitespace between them.
+    #: Writing `\s*\??` here was the first version's bug: `Type ?` is legal Swift but `Type?` is what the
+    #: tree actually contains, and the pattern then matched nothing at all, so the check reported PASS on a
+    #: tree that had the defect it was written for. It was caught by reverting the defect and noticing the
+    #: check still passed - which is the only reason to write a negative case before trusting a check.
+    annotation = re.compile(r"\b(?:var|let)\s+(\w+)\s*:\s*([A-Z]\w*)[?!]?\s*$")
+    assignment = re.compile(r"^\s*(?:\w+\s*=\s*)?(\w+)\s*=\s*([A-Z]\w*)\s*\(")
+
+    declared_types: set[str] = set()
+    for path in swift_files(root, HAKO_PREFIX.rstrip("/")):
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        for match in re.finditer(r"\b(?:struct|class|enum|actor)\s+(\w+)", text):
+            declared_types.add(match.group(1))
+
+    problems: list[Blame] = []
+    for path in swift_files(root, HAKO_PREFIX.rstrip("/")):
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        annotated: dict[str, str] = {}
+        for number, line in enumerate(text.split("\n"), 1):
+            found = annotation.search(strip_comment(line))
+            if found:
+                annotated[found.group(1)] = found.group(2)
+        for number, line in enumerate(text.split("\n"), 1):
+            found = assignment.match(line)
+            if not found:
+                continue
+            name, constructed = found.group(1), found.group(2)
+            expected = annotated.get(name)
+            if expected is None or expected == constructed:
+                continue
+            if expected not in declared_types or constructed not in declared_types:
+                continue  # one side is not a type this audit can resolve; stay silent rather than guess
+            problems.append(Blame(path, number,
+                                  f"`{name}` is declared `{expected}?` but constructed as `{constructed}`; "
+                                  f"both types exist, so the assignment cannot type-check"))
+
+    if not declared_types:
+        return Check("hako-annotation-agreement", "UNKNOWN", "no type declarations were found to check")
+    if problems:
+        return Check("hako-annotation-agreement", "FAIL",
+                     f"{len(problems)} stored propert(y/ies) are assigned a type other than the one declared",
+                     [str(problem) for problem in problems])
+    return Check("hako-annotation-agreement", "PASS",
+                 f"every stored property in {HAKO_PREFIX} is assigned the type it declares, out of "
+                 f"{len(declared_types)} known type names")
 
 
 def check_hako_platform_imports(root: str) -> Check:

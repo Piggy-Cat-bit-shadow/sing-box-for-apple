@@ -75,9 +75,9 @@ public struct HakoSTUNTestView: View {
                     }
 
                 if environments.remoteServer != nil {
-                    RemoteToolOutboundSection(commandClient: environments.commandClient, viewModel: viewModel)
+                    HakoRemoteToolOutboundSection(commandClient: environments.commandClient, viewModel: viewModel)
                 } else if let profile = environments.extensionProfile {
-                    ToolOutboundSection(profile: profile, viewModel: viewModel)
+                    HakoToolOutboundSection(profile: profile, viewModel: viewModel)
                 }
             }
 

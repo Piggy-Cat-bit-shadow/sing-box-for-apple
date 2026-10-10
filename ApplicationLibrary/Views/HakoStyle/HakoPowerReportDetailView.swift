@@ -25,7 +25,7 @@ public struct HakoPowerReportDetailView: View {
     @State private var isLoading = true
 
 
-        @State private var exportDocument: ReportZipDocument?
+        @State private var exportDocument: HakoReportZipDocument?
         @State private var showExporter = false
         @State private var sharePopupPresented = false
         @State private var includeConfig = false

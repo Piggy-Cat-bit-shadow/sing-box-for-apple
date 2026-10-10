@@ -71,7 +71,7 @@ struct HakoPhoneRootView: View {
     @State private var showConnections = false
 
     private let profileEditor: (Binding<String>, Bool) -> AnyView = { text, isEditable in
-        AnyView(ProfileEditorWrapperView(text: text, isEditable: isEditable))
+        AnyView(ProfileEditorWrapperView(text: text, isEditable: isEditable, restyled: true))
     }
 
     private let ghosttyConfigEditor: (Binding<String>) -> AnyView = { text in
