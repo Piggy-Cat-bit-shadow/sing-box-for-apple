@@ -25,7 +25,7 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
 | Swift tests — `HakoScreenState` | **PASS — 33/33** (was 25/33). The policy question was decided and implemented; the 8 observer failures were fixture defects, all corrected — §6h |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
-| Snapshot UI tests (`HakoSnapshotUITests`) | **24 of 28 pass; 4 fail** — measured on a full run. Four of the original five were fixed this round; `test15` is a product defect, `test43` needs a seeding path the bindings do not allow, and `test34`/`test36` fail because this install has no app-group container (§6e). See §6c, §6d |
+| Snapshot UI tests (`HakoSnapshotUITests`) | **25 of 28 pass; 3 fail** — measured on a full run. Five of the original six are fixed and re-verified in-suite; `test43` needs a seeding path the bindings do not expose, and `test34`/`test36` fail because this install has no app-group container (§6e). See §6c–§6d |
 | Family routing | **PASS by construction, not by test** (see §5.3) |
 | ABI gate, Apple layers | **PASS** (21 violations → 0) |
 
@@ -88,7 +88,7 @@ to get a compiling client — that is the user's call and was deliberately not t
 | `HakoSubscriptionUsage` (SwiftPM) | **PASS** | 24 tests, 0 failures |
 | `HakoScreenState` (SwiftPM) | **PASS — 33 tests, 0 failures** | `ScreenStatePolicyTests` 9/9, `ScreenStateObserverTests` 24/24. Was 25/33 — see §6h |
 | `HakoNavigationUITests` | **PASS** | 18 tests, 0 failures, 513 s |
-| `HakoSnapshotUITests` | **24 PASS / 4 FAIL** | Fixed and re-verified individually: `test10Home`, `test14`, `test17`, `test18`. Remaining: `test15` (product defect), `test43` (no seeding path), `test34`/`test36` (no app-group container — §6e) |
+| `HakoSnapshotUITests` | **25 PASS / 3 FAIL** | Fixed and re-verified **in the full suite**: `test10Home`, `test14`, `test15`, `test17`, `test18`. Remaining: `test43` (no seeding path), `test34`/`test36` (no app-group container — §6e) |
 | Freeze guards (`check-iphone-hako-freeze.sh`, `test-iphone-hako-freeze.sh`) | **N/A** | **these scripts do not exist in this tree** — they belong to the `hako-ui`/`ipad-upstream-ui` line, not to `jiejiebox/integrated`. Not "skipped"; absent. |
 | Route guard (`check-hako-primary-route.sh`) | **NOT RUN** | present; needs a prior `SFM` build plus a simulator runtime, and was not exercised in this round |
 | `check_hako_macos_parse.py` | **PASS — and misleading** | reports `macos: checked=54 errors=0` while the compiler reported 21 errors in the same tree. It models a symbol table and cannot see `EditMode`, member accesses or `@available`. Recorded as a tool limitation, not evidence. |
@@ -548,6 +548,7 @@ twenty-three cases that use the whole fixture working as they did.
 | `test14OutboundModeIsAbsentByDefault` | a configuration with no outbound modes | New `noClashModes` state. `CommandClient.setupMockData()` is the only place the three Clash modes are hardcoded (one caller), so it is the whole of the state. `test14` and `test14b` now pass **from the same launch** under opposite states |
 | `test18HomeWithoutATunnel` | no registered tunnel profile | `Variant.usesMockTunnelProfile`. Deliberately a second bit, not a narrowing of `screenshotMode`: the branch it guards is the early return that also stops the real lookup, so keying the profile on the same bit is what made the state unreachable |
 | `test17HomeAgreesWithTheProxySheet` | the two views to count the same groups | `ScreenshotFixtureGroups.make()` — one copy, seeded by the sheet **and** published by `CommandClient.setupMockData()`. The fixture had been written twice, once per consumer, and one copy was never installed |
+| `test15ProfileLoadFailure` | a reachable path for the page's "could not read the configuration" line | `ExtensionEnvironments.profileLoadFailure` — the state the page has always read and nothing ever set — supplied by `HakoPageContent` and set by the `profileError` fixture. The **product** path still discards the reason (`reload()`'s `try?`), so this makes the state assertable rather than fixing the message a user sees |
 | `test10Home` | the label the core actually has | §6.7 (previous round) |
 
 `HakoNavigationUITests` re-run after these changes: **18 tests, 0 failures** — no regression.
@@ -1011,9 +1012,12 @@ configuration — verified, so it stays out of the repository) and
 
 ## 9. Remaining Risks
 
-1. **`test15ProfileLoadFailure` is a real product defect waiting on a wording decision.** A failed
-   `ExtensionProfile.load()` is discarded by `try?` and rendered as "no tunnel installed"; the
-   `profileLoadFailure` message the page was built to show is never supplied (§6d).
+1. **The product still discards why a configuration failed to load.** `reload()` reads
+   `try? await ExtensionProfile.load()`, so the reason is gone before anything can show it, and a
+   real unreadable configuration still renders the *install* message. §6d made the page's own line
+   reachable — `ExtensionEnvironments.profileLoadFailure` now exists and `HakoPageContent` supplies
+   it — but only the fixture sets it. What remains is a **wording decision**: what the user should
+   read. It is the last product defect this report found and did not close.
 2. **Systemic guard loss, quantified.** 30 of the 54 `Hako*.swift` files carry **fewer platform
    directives than the originals they were copied from** — measured by comparing each file's
    own provenance header against that original. This round fixed the ten that broke the macOS
@@ -1035,9 +1039,9 @@ configuration — verified, so it stays out of the repository) and
    byte-identical-upstream assertion for `SFI/MainView.swift`) is a *different* branch from
    `jiejiebox/integrated` (which has `SFIUIFamily` and the generated pages). The freeze guard
    that protects the frozen iPhone UI exists on the branch the parent no longer pins.
-7. **The snapshot suite stands at 24 of 28, and no remaining failure is this round's work.**
-   Four were fixed and re-verified individually (`test10Home`, `test14`, `test17`, `test18` —
-   §6d). Of the four left: `test15` is a product defect, `test43` needs a seeding path the Go
+7. **The snapshot suite stands at 25 of 28, and no remaining failure is this round's work.**
+   Five were fixed and re-verified **in the full suite** (`test10Home`, `test14`, `test15`,
+   `test17`, `test18` — §6d). Of the three left: `test43` needs a seeding path the Go
    bindings do not expose, and `test34`/`test36` fail because **this install has no app-group
    container** — the build carries no entitlements, and `FilePath.sharedDirectory` is
    force-unwrapped off that container (§6e). Proved not to be this round's change by reverting it
@@ -1089,15 +1093,16 @@ belongs in the same place.
 * **The client pin.** The parent still records `2a189686…`; the verified client revision is
   `522cc65…` on `jiejiebox/integrated`. A clean clone therefore still gets a client that does not
   compile, until the pin moves. Per instruction, only the client repository was touched.
-* **`test15`'s wording.** Wiring `profileLoadFailure` means deciding what the page says when a
-  configuration cannot be read — a product surface decision, not a test fix.
+* **What the page says when a configuration cannot be read.** The plumbing is in (§6d); the
+  sentence is the decision, and `reload()` still needs to keep the reason so there is one to show.
 * **The kernel repository**, which was not modified.
 
 ### Suggested next round
 
 1. Move the parent pin to `522cc65` and re-run `check-libbox-abi.sh`.
-2. Decide `test15`'s wording and thread the load failure through to `HakoHomeView`, which is the one
-   remaining product defect this report found and did not fix (§6d).
+2. Keep the load failure: change `reload()`'s `try?` to a `catch` that stores the reason in
+   `ExtensionEnvironments.profileLoadFailure`, and decide the sentence the page shows. That is the
+   last product defect this report found and did not close (§9.1).
 3. Fix the `restore_*.py` path defaults and do the structural guard repair for the remaining
    twenty files, then re-run `check_hako_macos_parse.py` **and** a real `SFM` build — the
    checker alone has been shown insufficient (§9.5).

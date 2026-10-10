@@ -92,6 +92,31 @@ interpreter and a new switch cannot become a second one by accident.
 | *(none)* | nothing — the full fixture | every case that needs no variation |
 | `noClashModes` | `setupMockData()` installs an empty `clashModeList` instead of `rule`/`global`/`direct` | `test14` |
 | `notInstalled` | `ExtensionEnvironments.reload()` presents no tunnel profile (`usesMockTunnelProfile`) | `test18` |
+| `profileError` | sets `profileLoadFailure`, so the page draws its "could not read the configuration" line — with the tunnel **installed**, because that is the only state in which the page reports a failed read | `test15` |
+
+**Two states are implemented**, and the whole list of places either is read is:
+
+```
+$ grep -rn 'uiTestFixtureState' --include=*.swift Library/ ApplicationLibrary/ SFI/
+Library/Network/CommandClient.swift:181        != "noClashModes"
+Library/Network/ExtensionEnvironments.swift:273 == "profileError"
+```
+
+### Names the tests pass that nothing implements
+
+Four cases call `launch(state:)` with a name this project does not act on. That is **not** an
+error in itself — a launch with an unrecognised state is simply a launch with no state, which is
+the full default fixture — but it is worth knowing which cases are relying on that rather than on
+a state:
+
+| Name | Asked by | What actually happens |
+| --- | --- | --- |
+| `clashModes` | `test14b` | the default fixture, which already installs the three modes. The name documents the intent; the default is what satisfies it |
+| `remote` | `test16` | the default fixture. The case passes on the remote-control shape the default already draws |
+| `activity` | `test43` | the default fixture, and the case fails: it wants seeded connection rows, which no state provides |
+
+So a name in this table is a **comment**, not a contract. If a case ever needs its name to mean
+something, it has to be added above and read in exactly one place.
 
 `notInstalled` needs its own switch rather than a narrowing of `screenshotMode` for a specific
 reason: the branch it guards is the **early return** that also stops the real profile lookup from
@@ -110,11 +135,12 @@ written twice, once per consumer, and only one copy was installed — which is w
 
 Two states look like fixture gaps and are not:
 
-* **A failed profile load.** `ExtensionProfile.load()`'s error is discarded by `try?`, so "the
-  configuration could not be read" and "no tunnel is installed" render identically.
-  `HakoHomeView.profileLoadFailure` exists and **nothing passes it**. Reaching that state means
-  threading a failure reason through the product first; there is no fixture hook that can invent it
-  (`test15`).
+* **A failed profile load, on the real path.** `ExtensionProfile.load()`'s error is discarded by
+  `try?` in `reload()`, so a genuine failure still renders as "no tunnel is installed". The
+  `profileError` state above makes the page's own line *reachable and assertable*, but it does not
+  make the product populate it: that needs `reload()` to keep the reason and a decision about the
+  sentence a user reads. The plumbing exists (`ExtensionEnvironments.profileLoadFailure`,
+  supplied by `HakoPageContent`); only the fixture sets it today.
 * **Connection rows.** `ConnectionListViewModel` fills `connections` from `commandClient.$connections`,
   a `[LibboxConnection]` — and `LibboxConnection` is a Go-bound type with **no Swift initializer**,
   so no test can construct one. The connection fixture calls `dataModel.finishLoading()` and seeds
