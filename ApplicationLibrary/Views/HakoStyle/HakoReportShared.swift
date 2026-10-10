@@ -230,20 +230,27 @@ struct HakoReportFileContentView: View {
     }
 
 
-        @MainActor
-        func presentShareSheet(_ item: URL) {
-            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let rootViewController = windowScene.keyWindow?.rootViewController
-            else {
-                return
+        // `#if os(iOS)`, as the original had it. `UIApplication` and `UIWindowScene` are not in the macOS
+        // SDK, and this file is in the shared target - so without the guard the macOS compiler is asked to
+        // parse a function it cannot resolve. Migration resolved the original's `#if os(iOS)` here and kept
+        // the body, which reads as "port the phone's version" but produces a file that no longer compiles
+        // for the other platforms the same target serves.
+        #if os(iOS)
+            @MainActor
+            func presentShareSheet(_ item: URL) {
+                guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                      let rootViewController = windowScene.keyWindow?.rootViewController
+                else {
+                    return
+                }
+                var topViewController = rootViewController
+                while let presented = topViewController.presentedViewController {
+                    topViewController = presented
+                }
+                topViewController.present(
+                    UIActivityViewController(activityItems: [item], applicationActivities: nil),
+                    animated: true
+                )
             }
-            var topViewController = rootViewController
-            while let presented = topViewController.presentedViewController {
-                topViewController = presented
-            }
-            topViewController.present(
-                UIActivityViewController(activityItems: [item], applicationActivities: nil),
-                animated: true
-            )
-        }
+        #endif
 

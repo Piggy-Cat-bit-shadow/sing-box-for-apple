@@ -353,6 +353,14 @@ public struct HakoCoreView: View {
     }
 
 
+    // `#if os(iOS)`, as the original had it (its lines 409-453).
+    //
+    // These three functions are the Files-app integration: `NSFileProviderManager` is iOS-only and
+    // `openInFilesApp` calls `UIApplication.shared.open`. `@available(iOS 16.0, *)` does **not** stand in
+    // for the guard - it is an availability annotation, and the macOS compiler still parses the body, so an
+    // unguarded `UIApplication` is a compile error on macOS rather than a version check. Migration resolved
+    // the original's `#if os(iOS)` and kept the bodies.
+    #if os(iOS)
         @available(iOS 16.0, *)
         private nonisolated func fileProviderManager() async throws -> NSFileProviderManager {
             let domains = try await NSFileProviderManager.domains()
@@ -396,6 +404,7 @@ public struct HakoCoreView: View {
                 }
             }
         }
+    #endif
 
 }
 
