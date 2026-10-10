@@ -120,10 +120,13 @@ final class HakoSnapshotUITests: XCTestCase {
         // The status card is below the fold, and it is where the core's own figures are named.
         // The review's item on this page was one of those names: the goroutine count was
         // translated, and the term is the runtime's, not the language's.
+        //
+        // The label is `Goroutines`; the singular this copied assertion used is in no revision of
+        // the tree, and the plural is the key the untranslated-name property actually rides on.
         app.swipeUp()
         sleep(1)
         XCTAssertTrue(
-            app.staticTexts["Goroutine"].waitForExistence(timeout: 15),
+            app.staticTexts["Goroutines"].waitForExistence(timeout: 15),
             "the core's goroutine count keeps the runtime's own name"
         )
         snapshot("10b_HomeStatus")

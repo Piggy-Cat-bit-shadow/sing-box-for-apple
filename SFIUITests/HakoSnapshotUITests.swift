@@ -120,10 +120,18 @@ final class HakoSnapshotUITests: XCTestCase {
         // The status card is below the fold, and it is where the core's own figures are named.
         // The review's item on this page was one of those names: the goroutine count was
         // translated, and the term is the runtime's, not the language's.
+        //
+        // The label is `Goroutines`, and the singular this case used to assert was never in this
+        // tree: `git log -S'"Goroutine"' -- Localizable.xcstrings` is empty, and the product has
+        // only ever spelled it `String(localized: "Goroutines")`. The property the case is about
+        // is real and still holds - the catalog carries entries for fa, ru and zh-Hant and every
+        // one of them is the English word, so the term is not being translated - but it is the
+        // plural key that carries it, and an assertion on a key no revision ever contained fails
+        // on every run rather than guarding anything.
         app.swipeUp()
         sleep(1)
         XCTAssertTrue(
-            app.staticTexts["Goroutine"].waitForExistence(timeout: 15),
+            app.staticTexts["Goroutines"].waitForExistence(timeout: 15),
             "the core's goroutine count keeps the runtime's own name"
         )
         snapshot("10b_HomeStatus")
