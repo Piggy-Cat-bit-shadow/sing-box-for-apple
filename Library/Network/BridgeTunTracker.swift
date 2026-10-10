@@ -49,7 +49,7 @@
             let sessions = handles.compactMap { sessionsByHandle.removeValue(forKey: $0) }
             access.unlock()
             for session in sessions {
-                logger.info("closing bridge \(session.name(), privacy: .public)")
+                logger.info("closing bridge \(session.name()!.value, privacy: .public)")
                 try? session.close()
             }
         }
