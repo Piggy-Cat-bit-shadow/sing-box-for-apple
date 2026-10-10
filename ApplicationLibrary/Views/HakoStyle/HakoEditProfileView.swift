@@ -57,7 +57,9 @@ public struct HakoEditProfileView: View {
                         TextField("URL", text: $profile.remoteURL.unwrapped(""), prompt: Text("Required"))
                             .multilineTextAlignment(.trailing)
 
+                            #if !os(macOS)
                             .keyboardType(.URL)
+                            #endif
 
                     }
                     Toggle("Auto Update", isOn: $profile.autoUpdate)
@@ -65,7 +67,9 @@ public struct HakoEditProfileView: View {
                         TextField("Auto Update Interval", text: $profile.autoUpdateInterval.stringBinding(defaultValue: 60), prompt: Text("In Minutes"))
                             .multilineTextAlignment(.trailing)
 
+                            #if !os(macOS)
                             .keyboardType(.numberPad)
+                            #endif
 
                     }
                 }

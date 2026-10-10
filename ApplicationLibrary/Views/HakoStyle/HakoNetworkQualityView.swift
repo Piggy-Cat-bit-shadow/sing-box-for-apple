@@ -88,8 +88,12 @@ public struct HakoNetworkQualityView: View {
                             .multilineTextAlignment(.leading)
                             .autocorrectionDisabled()
 
+                            #if !os(macOS)
                             .textInputAutocapitalization(.never)
+                            #endif
+                            #if !os(macOS)
                             .keyboardType(.URL)
+                            #endif
 
                     }
 

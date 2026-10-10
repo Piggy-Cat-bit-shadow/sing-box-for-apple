@@ -49,7 +49,9 @@ public struct HakoTailscaleSSHPromptView: View {
                     TextField("Username", text: $username, prompt: Text("Required"))
                         .multilineTextAlignment(.trailing)
 
+                        #if !os(macOS)
                         .textInputAutocapitalization(.never)
+                        #endif
                         .autocorrectionDisabled(true)
 
                 }
@@ -57,7 +59,9 @@ public struct HakoTailscaleSSHPromptView: View {
                     TextField("Terminal Type", text: $terminalType, prompt: Text(Self.defaultTerminalType))
                         .multilineTextAlignment(.trailing)
 
+                        #if !os(macOS)
                         .textInputAutocapitalization(.never)
+                        #endif
                         .autocorrectionDisabled(true)
 
                 }
@@ -93,7 +97,9 @@ public struct HakoTailscaleSSHPromptView: View {
         }
         .navigationTitle(peer.hostName)
 
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
 
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

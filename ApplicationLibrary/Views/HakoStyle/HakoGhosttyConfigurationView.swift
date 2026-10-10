@@ -53,7 +53,9 @@
             }
             .navigationTitle("Terminal Appearance")
 
+                #if !os(macOS)
                 .navigationBarTitleDisplayMode(.inline)
+                #endif
 
                 .onAppear {
                     reload()

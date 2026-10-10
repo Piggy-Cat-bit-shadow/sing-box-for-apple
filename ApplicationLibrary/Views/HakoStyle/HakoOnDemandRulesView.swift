@@ -369,7 +369,9 @@ private struct OnDemandRuleEditView: View {
         }
         .navigationTitle(isNew ? "New Rule" : "Edit Rule")
 
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
 
 
         .toolbar {
@@ -449,8 +451,12 @@ private struct OnDemandRuleEditView: View {
                 TextField("http://...", text: $rule.probeURL)
                     .multilineTextAlignment(.trailing)
 
+                    #if !os(macOS)
                     .keyboardType(.URL)
+                    #endif
+                    #if !os(macOS)
                     .textInputAutocapitalization(.never)
+                    #endif
 
             }
             if !isProbeURLValid {
@@ -601,8 +607,12 @@ private struct EvaluateConnectionRuleEditView: View {
                         TextField("http://...", text: $rule.probeURL)
                             .multilineTextAlignment(.trailing)
 
+                            #if !os(macOS)
                             .keyboardType(.URL)
+                            #endif
+                            #if !os(macOS)
                             .textInputAutocapitalization(.never)
+                            #endif
 
                     }
                 } header: {
@@ -614,7 +624,9 @@ private struct EvaluateConnectionRuleEditView: View {
         }
         .navigationTitle("Connection Rule")
 
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
 
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

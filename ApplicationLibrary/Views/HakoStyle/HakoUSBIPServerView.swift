@@ -50,7 +50,9 @@ public struct HakoUSBIPServerView: View {
         }
         .navigationTitle(navigationTitleKey)
 
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
 
 
         .onChangeCompat(of: server == nil) { isNil in

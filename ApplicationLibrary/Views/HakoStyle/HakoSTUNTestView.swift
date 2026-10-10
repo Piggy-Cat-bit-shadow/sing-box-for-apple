@@ -69,8 +69,12 @@ public struct HakoSTUNTestView: View {
                             .multilineTextAlignment(.trailing)
                             .autocorrectionDisabled()
 
+                            #if !os(macOS)
                             .textInputAutocapitalization(.never)
+                            #endif
+                            #if !os(macOS)
                             .keyboardType(.URL)
+                            #endif
 
                     }
 

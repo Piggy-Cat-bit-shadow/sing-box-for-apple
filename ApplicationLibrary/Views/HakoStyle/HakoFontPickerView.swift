@@ -81,7 +81,9 @@
             .searchable(text: $searchText)
             .navigationTitle("Font")
 
+                #if !os(macOS)
                 .navigationBarTitleDisplayMode(.inline)
+                #endif
                 .environment(\.editMode, $editMode)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {

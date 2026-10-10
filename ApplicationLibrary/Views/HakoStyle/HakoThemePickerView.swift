@@ -71,7 +71,9 @@
             .searchable(text: $searchText)
             .navigationTitle(scheme.navigationTitle)
 
+                #if !os(macOS)
                 .navigationBarTitleDisplayMode(.inline)
+                #endif
 
         }
 
