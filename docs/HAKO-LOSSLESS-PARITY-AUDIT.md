@@ -12,6 +12,7 @@
 | 本文件对应的集成版本 | `bb23b0c` 起 |
 | 官方 UI pin | `upstream/dev` @ `089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85` |
 | 工具 | `scripts/dev/audit_hako_lossless_parity.py` |
+| 原版 UI 测试 | `SFIUITests/HakoNavigationUITests.swift`（18 例）、`HakoSnapshotUITests.swift`（28 例）——已恢复，逐字节相同 |
 | 当前结论 | 六个一级页面 **0 个 UI token 丢失**；原版共享组件 **10 个逐字节相同**；二级页面 **未保全**（见 §5） |
 
 ---
@@ -190,6 +191,40 @@ Sponsors 一行由用户另行决定。
 | `Abstract/GlobalChecksModifier.swift` | 共享 modifier，所有平台都经过它。在这里加手机行为会到达 iPad，需要一个比"复制"更窄的挂载点 |
 | `Connections/ConnectionListViewModel.swift` | 视图模型而非视图。fork 的两处改动是 `isLoading` 在客户端未连接时清除（**真实的缺陷修复**，应进共享视图模型）与一个截图夹具 |
 | `Groups/GroupListViewModel.swift` | `testingItems` 已在前一轮加入共享视图模型，无剩余工作 |
+
+---
+
+### 5.3 原版 UI 测试套件（已恢复）
+
+原版有两个 UI 测试套件，本分支**从未有过**——它们只存在于 fork 的历史里。本轮从一个完整的原版检出
+（`_work/refs/up-hako` @ `c1935cf`）逐字节恢复：
+
+| 文件 | 内容 |
+|---|---|
+| `SFIUITests/HakoNavigationUITests.swift`（588 行，18 例） | tab 顺序稳定、冷启动落在 Home 且无子页、Home→Logs 推入后返回落到 Tools、被弹出的页面不回来、同一子页连点两次只推一次、点当前 tab 不推入、快速切 tab 落在最后一个、Tools 从未打开过时的 Logs 深链、Groups/Connections sheet 开关、每个 root 上根 tab 可达、推入详情隐藏根 tab 且弹出恢复、Proxies 搜索、Activity 搜索、Tunnel 页显示用户标题且不显示原始属性名、每一个可导航行都能打开、任何页面都不出现原始内部 key、每一个可导航行只画一个指示符 |
+| `SFIUITests/HakoSnapshotUITests.swift`（706 行，28 例） | 逐页截图：Home、Tools、More、More 滚到底、出站模式缺席与出现、配置读取失败、Home 与代理 sheet 一致、远端 Home、无隧道的 Home、Logs、On-Demand、Tunnel、Core、Profile Override、Client Settings、Network Quality、报告收件箱空态、三份报告的 list 与 detail、Proxies 折叠与展开、Activity、Activity 数据密度、手动编辑器、配置中心、Add Configuration |
+| `scripts/dev/check-hako-primary-route.{sh,swift}` | 用已构建的 framework 实际执行 shell 的页面映射与 child-arming 决策。其自身头注释登记为 `BLOCKED_BY_ENVIRONMENT`，阻塞点精确（PLCrashReporter 的 framework module map 只存在于 Xcode 构建布局内） |
+
+`SFIUITests/` 是 `PBXFileSystemSynchronizedRootGroup`，两个测试文件因此自动加入 UI 测试 bundle，
+无需改 `project.pbxproj`——这正是它们自己头注释里写明的机制，也是它们早年被放在 `scripts/dev/` 时
+的失败原因：那里不属于任何同步组，`build-for-testing` 报成功而类根本不在 bundle 里。
+
+恢复过程中两条审计检查一度报 FAIL，两条都是**正确的观察**而不是缺陷：
+`check-hako-primary-route.swift` 是 Swift，所以文件遍历找到了它，既把它当作"Hako 命名空间外却引用
+Hako 符号的文件"，又当作"不属于任何同步组的文件"。它是被 shell 脚本对着已构建 framework 编译的
+独立工具，所以它引用 Hako 类型、也不在任何 Xcode target 里。审计因此新增
+`OUTSIDE_THE_APP`，只登记这一个文件并写明理由——不是给一整个目录开口子。
+
+### 5.3.1 标识符覆盖的第二种测法
+
+两个套件共寻址 **33** 个 `hako.*` 标识符。按字面搜索，其中 13 个不在树里；逐个查清后：
+
+| 类别 | 数量 | 说明 |
+|---|---|---|
+| **插值生成，实际存在** | 8 | `"hako.tab.\(primary.rawValue)"`（`HakoPrimaryShell`，原版字节）、`"hako.more.\(destination.pageKey)"`（我们生成的 `HakoSettingView`）、`"hako.home.mode.\(mode)"`（Home）。字面搜索看不见，运行时解析正常 |
+| **仍在上游文件里** | 5 | `hako.profile.createManually`（`NewProfileMenuView`）与 `hako.report.*`（三份报告 list/detail）——正是 §5 记录的二级页面缺口 |
+
+两条证据是独立的：一条读源码，一条读原版测试自己的寻址清单，两边指向同一批文件。
 
 ---
 
