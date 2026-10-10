@@ -35,6 +35,13 @@ public struct HakoCrashReportDetailView: View {
     // `ApplicationLibrary/Views/Tools/ReportShared.swift:135`, and only the share sheet above reads this.
     #if !os(tvOS)
         @State private var pendingAction: HakoReportShareAction?
+        // The macOS share path, as the original has it. `presentShareSheet` is declared under
+        // `#if os(iOS)` in `Tools/ReportShared.swift`, so the Mac needs its own way to present the
+        // file - see `SharingServicePicker` below.
+        #if os(macOS)
+            @State private var sharePresented = false
+            @State private var shareItemURL: URL?
+        #endif
     #endif
 
 
@@ -70,10 +77,12 @@ public struct HakoCrashReportDetailView: View {
                     cacheSubdirectory: ReportType.crash.directoryName, includeConfig: includeConfig, includeLog: includeLog,
                     encrypt: useAgeEncryption
                 )
-
+                #if os(iOS)
                     presentShareSheet(zipURL)
-
-
+                #elseif os(macOS)
+                    shareItemURL = zipURL
+                    sharePresented = true
+                #endif
             } catch {
                 alert = AlertState(action: "export crash reports", error: error)
             }
@@ -171,7 +180,9 @@ public struct HakoCrashReportDetailView: View {
                     )
                 }
             #endif
-
+            #if os(macOS)
+            .background(SharingServicePicker($sharePresented, $alert, $shareItemURL))
+            #endif
 
         .toolbar {
             if !isLoading, !files.isEmpty {

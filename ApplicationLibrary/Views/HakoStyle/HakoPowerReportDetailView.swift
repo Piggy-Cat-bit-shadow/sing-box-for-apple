@@ -36,6 +36,13 @@ public struct HakoPowerReportDetailView: View {
     // this property.
     #if !os(tvOS)
         @State private var pendingAction: HakoReportShareAction?
+        // The macOS share path, as the original has it. `presentShareSheet` is declared under
+        // `#if os(iOS)` in `Tools/ReportShared.swift`, so the Mac needs its own way to present the
+        // file - see `SharingServicePicker` below.
+        #if os(macOS)
+            @State private var sharePresented = false
+            @State private var shareItemURL: URL?
+        #endif
     #endif
 
 
@@ -71,10 +78,12 @@ public struct HakoPowerReportDetailView: View {
                     cacheSubdirectory: ReportType.power.directoryName, includeConfig: includeConfig, includeLog: includeLog,
                     encrypt: useAgeEncryption
                 )
-
+                #if os(iOS)
                     presentShareSheet(zipURL)
-
-
+                #elseif os(macOS)
+                    shareItemURL = zipURL
+                    sharePresented = true
+                #endif
             } catch {
                 alert = AlertState(action: "export power report", error: error)
             }
@@ -169,7 +178,9 @@ public struct HakoPowerReportDetailView: View {
                 )
             }
             #endif
-
+            #if os(macOS)
+            .background(SharingServicePicker($sharePresented, $alert, $shareItemURL))
+            #endif
 
         .toolbar {
             if !isLoading, !files.isEmpty {

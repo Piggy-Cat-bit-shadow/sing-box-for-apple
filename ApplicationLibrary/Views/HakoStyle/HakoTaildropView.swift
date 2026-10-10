@@ -48,6 +48,10 @@
             @State private var exportedFile: URL?
             @State private var previewItem: TaildropPreviewItem?
             @State private var previewedFile: URL?
+            #if os(macOS)
+                @State private var sharePresented = false
+                @State private var shareItemURL: URL?
+            #endif
 
 
             let endpointTag: String
@@ -305,10 +309,12 @@
 
 
                         case .share:
-
+                            #if os(iOS)
                                 presentShareSheet(url)
-
-
+                            #elseif os(macOS)
+                                shareItemURL = url
+                                sharePresented = true
+                            #endif
                         }
                     } catch {
                         preparingFile = nil
