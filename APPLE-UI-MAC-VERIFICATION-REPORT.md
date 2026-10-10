@@ -50,7 +50,7 @@ defects broke it, and neither was visible from the branch that reported it ready
 | --- | --- |
 | Client repository | `Piggy-Cat-bit-shadow/sing-box-for-apple` |
 | Branch | `jiejiebox/integrated` |
-| **Revision verified** | **`522cc6548f263e927c3cf0a1ba672db843ca1d4a`** |
+| **Revision verified** | **`6120b2f78abcb653af77c1b50edc92aa170f092a`** — the tip of `jiejiebox/integrated` when this report was written, **36 commits** past the parent's pin. `git log --oneline 2a18968..HEAD` reproduces the set |
 | Revision this was built on (parent's pin) | `2a189686ae382d860f643ec53b64cbdb6cca562e` |
 | Kernel revision used for libbox | `Piggy-Cat-bit-shadow/sing-box` @ `315c34e44` (+ local script fixes) |
 | Xcode | 27.0 (27A266a) |
