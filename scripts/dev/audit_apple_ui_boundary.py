@@ -846,6 +846,67 @@ def check_hako_symbol_completeness(root: str) -> Check:
         f"{len(declared)} Hako symbol(s) declared, and every one of the {len(read)} named is among them",
     )
 
+
+def check_hako_platform_imports(root: str) -> Check:
+    """No ported file imports a platform framework outside a conditional.
+
+    `ApplicationLibrary` is a shared target: it compiles for iOS, macOS and tvOS. `import UIKit` at file
+    scope is therefore a compile error on two of the three. The original guarded every such import, and the
+    migration's platform-resolution step removed the guards while keeping the imports - so this check reads
+    the same predicate the repair tool uses and fails when the two disagree.
+
+    `canImport(...)` is the accepted gate rather than `os(iOS)`, matching what the original wrote.
+    """
+    #: Frameworks that do not exist on every platform this target builds for.
+    PLATFORM_ONLY = {
+        "UIKit", "AppKit", "Cocoa", "QuickLook", "GhosttyTerminal",
+        "DeviceDiscoveryUI", "AVKit", "ServiceManagement",
+    }
+    import_line = re.compile(r"^import\s+(\w+)\s*$")
+
+    namespace = os.path.join(root, HAKO_PREFIX)
+    if not os.path.isdir(namespace):
+        return Check("hako-platform-imports", "UNKNOWN",
+                     f"{HAKO_PREFIX} does not exist, so there is nothing to scan")
+
+    problems = []
+    files = 0
+    for path in swift_files(root, HAKO_PREFIX.rstrip("/")):
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        files += 1
+        depth = 0
+        for number, line in enumerate(text.split("\n"), 1):
+            stripped = line.strip()
+            if stripped.startswith("#if"):
+                depth += 1
+            elif stripped.startswith("#endif"):
+                depth -= 1
+            match = import_line.match(stripped) or import_line.match(line.rstrip())
+            if match and depth == 0 and match.group(1) in PLATFORM_ONLY:
+                problems.append(Blame(path, number,
+                                      f"`import {match.group(1)}` is not inside a conditional; "
+                                      f"ApplicationLibrary builds for iOS, macOS and tvOS"))
+
+    if files == 0:
+        return Check("hako-platform-imports", "UNKNOWN",
+                     f"{HAKO_PREFIX} holds no Swift file, so nothing was scanned")
+    if problems:
+        return Check(
+            "hako-platform-imports",
+            "FAIL",
+            f"{len(problems)} platform framework import(s) are not gated, which does not compile on the "
+            f"other platforms of a shared target",
+            [str(problem) for problem in problems],
+        )
+    return Check(
+        "hako-platform-imports",
+        "PASS",
+        f"{files} file(s) in {HAKO_PREFIX}, and every platform-only framework import is inside a "
+        f"conditional",
+    )
+
 def check_upstream_files_untouched(root: str, upstream_ref: str | None) -> Check:
     """The upstream-owned page files must be identical to the pinned upstream commit.
 
@@ -1938,6 +1999,7 @@ CHECKS = (
     check_no_reverse_dependency,
     check_shared_declaration_duplicates,
     check_hako_symbol_completeness,
+    check_hako_platform_imports,
     check_hako_page_coverage,
     check_hako_feature_preservation,
     check_ipad_mac_ui_gate,
