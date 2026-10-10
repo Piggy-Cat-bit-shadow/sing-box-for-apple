@@ -25,7 +25,7 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
 | Swift tests — `HakoScreenState` | **compiles; 11 of 33 cases fail** (was: did not compile) |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
-| Snapshot UI tests (`HakoSnapshotUITests`) | **3 of 28 verified** — `test10Home` fixed and passing; `test11Tools`, `test12More` passing. The remaining 25 were not run; iPad and macOS UI are device-only (see §5.3) |
+| Snapshot UI tests (`HakoSnapshotUITests`) | **23 of 28 pass, 5 fail** — full suite run on the iPhone simulator. `test10Home` was failing and is fixed; the five remaining failures are diagnosed in §6c |
 | Family routing | **PASS by construction, not by test** (see §5.3) |
 | ABI gate, Apple layers | **PASS** (21 violations → 0) |
 
@@ -88,7 +88,7 @@ to get a compiling client — that is the user's call and was deliberately not t
 | `HakoSubscriptionUsage` (SwiftPM) | **PASS** | 24 tests, 0 failures |
 | `HakoScreenState` (SwiftPM) | **11 of 33 FAIL** | now compiles; 9 `ScreenStatePolicyTests` + 5 `ScreenStateObserverTests` cases fail, dominated by `screen(false)` published where nothing should be |
 | `HakoNavigationUITests` | **PASS** | 18 tests, 0 failures, 513 s |
-| `HakoSnapshotUITests` | **3 of 28 verified** | `test10Home` (was failing, fixed), `test11Tools`, `test12More` pass. Not run to completion; iPad/macOS UI are device-only |
+| `HakoSnapshotUITests` | **23 PASS / 5 FAIL** | Full suite, 720 s. Failures: `test14`, `test15`, `test17`, `test18`, `test43` — diagnosed in §6c |
 | Freeze guards (`check-iphone-hako-freeze.sh`, `test-iphone-hako-freeze.sh`) | **N/A** | **these scripts do not exist in this tree** — they belong to the `hako-ui`/`ipad-upstream-ui` line, not to `jiejiebox/integrated`. Not "skipped"; absent. |
 | Route guard (`check-hako-primary-route.sh`) | **NOT RUN** | present; needs a prior `SFM` build plus a simulator runtime, and was not exercised in this round |
 | `check_hako_macos_parse.py` | **PASS — and misleading** | reports `macos: checked=54 errors=0` while the compiler reported 21 errors in the same tree. It models a symbol table and cannot see `EditMode`, member accesses or `@available`. Recorded as a tool limitation, not evidence. |
@@ -349,6 +349,116 @@ recorded as the top remaining risk rather than guessed at.
 
 ---
 
+## 6c. The Full Snapshot Suite, And What Its Five Failures Are
+
+Running the suite to completion (28 cases, 720 s, 23 pass / 5 fail) found what the earlier
+three-case sample could not. The five failures are **two different things**, and only one of them
+is a product defect.
+
+### The shared cause of four of them: the fixture the suite drives does not exist
+
+`HakoSnapshotUITests` has a `launch(state:)` helper:
+
+```swift
+private func launch(state: String) {
+    app.terminate()
+    app.launchEnvironment["SCREENSHOT_STATE"] = state
+    app.launch()
+}
+```
+
+**The app never reads `SCREENSHOT_STATE`.** It appears twice in the whole repository, both times
+in a test file:
+
+```
+SFIUITests/HakoSnapshotUITests.swift:83        app.launchEnvironment["SCREENSHOT_STATE"] = state
+docs/pending/HakoSnapshotUITests.swift:83      (the same line, in the holding area)
+```
+
+The fixture the app actually implements is `Variant.screenshotMode`, which reads the launch
+argument `-FASTLANE_SNAPSHOT`, plus `SCREENSHOT_PAGE`. That is why `test14b`, which uses *that*
+mechanism, passes — and why the cases below do not:
+
+| Case | What it sets | What it then asserts | Why it fails |
+| --- | --- | --- | --- |
+| `test14OutboundModeIsAbsentByDefault` | `state: "clashModes"` | `staticTexts["Outbound Mode"]` must **not** exist | The state never applies, so the page keeps the fixture's own modes and the control is legitimately drawn. `modeSection` renders on `modes.count > 1`, which is the fixture's condition, not this case's |
+| `test15ProfileLoadFailure` | `state: "profileError"` | `staticTexts["hako.home.condition"]` | `HakoHomeView` takes `profileLoadFailure` as an init parameter and **nothing passes it** — `SFI/HakoPageContent.swift` constructs the view twice, neither time with that argument. So there is no way to reach the state |
+| `test18HomeWithoutATunnel` | `state: "notInstalled"` | the same condition identifier | Same as above |
+| `test43ActivityDataDensity` | `state: "activity"` | seeded rows carrying a long domain, an IPv6 literal and a Chinese host | The seed never applies, so the list is empty — the failure message shows the page's own "No connections" empty state |
+
+This is **test-side**: the cases were written against a harness that was not carried into this
+lineage, and they cannot be made to pass by changing the product, because the product does not
+have the states they ask for. They need either the harness ported or the cases rewritten against
+`FASTLANE_SNAPSHOT`. **Not changed here** — it is a decision about what the fixture should be, and
+inventing a `SCREENSHOT_STATE` interpreter to satisfy six call sites would be adding product
+surface for a test.
+
+### `test17HomeAgreesWithTheProxySheet` — **a real product defect**
+
+```
+Home said "Proxies, Proxy groups" while the sheet said 2 groups
+```
+
+`"Proxy groups"` is `groupsSubtitle`'s **zero fallback**:
+
+```swift
+private var groupsSubtitle: String {
+    let count = liveGroupCount
+    return count > 0 ? String(localized: "\(count) groups") : String(localized: "Proxy groups")
+}
+```
+
+The sheet showed `2`, so the data was there; Home's `liveGroupCount` was `0` when its row was
+built. Home feeds it by hand:
+
+```swift
+@State private var liveGroupCount = 0
+...
+.onAppear { liveGroupCount = environments.commandClient.groups?.count ?? 0 }
+.onReceive(environments.commandClient.$groups) { groups in liveGroupCount = groups?.count ?? 0 }
+```
+
+The sheet reads the **same** `environments.commandClient.$groups` through its own view model, so
+the two views have one source and disagree about it — which is exactly the defect this case was
+written to catch, and its comment says so: *"Two views disagreeing about one number is a defect a
+single-page assertion cannot see, which is why this one reads both."* The earlier fix (reading the
+published property rather than a nested observable) is present in the code and is evidently not
+sufficient.
+
+**Not fixed here.** Reaching it means deciding whether Home should observe through a view model
+(as the sheet does) or whether `onReceive` is firing before the client ever publishes `groups`,
+and that is a change to how the phone's Home page tracks runtime state — with a 12-minute
+verification cycle per attempt on this host. It is recorded as the one real product failure in
+the suite.
+
+### Fixed in this round: four count strings with no catalog key
+
+Found while investigating `test17`. Four labels are built from a count and the catalog had no
+key for any of them:
+
+```
+HakoHomeView.swift:654    String(localized: "\(count) groups")
+HakoHomeView.swift:661    String(localized: "\(count) active")
+HakoToolsView.swift:183   String(localized: "\(endpoint.unreadFileCount) unread")
+HakoToolsView.swift:416   String(localized: "\(count) unread")
+```
+
+Swift builds the key from the interpolation, so these ask for `%lld groups` / `%lld active` /
+`%lld unread`; a key with no entry cannot be translated, which leaves the string English in a
+client that ships four languages. The convention is not assumed —
+`String(localized: "Unexpected message type \(messageType)")` in `ProfileServer.swift` is served
+by this catalog's `Unexpected message type %lld`.
+
+Added with fa, ru, zh-Hans and zh-Hant, matching the one key of this shape already present
+(`%lld Profiles`). Written into the file textually: a `json.dump` round trip reformats all 537
+existing keys and produced a 9,359-line diff for a four-key change — the churn this project has
+already had to correct once, which is why `docs/HAKO-OWNERSHIP.md` §5.4 verifies this file
+separately. The diff is **112 insertions, 0 deletions**, and `xcstringstool` compiles it.
+
+Commit `8fe8e79`.
+
+---
+
 ## 7. Environment-only Blockers
 
 Every one of these was worked around; none remains a blocker.
@@ -456,11 +566,12 @@ kernel repository was not touched by these.
    byte-identical-upstream assertion for `SFI/MainView.swift`) is a *different* branch from
    `jiejiebox/integrated` (which has `SFIUIFamily` and the generated pages). The freeze guard
    that protects the frozen iPhone UI exists on the branch the parent no longer pins.
-7. **The snapshot suite is 3 of 28 verified, not "run".** `test10Home` (fixed here), `test11Tools`
-   and `test12More` pass on the iPhone simulator. The other 25 cases were not executed — the full
-   suite takes upwards of ten minutes per case on this M1/8 GB host, and the navigation suite
-   already answers the round's ownership question directly. Unrun is unrun, and it is recorded as
-   such rather than quietly counted as green.
+7. **The snapshot suite fails 5 of 28, and four of those are a missing harness rather than a
+   wrong expectation.** They are diagnosed in §6c: `test14`, `test15`, `test18` and `test43` all
+   call a `launch(state:)` that writes a variable the app never reads, so the state they describe
+   was never established and the assertions describe a page that was never asked for. `test17` is
+   the one real product failure in the group. Running the suite to completion is what found this;
+   the three-case sample in the previous round could not.
 8. **iPad and macOS UI are device-only and were not accepted.** By explicit instruction,
    simulator UI tests for those two surfaces are not evidence. The iPad simulator build and
    install were verified, but no iPad or macOS presentation acceptance happened in this round.
@@ -471,23 +582,37 @@ kernel repository was not touched by these.
 
 # READY WITH NON-BLOCKING NOTES
 
-**Why not READY:** two things are true and neither is a defect in the iOS product.
+**Why not READY:** three things are true, and the third is a product defect rather than a
+harness gap.
 
-* `HakoScreenState` does not compile, so the tree's own test story is incomplete.
+* `HakoScreenState` compiles but **11 of its 33 cases fail**, in the pause/wake family this
+  project has already had to correct once (§6.8).
+* `HakoSnapshotUITests/test17HomeAgreesWithTheProxySheet` **fails against the product**: Home's
+  group count never reaches the page, so it reads its zero fallback while the sheet beside it
+  shows 2 (§6c). This is the case's stated purpose and it is doing its job.
 * The parent's gitlink still points at a revision that does not build. This report verified
-  `2a18968 + six commits`; `READY` would require the pin to name that.
+  `2a18968` + ten commits; `READY` would require the pin to name that.
 
-**Why not NOT READY:** every gate the iOS product depends on passes at a single, pushed,
-recorded revision — `SFI` device, `SFM` macOS, iPhone simulator, iPad simulator, 18/18
-navigation UI tests, 24/24 SwiftPM tests, and the Apple layers of the ABI gate with 667 Swift
-sources swept. The two defects that made the pinned revision unbuildable are fixed with
-evidence, and the fixes are on the remote.
+**Why not NOT READY:** every build gate the iOS product depends on passes at a single, pushed,
+recorded revision — `SFI` device, `SFM` macOS, iPhone simulator, iPad simulator, 18/18 navigation
+UI tests, 23/28 snapshot cases with all five failures diagnosed to a cause, 24/24
+`HakoSubscriptionUsage` tests, and the Apple layers of the ABI gate with 667 Swift sources swept.
+The defects that made the pinned revision unbuildable are fixed with evidence and on the remote.
+
+**The honest reading of the two failing gates:** neither is a build regression, and neither was
+introduced by this round. Both are places where the fork's own test suites are ahead of, or
+behind, the code they test — `test17` catching a real bug, `HakoScreenState` catching an
+undecided contract, and four snapshot cases driving a harness that was never carried over.
 
 ### What the user owns
 
-* **The parent gitlink.** Deliberately not moved. The commits to move it to `7b7d638` exist
-  locally in the parent (`b633d0b1d`, `837b14923`) and were **not pushed** — the user asked for
-  the client repository only. A clean clone gets a non-compiling client until this moves.
+* **The client pin.** The parent still records `2a189686…`; the verified client revision is
+  `8fe8e792…` on `jiejiebox/integrated`. A clean clone therefore still gets a client that does not
+  compile, until the pin moves. Per instruction this round, only the client repository was
+  touched.
+* **The two failing test gates**, which need decisions rather than fixes: what an unreadable lock
+  axis means for the device pause, and whether `HakoSnapshotUITests` should get a working fixture
+  or be rewritten against `FASTLANE_SNAPSHOT`.
 * **The kernel repository**, which was not modified.
 
 ### Suggested next round
