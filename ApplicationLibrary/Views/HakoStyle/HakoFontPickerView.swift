@@ -13,236 +13,216 @@
 //
 
 
-    import Library
-    import SwiftUI
-    import UniformTypeIdentifiers
+//  The file-level `#if !os(tvOS)` is the original's. Inside it, the `#if os(iOS)` around the `@State` group is the original's too and is load-bearing: `ImportedFontStore` is declared inside `#if os(iOS)` (`Library/Shared/ImportedFontStore.swift:1-151`), so a port that reads it outside that block asks the macOS compiler to resolve a type macOS does not declare. The original cannot hit this - its `init` assigns `_selected` and nothing else. Restored by `scripts/dev/restore_picker_guards.py`; the `#if !os(macOS)` this fork added around `.navigationBarTitleDisplayMode` in commit 28e4c84 is kept.
+//
+#if !os(tvOS)
+        import Library
+        import SwiftUI
+        import UniformTypeIdentifiers
+    #if canImport(UIKit)
+        import UIKit
+    #endif
+        public struct HakoFontPickerView: View {
+            private let pool: [String]
+            private let onSelect: (String) -> Void
+            @State private var selected: String
+            @State private var searchText: String = ""
+            @Environment(\.dismiss) private var dismiss
 
+            // `ImportedFontStore` is declared inside `#if os(iOS)`
+            // (`Library/Shared/ImportedFontStore.swift:1-151`); the original guarded this group for the
+            // same reason, and its `init` assigns `_selected` and nothing else so it cannot hit the case
+            // where the type is absent.
+            #if os(iOS)
+                @StateObject private var fontStore = ImportedFontStore.shared
+                @State private var showFileImporter = false
+                @State private var alert: AlertState?
+                @State private var editMode: EditMode = .inactive
+            #endif
 
-#if canImport(UIKit)
-    import UIKit
-#endif
-
-
-    public struct HakoFontPickerView: View {
-        private let pool: [String]
-        private let onSelect: (String) -> Void
-
-        @State private var selected: String
-        @State private var searchText: String = ""
-        @Environment(\.dismiss) private var dismiss
-
-
-            @StateObject private var fontStore = ImportedFontStore.shared
-            @State private var showFileImporter = false
-            @State private var alert: AlertState?
-            @State private var editMode: EditMode = .inactive
-
-
-        public init(currentName: String, onSelect: @escaping (String) -> Void) {
-            self.onSelect = onSelect
-            _selected = State(initialValue: currentName)
-            pool = Self.monospacedFamilies()
-        }
-
-        public var body: some View {
-            List {
-                if searchText.isEmpty {
-                    Section {
-                        familyRow(name: "", label: String(localized: "Follow Theme"))
-                    }
-
-                        if !fontStore.fonts.isEmpty {
-                            Section("Imported") {
-                                ForEach(fontStore.fonts) { font in
-                                    familyRow(name: font.familyName, label: font.familyName)
+            public init(currentName: String, onSelect: @escaping (String) -> Void) {
+                self.onSelect = onSelect
+                _selected = State(initialValue: currentName)
+                pool = Self.monospacedFamilies()
+            }
+            public var body: some View {
+                List {
+                    if searchText.isEmpty {
+                        Section {
+                            familyRow(name: "", label: String(localized: "Follow Theme"))
+                        }
+                            if !fontStore.fonts.isEmpty {
+                                Section("Imported") {
+                                    ForEach(fontStore.fonts) { font in
+                                        familyRow(name: font.familyName, label: font.familyName)
+                                    }
+                                    .onDelete { offsets in
+                                        let targets = offsets.map { fontStore.fonts[$0] }
+                                        Task { await deleteImported(targets) }
+                                    }
                                 }
-                                .onDelete { offsets in
-                                    let targets = offsets.map { fontStore.fonts[$0] }
-                                    Task { await deleteImported(targets) }
+                            }
+                        ForEach(groupedKeys, id: \.self) { letter in
+                            Section(letter) {
+                                ForEach(grouped[letter] ?? [], id: \.self) { family in
+                                    familyRow(name: family, label: family)
                                 }
                             }
                         }
-
-                    ForEach(groupedKeys, id: \.self) { letter in
-                        Section(letter) {
-                            ForEach(grouped[letter] ?? [], id: \.self) { family in
+                    } else {
+                        Section("Fonts") {
+                            ForEach(filteredFamilies, id: \.self) { family in
                                 familyRow(name: family, label: family)
                             }
                         }
                     }
-                } else {
-                    Section("Fonts") {
-                        ForEach(filteredFamilies, id: \.self) { family in
-                            familyRow(name: family, label: family)
+                }
+                .searchable(text: $searchText)
+                .navigationTitle("Font")
+                    #if !os(macOS)
+                    .navigationBarTitleDisplayMode(.inline)
+                    #endif
+                    .environment(\.editMode, $editMode)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Menu {
+                                Button {
+                                    showFileImporter = true
+                                } label: {
+                                    Label("Import from File", systemImage: "doc.badge.plus")
+                                }
+                                if !fontStore.fonts.isEmpty {
+                                    Button {
+                                        withAnimation {
+                                            editMode = editMode.isEditing ? .inactive : .active
+                                        }
+                                    } label: {
+                                        Label(
+                                            editMode.isEditing ? String(localized: "Done") : String(localized: "Manage Imported Fonts"),
+                                            systemImage: "slider.horizontal.3"
+                                        )
+                                    }
+                                }
+                            } label: {
+                                Label("Others", systemImage: "ellipsis.circle")
+                            }
                         }
                     }
-                }
+                    .alert($alert)
+                    .fileImporter(
+                        isPresented: $showFileImporter,
+                        allowedContentTypes: [.font],
+                        allowsMultipleSelection: true
+                    ) { result in
+                        handleFontImport(result)
+                    }
             }
-            .searchable(text: $searchText)
-            .navigationTitle("Font")
-
-                #if !os(macOS)
-                .navigationBarTitleDisplayMode(.inline)
-                #endif
-                .environment(\.editMode, $editMode)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            Button {
-                                showFileImporter = true
-                            } label: {
-                                Label("Import from File", systemImage: "doc.badge.plus")
-                            }
-                            if !fontStore.fonts.isEmpty {
-                                Button {
-                                    withAnimation {
-                                        editMode = editMode.isEditing ? .inactive : .active
-                                    }
-                                } label: {
-                                    Label(
-                                        editMode.isEditing ? String(localized: "Done") : String(localized: "Manage Imported Fonts"),
-                                        systemImage: "slider.horizontal.3"
-                                    )
+            private func familyRow(name: String, label: String) -> some View {
+                Button {
+                    select(name)
+                } label: {
+                    HStack {
+                        Text(label)
+                            .font(name.isEmpty ? .body : .custom(name, size: 17))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        HakoSelectionMark(isSelected: selected == name)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            private var filteredFamilies: [String] {
+                let query = searchText.lowercased()
+                    let imported = fontStore.fonts.map(\.familyName)
+                    let combined = Array(NSOrderedSet(array: imported + pool)) as? [String] ?? pool
+                    return combined.filter { $0.lowercased().contains(query) }
+            }
+            private var grouped: [String: [String]] {
+                    let importedNames = Set(fontStore.fonts.map(\.familyName))
+                var result: [String: [String]] = [:]
+                for family in pool {
+                        if importedNames.contains(family) {
+                            continue
+                        }
+                    let first = family.first.map(String.init)?.uppercased() ?? "#"
+                    let key = first.first?.isLetter == true ? first : "#"
+                    result[key, default: []].append(family)
+                }
+                return result
+            }
+            private var groupedKeys: [String] {
+                grouped.keys.sorted()
+            }
+            private func select(_ name: String) {
+                selected = name
+                onSelect(name)
+                dismiss()
+            }
+                private func handleFontImport(_ result: Result<[URL], Error>) {
+                    do {
+                        let urls = try result.get()
+                        guard !urls.isEmpty else { return }
+                        Task {
+                            for url in urls {
+                                do {
+                                    try await fontStore.importFile(from: url)
+                                } catch {
+                                    alert = AlertState(action: "import font", error: error)
+                                    return
                                 }
                             }
-                        } label: {
-                            Label("Others", systemImage: "ellipsis.circle")
-                        }
-                    }
-                }
-                .alert($alert)
-                .fileImporter(
-                    isPresented: $showFileImporter,
-                    allowedContentTypes: [.font],
-                    allowsMultipleSelection: true
-                ) { result in
-                    handleFontImport(result)
-                }
-
-        }
-
-        private func familyRow(name: String, label: String) -> some View {
-            Button {
-                select(name)
-            } label: {
-                HStack {
-                    Text(label)
-                        .font(name.isEmpty ? .body : .custom(name, size: 17))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    HakoSelectionMark(isSelected: selected == name)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-
-        private var filteredFamilies: [String] {
-            let query = searchText.lowercased()
-
-                let imported = fontStore.fonts.map(\.familyName)
-                let combined = Array(NSOrderedSet(array: imported + pool)) as? [String] ?? pool
-                return combined.filter { $0.lowercased().contains(query) }
-
-
-        }
-
-        private var grouped: [String: [String]] {
-
-                let importedNames = Set(fontStore.fonts.map(\.familyName))
-
-            var result: [String: [String]] = [:]
-            for family in pool {
-
-                    if importedNames.contains(family) {
-                        continue
-                    }
-
-                let first = family.first.map(String.init)?.uppercased() ?? "#"
-                let key = first.first?.isLetter == true ? first : "#"
-                result[key, default: []].append(family)
-            }
-            return result
-        }
-
-        private var groupedKeys: [String] {
-            grouped.keys.sorted()
-        }
-
-        private func select(_ name: String) {
-            selected = name
-            onSelect(name)
-            dismiss()
-        }
-
-
-            private func handleFontImport(_ result: Result<[URL], Error>) {
-                do {
-                    let urls = try result.get()
-                    guard !urls.isEmpty else { return }
-                    Task {
-                        for url in urls {
-                            do {
-                                try await fontStore.importFile(from: url)
-                            } catch {
-                                alert = AlertState(action: "import font", error: error)
-                                return
-                            }
-                        }
-                    }
-                } catch {
-                    alert = AlertState(action: "import font", error: error)
-                }
-            }
-
-            private func deleteImported(_ targets: [ImportedFont]) async {
-                for font in targets {
-                    do {
-                        try await fontStore.delete(font)
-                        if selected == font.familyName {
-                            selected = ""
                         }
                     } catch {
-                        alert = AlertState(action: "remove font", error: error)
-                        return
+                        alert = AlertState(action: "import font", error: error)
                     }
                 }
-                if fontStore.fonts.isEmpty, editMode.isEditing {
-                    withAnimation { editMode = .inactive }
+                private func deleteImported(_ targets: [ImportedFont]) async {
+                    for font in targets {
+                        do {
+                            try await fontStore.delete(font)
+                            if selected == font.familyName {
+                                selected = ""
+                            }
+                        } catch {
+                            alert = AlertState(action: "remove font", error: error)
+                            return
+                        }
+                    }
+                    if fontStore.fonts.isEmpty, editMode.isEditing {
+                        withAnimation { editMode = .inactive }
+                    }
                 }
+            private static func monospacedFamilies() -> [String] {
+                // The three branches are the original's, restored.
+                //
+                // Migration resolved the platform conditionals here and kept the selected branch's body, which
+                // left `UIFont` as the only implementation with no guard in front of it. This file is in
+                // `ApplicationLibrary`, a shared target, so on macOS the compiler still parses this body and
+                // `UIFont` does not exist - a compile error. Restoring the guard is not a behaviour change for
+                // the phone either, because the UIKit branch is the one that was kept.
+                //
+                // This guard is not selecting a variant for the phone; it is the only implementation, written to
+                // be legal on three platforms. That is exactly the kind of condition migration must preserve,
+                // and the reason "resolve everything for iOS" is the wrong policy for a shared target.
+                #if canImport(AppKit)
+                    let names = NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? []
+                    var families = Set<String>()
+                    for name in names {
+                        let family = NSFont(name: name, size: 12)?.familyName ?? name
+                        families.insert(family)
+                    }
+                    return families.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                #elseif canImport(UIKit)
+                    return UIFont.familyNames.filter { family in
+                        UIFont.fontNames(forFamilyName: family).contains { name in
+                            guard let font = UIFont(name: name, size: 12) else { return false }
+                            return font.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
+                        }
+                    }.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                #else
+                    return []
+                #endif
             }
-
-
-        private static func monospacedFamilies() -> [String] {
-            // The three branches are the original's, restored.
-            //
-            // Migration resolved the platform conditionals here and kept the selected branch's body, which
-            // left `UIFont` as the only implementation with no guard in front of it. This file is in
-            // `ApplicationLibrary`, a shared target, so on macOS the compiler still parses this body and
-            // `UIFont` does not exist - a compile error. Restoring the guard is not a behaviour change for
-            // the phone either, because the UIKit branch is the one that was kept.
-            //
-            // This guard is not selecting a variant for the phone; it is the only implementation, written to
-            // be legal on three platforms. That is exactly the kind of condition migration must preserve,
-            // and the reason "resolve everything for iOS" is the wrong policy for a shared target.
-            #if canImport(AppKit)
-                let names = NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? []
-                var families = Set<String>()
-                for name in names {
-                    let family = NSFont(name: name, size: 12)?.familyName ?? name
-                    families.insert(family)
-                }
-                return families.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            #elseif canImport(UIKit)
-                return UIFont.familyNames.filter { family in
-                    UIFont.fontNames(forFamilyName: family).contains { name in
-                        guard let font = UIFont(name: name, size: 12) else { return false }
-                        return font.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
-                    }
-                }.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            #else
-                return []
-            #endif
         }
-    }
-
+#endif
