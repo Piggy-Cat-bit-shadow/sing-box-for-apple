@@ -1,120 +1,114 @@
 #!/usr/bin/env python3
-"""Restore two file-level platform guards the migration resolved away in the Appearance flow.
+"""Rebuild two ported files from their originals' own bytes, changing only the names.
 
-Neither file is regenerated: both carry deliberate post-migration edits (a renamed nested enum in one, a
-re-gated navigation modifier in the other), so rebuilding them from the original would throw that work away.
-The guards go back in place, and nothing else is touched.
+Both files lost a **file-level** platform guard and, with it, the impression that they are a port at all:
 
-The guard is load-bearing in both cases, for the same reason stated twice: `ApplicationLibrary` is one
-framework target built for `iphoneos`, `macosx` and `appletvos`, so a declaration that reads a module or a
-type another platform does not provide stops that platform building.
+  * `HakoStyle/HakoThemePickerView.swift` - the original is wrapped in
+    `#if canImport(GhosttyTerminal)` (line 1) and imports `GhosttyTheme` inside it. That module carries
+    `platformFilters = (ios, macos, )` in the project file, so it is not linked for tvOS; the port declares
+    `GhosttyThemeDefinition`-typed stored properties with no condition around them, in a file
+    `ApplicationLibrary` compiles for tvOS.
+  * `HakoStyle/HakoFontPickerView.swift` - the original is wrapped in `#if !os(tvOS)` (line 1) and wraps a
+    group of `@State` properties, one of them `ImportedFontStore.shared`, in `#if os(iOS)`. `ImportedFontStore`
+    is declared inside `#if os(iOS)` (`Library/Shared/ImportedFontStore.swift:1-151`), so the port declares a
+    stored property whose type macOS does not have. The original cannot hit this: `FontPickerView.init`
+    assigns `_selected` and nothing else.
 
-  * `HakoThemePickerView.swift` - the original is wrapped in `#if canImport(GhosttyTerminal)`, and
-    `GhosttyTheme` carries `platformFilters = (ios, macos, )` in the project file. The port declares
-    `[GhosttyThemeDefinition]` and calls `GhosttyThemeCatalog.allThemes` with no condition around them.
-  * `HakoFontPickerView.swift` - the original is wrapped in `#if !os(tvOS)`, and inside it the `@State`
-    group is wrapped in `#if os(iOS)` because `ImportedFontStore` is declared inside `#if os(iOS)`
-    (`Library/Shared/ImportedFontStore.swift:1-151`). The port kept both the property and the type
-    reference with neither guard.
+Editing the guards back into the resolved copies is what produced a nested duplicate `#if` and a wrongly
+indented block the last time it was tried, so this goes the other way, as
+`restore_terminal_guards.py` does: take the original exactly as `hako-ui` wrote it - guards, indentation and
+all - and apply only the renames.
 """
 from __future__ import annotations
 
+import difflib
 import io
 import os
-import re
+import subprocess
 import sys
 
-ROOT = sys.argv[1] if len(sys.argv) > 1 else r"C:\Deepseek\IOS客户端\_work\r8\w-main"
-APPLY = "--apply" in sys.argv
+GIT = os.environ.get("DSH_GIT") or r"C:\Deepseek\IOS客户端\_tools\mingit\cmd\git.exe"
+UPSTREAM_TREE = r"C:\Deepseek\IOS客户端\_work\refs\up-hako"
+ROOT = r"C:\Deepseek\IOS客户端\_work\r8\w-main"
 
-THEME = "ApplicationLibrary/Views/HakoStyle/HakoThemePickerView.swift"
-FONT = "ApplicationLibrary/Views/HakoStyle/HakoFontPickerView.swift"
-
-
-def indent(block: str) -> str:
-    """Indent every non-empty line of `block` by four spaces."""
-    return "\n".join(("    " + line) if line.strip() else line for line in block.split("\n"))
-
-
-def wrap_whole_file(text: str, condition: str, why: str) -> tuple[str, bool]:
-    """Wrap everything after the header comment in `#if <condition>` … `#endif`."""
-    lines = text.split("\n")
-    start = 0
-    while start < len(lines) and (lines[start].startswith("//") or lines[start].strip() == ""):
-        start += 1
-    header, body = lines[:start], lines[start:]
-    if any(re.match(rf"^[ \t]*#if\s+{re.escape(condition)}\s*$", line) for line in lines):
-        return text, False
-    body = [line for line in body if line.strip() != ""]
-    new = (header
-           + [f"//  {why}", "//", f"#if {condition}"]
-           + indent("\n".join(body)).split("\n")
-           + ["#endif", ""])
-    return "\n".join(new), True
-
-
-def restore_state_block(text: str, why: str) -> tuple[str, bool]:
-    """Wrap the `@State` group that reads `ImportedFontStore` in the original's `#if os(iOS)`."""
-    lines = text.split("\n")
-    first = next((i for i, line in enumerate(lines)
-                  if "fontStore = ImportedFontStore.shared" in line), None)
-    if first is None:
-        return text, False
-    if any(re.match(r"^[ \t]*#if os\(iOS\)\s*$", line) for line in lines[max(0, first - 6):first]):
-        return text, False
-    last = next((i for i in range(first, len(lines)) if "editMode: EditMode = .inactive" in lines[i]), None)
-    if last is None:
-        return text, False
-    column = re.match(r"[ \t]*", lines[first]).group(0)
-    guard = [
-        f"{column}// {why}",
-        f"{column}#if os(iOS)",
-    ]
-    closing = [f"{column}#endif"]
-    added = guard + lines[first:last + 1] + closing
-    new = lines[:first] + added + lines[last + 1:]
-    return "\n".join(new), True
+JOBS = (
+    {
+        "source": "ApplicationLibrary/Views/Terminal/ThemePickerView.swift",
+        "destination": "ApplicationLibrary/Views/HakoStyle/HakoThemePickerView.swift",
+        "renames": (("ThemePickerView", "HakoThemePickerView"),),
+        "why": (
+            "The file-level `#if canImport(GhosttyTerminal)` is the original's and is load-bearing: "
+            "`GhosttyTheme` carries `platformFilters = (ios, macos, )` in `sing-box.xcodeproj/project.pbxproj`, "
+            "so it is not linked for tvOS, and this file declares `GhosttyThemeDefinition`-typed stored "
+            "properties in a target `ApplicationLibrary` builds for tvOS as well."
+        ),
+        "applier": "scripts/dev/restore_theme_picker_guards.py",
+    },
+    {
+        "source": "ApplicationLibrary/Views/Setting/FontPickerView.swift",
+        "destination": "ApplicationLibrary/Views/HakoStyle/HakoFontPickerView.swift",
+        "renames": (("FontPickerView", "HakoFontPickerView"),),
+        "why": (
+            "The file-level `#if !os(tvOS)` is the original's, and inside it the `#if os(iOS)` around the "
+            "`@State` group is load-bearing too: `ImportedFontStore` is declared inside `#if os(iOS)` "
+            "(`Library/Shared/ImportedFontStore.swift:1-151`), so a port that keeps "
+            "`@StateObject private var fontStore = ImportedFontStore.shared` outside that block asks the "
+            "macOS compiler to resolve a type macOS does not declare. The original cannot hit this - its "
+            "`init` assigns `_selected` and nothing else."
+        ),
+        "applier": "scripts/dev/restore_font_picker_guards.py",
+    },
+)
 
 
 def main() -> int:
-    results = []
+    apply = "--apply" in sys.argv
+    checked = 0
+    for job in JOBS:
+        proc = subprocess.run([GIT, "-C", UPSTREAM_TREE, "show", f"HEAD:{job['source']}"],
+                              capture_output=True)
+        if proc.returncode != 0:
+            sys.exit(f"cannot read {job['source']}: {proc.stderr.decode('utf-8', 'replace')}")
+        original = proc.stdout.decode("utf-8")
+        text = original
+        for old, new in sorted(job["renames"], key=lambda pair: -len(pair[0])):
+            text = text.replace(old, new)
+        # The design system's names are the only other spelling the port needs.
+        text = text.replace("HakoProductPalette", "HakoProductPalette")
+        if job["renames"][0][1] not in text:
+            sys.exit(f"FAILED: the rename did not apply for {job['destination']}")
 
-    theme_path = os.path.join(ROOT, THEME.replace("/", os.sep))
-    theme = io.open(theme_path, encoding="utf-8").read()
-    theme_new, theme_changed = wrap_whole_file(
-        theme, "canImport(GhosttyTerminal)",
-        "The file-level `#if canImport(GhosttyTerminal)` is the original's and is load-bearing: "
-        "`GhosttyTheme` carries `platformFilters = (ios, macos, )` in `sing-box.xcodeproj/project.pbxproj`, "
-        "so it is not linked for tvOS, and this file reads `GhosttyThemeDefinition` and "
-        "`GhosttyThemeCatalog` unconditionally. Restored by `scripts/dev/restore_picker_guards.py`; the "
-        "nested enum's rename to `HakoScheme` is this fork's and is kept.")
-    results.append((THEME, theme_changed))
-    if APPLY and theme_changed:
-        io.open(theme_path, "w", encoding="utf-8", newline="").write(theme_new)
+        header = (
+            f"//\n//  {os.path.basename(job['destination'])}\n//  ApplicationLibrary\n//\n"
+            f"//  The phone's copy of `{job['source']}`, from `hako-ui` @ `c1935cf`.\n//\n"
+            f"//  {job['why']}\n//\n"
+            f"//  Derived from that original by `{job['applier']}`, which applies the rename and nothing\n"
+            f"//  else - the guards, the indentation and the body are the original's own bytes.\n//\n"
+        )
+        out = header + "\n" + text
+        if not out.endswith("\n"):
+            out += "\n"
 
-    font_path = os.path.join(ROOT, FONT.replace("/", os.sep))
-    font = io.open(font_path, encoding="utf-8").read()
-    font, font_changed = wrap_whole_file(
-        font, "!os(tvOS)",
-        "The file-level `#if !os(tvOS)` is the original's. Inside it, the `#if os(iOS)` around the `@State` "
-        "group is the original's too and is load-bearing: `ImportedFontStore` is declared inside "
-        "`#if os(iOS)` (`Library/Shared/ImportedFontStore.swift:1-151`), so a port that reads it outside that "
-        "block asks the macOS compiler to resolve a type macOS does not declare. The original cannot hit "
-        "this - its `init` assigns `_selected` and nothing else. Restored by "
-        "`scripts/dev/restore_picker_guards.py`; the `#if !os(macOS)` this fork added around "
-        "`.navigationBarTitleDisplayMode` in commit 28e4c84 is kept.")
-    font, state_changed = restore_state_block(
-        font,
-        "`ImportedFontStore` is declared inside `#if os(iOS)`; the original guarded this group for the "
-        "same reason.")
-    results.append((FONT, font_changed or state_changed))
-    if APPLY and (font_changed or state_changed):
-        io.open(font_path, "w", encoding="utf-8", newline="").write(font)
-
-    for path, changed in results:
-        print(f"  {'changed' if changed else 'already correct'}  {path}")
-    print()
-    print("applied" if APPLY else "dry run - pass --apply to write")
+        full = os.path.join(ROOT, job["destination"].replace("/", os.sep))
+        previous = io.open(full, encoding="utf-8").read()
+        differs = previous != out
+        print(f"== {job['destination']}")
+        print(f"   changes: {differs}")
+        if differs:
+            added = [l for l in difflib.unified_diff(previous.splitlines(), out.splitlines(),
+                                                     lineterm="", n=0) if l.startswith("+")
+                     and not l.startswith("+++")]
+            removed = [l for l in difflib.unified_diff(previous.splitlines(), out.splitlines(),
+                                                       lineterm="", n=0) if l.startswith("-")
+                       and not l.startswith("---")]
+            print(f"   +{len(added)} -{len(removed)}")
+            for line in added[:4]:
+                print(f"     {line[:110]}")
+            if apply:
+                io.open(full, "w", encoding="utf-8", newline="").write(out)
+                checked += 1
+        print()
+    print(f"{checked} file(s) {('written' if apply else 'would be written')}")
     return 0
 
 
