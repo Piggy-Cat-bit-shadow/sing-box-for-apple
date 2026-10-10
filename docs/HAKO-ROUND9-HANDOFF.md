@@ -11,10 +11,16 @@ repeated here except where round 9 changed it.
 | Repository | `https://github.com/Piggy-Cat-bit-shadow/sing-box-for-apple` |
 | Integration branch | `jiejiebox/integrated` |
 | **Final SHA on `r8/main`** | **`932bf1c`** (round 9 made `fd27efe`, `6a9d7eb`, `91896a5`, `116ae6f`, `d8240eb`, `932bf1c`) |
-| Round 9 start | `2207852` (which is what `jiejiebox/integrated` and the remote both still point at) |
+| Round 9 start | `2207852` |
 | iPhone UI gold standard | `hako-ui@c1935cff77246f97498400f5a0a7f430cfabbd55` |
 | Upstream comparison baseline | `SagerNet/sing-box-for-apple dev@089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85` |
-| `r8/main` on the remote? | **No.** Round 9's commits are local only; pushing was not requested. |
+| **`r8/main` on the remote** | **Yes — `refs/heads/r8/main` = `2d5dca3`, pushed in round 9** |
+| `jiejiebox/integrated` | **not advanced.** Still `2207852`, the round-9 start. It carries a 73-file staged changeset that is somebody's work in progress (§6), and moving the branch under it would either lose that or conflict with it. Whoever owns it decides when it advances. |
+
+Round 9 pushed **one** branch, `r8/main`, alongside the four `r8/a`…`r8/d` branches round 8 already had on
+the remote (`r8/a-generator`, `r8/b-boundary`, `r8/c-platform`, `r8/d-reach`). No force push, no rebase of
+pushed history, and the `Frameworks/Runestone` gitlink is unchanged. This repository has no
+`.github/workflows` at all, so the push cannot have started a CI run.
 
 ```text
 IPHONE_HAKO_UI=STATIC_VERIFIED
