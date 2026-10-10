@@ -51,6 +51,7 @@
                         Section {
                             familyRow(name: "", label: String(localized: "Follow Theme"))
                         }
+                            #if os(iOS)
                             if !fontStore.fonts.isEmpty {
                                 Section("Imported") {
                                     ForEach(fontStore.fonts) { font in
@@ -62,6 +63,7 @@
                                     }
                                 }
                             }
+                            #endif
                         ForEach(groupedKeys, id: \.self) { letter in
                             Section(letter) {
                                 ForEach(grouped[letter] ?? [], id: \.self) { family in
@@ -79,9 +81,14 @@
                 }
                 .searchable(text: $searchText)
                 .navigationTitle("Font")
-                    #if !os(macOS)
+                    // The original's single `#if os(iOS)`, which covers this whole chain rather
+                    // than the title style alone: everything below it reads iOS-only state -
+                    // `editMode` is an iOS/tvOS `EnvironmentValue` macOS does not declare, and
+                    // `fontStore`, `showFileImporter` and `alert` are declared under the same
+                    // condition at the top of this file. Guarding only the one line left the rest
+                    // reading symbols that do not exist on the Mac.
+                    #if os(iOS)
                     .navigationBarTitleDisplayMode(.inline)
-                    #endif
                     .environment(\.editMode, $editMode)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
@@ -116,6 +123,7 @@
                     ) { result in
                         handleFontImport(result)
                     }
+                    #endif
             }
             private func familyRow(name: String, label: String) -> some View {
                 Button {
@@ -134,17 +142,25 @@
             }
             private var filteredFamilies: [String] {
                 let query = searchText.lowercased()
+                    #if os(iOS)
                     let imported = fontStore.fonts.map(\.familyName)
                     let combined = Array(NSOrderedSet(array: imported + pool)) as? [String] ?? pool
                     return combined.filter { $0.lowercased().contains(query) }
+                    #else
+                    return pool.filter { $0.lowercased().contains(query) }
+                    #endif
             }
             private var grouped: [String: [String]] {
+                    #if os(iOS)
                     let importedNames = Set(fontStore.fonts.map(\.familyName))
+                    #endif
                 var result: [String: [String]] = [:]
                 for family in pool {
+                        #if os(iOS)
                         if importedNames.contains(family) {
                             continue
                         }
+                        #endif
                     let first = family.first.map(String.init)?.uppercased() ?? "#"
                     let key = first.first?.isLetter == true ? first : "#"
                     result[key, default: []].append(family)
@@ -159,6 +175,11 @@
                 onSelect(name)
                 dismiss()
             }
+            // The original wraps this function and `deleteImported` in ONE `#if os(iOS)`
+            // (`.../Setting/FontPickerView.swift:166-202`), because both read `fontStore` and
+            // `alert`, which this file declares under that condition at the top. `deleteImported`
+            // below already carried its half; this is the other one.
+            #if os(iOS)
                 private func handleFontImport(_ result: Result<[URL], Error>) {
                     do {
                         let urls = try result.get()
@@ -177,6 +198,7 @@
                         alert = AlertState(action: "import font", error: error)
                     }
                 }
+            #endif
                 // `#if os(iOS)`, as the original has it (`up-hako@c1935cf
                 // .../Setting/FontPickerView.swift:20-25` guards the group that declares
                 // `ImportedFontStore`). `ImportedFont` is declared under that same condition at

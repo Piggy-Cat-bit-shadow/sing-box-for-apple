@@ -52,8 +52,11 @@ public struct HakoOnDemandRulesView: View {
     @State private var isAddingRule = false
     @State private var loadTask: Task<Void, Never>?
 
+        // The original's own condition: `EditMode` and the `.environment(\.editMode,)` that reads
+        // this are iOS-only, and both sit inside `#if os(iOS)` there (its lines 69-71 and 99-108).
+        #if os(iOS)
         @State private var editMode: EditMode = .inactive
-
+        #endif
 
     public init() {}
 

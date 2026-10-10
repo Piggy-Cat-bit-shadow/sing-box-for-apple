@@ -318,7 +318,12 @@ public struct HakoToolsView: View {
             HakoPageSection(
                 String(localized: "Runtime & Reports")
             ) {
-
+                // The original's `#if os(iOS)` around these three rows, and the reason is
+                // `.reportReceived`: it is declared in `Service/ReportTransferServer.swift:11-13`,
+                // whose whole file is wrapped in `#if os(iOS)`. The rows themselves are portable -
+                // only the publisher is not - so the mobile client keeps all three and the Mac
+                // reaches its report lists from the sidebar instead, which is what upstream does.
+                #if os(iOS)
                     NavigationLink(isActive: $showCrashReportList) {
                         HakoCrashReportListView()
                     } label: {
@@ -375,7 +380,7 @@ public struct HakoToolsView: View {
                     }
                     .buttonStyle(HakoPushRowButtonStyle())
                     .accessibilityIdentifier("hako.tools.powerReports")
-
+                #endif
 
             }
         }

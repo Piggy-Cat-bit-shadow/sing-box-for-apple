@@ -150,7 +150,14 @@ public struct HakoOutboundPickerView: View {
             }
         }
 
+        // The original's `#if os(iOS)` / `#else` pair (its lines 146-150): the drawer placement is
+        // a `NavigationBarItem` placement, which macOS does not declare, so the Mac takes the
+        // unplaced form.
+        #if os(iOS)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
+        #else
+        .searchable(text: $searchText)
+        #endif
 
 
         .navigationTitle("Outbound")

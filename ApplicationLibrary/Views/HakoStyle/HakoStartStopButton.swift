@@ -149,7 +149,12 @@ public struct HakoStartStopButton: View {
                         // what the action will do - green to disconnect a running tunnel, the
                         // accent otherwise. Its size is set by the header, which fixes it at the
                         // reference's 104pt by the control's minimum hit target.
-                        .buttonBorderShape(.capsule)
+                        //
+                        // `.capsule` is macOS 14 and `ApplicationLibrary` builds for 13, so the
+                        // shape goes through a modifier that skips it below 14 rather than through
+                        // `#available` here: a modifier chain cannot be branched, and dropping the
+                        // line would silently change the control's shape on the OS that has it.
+                        .modifier(HakoCapsuleBorderShape())
                         .tint(profile.status.isConnected ? .green : .accentColor)
 
                     .controlSize(isCompact ? .regular : .large)
@@ -229,6 +234,11 @@ public struct HakoStartStopButton: View {
 }
 
 
+    // The original wraps this modifier in `#if os(iOS)` (its lines 134-144), and the reason is
+    // `Variant.debugNoIOS26`: that flag is declared under `#if os(iOS)` in
+    // `Library/Shared/Variant.swift:27-30`, so naming it on the Mac is a symbol macOS does not
+    // have. Its one use site is already inside an iOS branch at the top of this file.
+    #if os(iOS)
     private struct HakoPrimaryTintModifier: ViewModifier {
         func body(content: Content) -> some View {
             if #available(iOS 26.0, *), !Variant.debugNoIOS26 {
@@ -238,4 +248,21 @@ public struct HakoStartStopButton: View {
             }
         }
     }
+    #endif
 
+
+/// `buttonBorderShape(.capsule)` where the platform has it.
+///
+/// The shape is iOS 15 / tvOS 15 / macOS **14**, and this target builds for macOS 13. A view
+/// modifier chain cannot be branched inside itself, and removing the line outright would change
+/// the control's shape on every OS that does have it - so the condition lives in a modifier that
+/// applies the shape only where it exists and passes the content through unchanged otherwise.
+private struct HakoCapsuleBorderShape: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 15.0, tvOS 15.0, macOS 14.0, *) {
+            content.buttonBorderShape(.capsule)
+        } else {
+            content
+        }
+    }
+}

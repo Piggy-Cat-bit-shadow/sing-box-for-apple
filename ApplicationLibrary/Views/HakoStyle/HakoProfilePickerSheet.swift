@@ -47,14 +47,26 @@ struct HakoProfilePickerSheet: View {
     @Binding var profileList: [ProfilePreview]
     @Binding var selectedProfileID: Int64
 
+        // The original's `#if !os(macOS)` / `#else` (its lines 16-21): `EditMode` is an
+        // iOS/tvOS `EnvironmentValue` that macOS does not declare, and the Mac tracks the same
+        // idea with its own `Bool` plus the row width it sizes against.
+        #if !os(macOS)
         @State private var editMode: EditMode = .inactive
+        #else
+        @State private var isEditing = false
+        @State private var rowWidth: CGFloat = 400
+        #endif
     @State private var profileToEdit: Profile?
     @State private var alert: AlertState?
     @State private var showNewProfile = false
     @State private var isUpdatingAll = false
 
     private var isEditingActive: Bool {
+            #if !os(macOS)
             editMode.isEditing
+            #else
+            isEditing
+            #endif
     }
 
     var body: some View {

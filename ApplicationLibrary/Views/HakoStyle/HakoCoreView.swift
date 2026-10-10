@@ -200,7 +200,12 @@ public struct HakoCoreView: View {
             footnote: "Where the core keeps its data, its caches and the configuration it is running."
         ) {
 
-
+            // The original's `#if os(macOS)` / `#elseif os(iOS)`, of which only the iOS arm has a
+            // counterpart on the phone: there is no `NSWorkspace` here, so the Mac's "Open" row is
+            // not ported. The condition itself is still load-bearing - `openInFilesApp()` and the
+            // two functions it calls are declared under `#if os(iOS)` in the original (its lines
+            // 268-305), so an unguarded call is a symbol the macOS compiler does not have.
+            #if os(iOS)
                 if #available(iOS 16.0, *) {
                     Button {
                         Task {
@@ -219,7 +224,7 @@ public struct HakoCoreView: View {
                     .hakoStandardRowMetric()
                     .hakoContainerDrawsDisclosure(true)
                 }
-
+            #endif
 
             // Second of the three: the client's own housekeeping sits between the two that are
             // about the directory, because that is what it acts on.
