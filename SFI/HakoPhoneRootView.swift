@@ -182,10 +182,10 @@ struct HakoPhoneRootView: View {
             .handlesExternalEvents(preferring: [], allowing: ["*"])
             .onOpenURL(perform: openURL)
             .sheet(isPresented: $showGroups) {
-                GroupsSheetContent()
+                HakoGroupsSheetContent()
             }
             .sheet(isPresented: $showConnections) {
-                ConnectionsSheetContent()
+                HakoConnectionsSheetContent()
             }
             .onReceive(environments.profileUpdate) { _ in
                 Task {

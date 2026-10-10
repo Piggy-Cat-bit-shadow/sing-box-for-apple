@@ -59,8 +59,9 @@ HAKO_PREFIX = "ApplicationLibrary/Views/HakoStyle/"
 #: Two shared files are here, and both for the same reason: the phone's design cannot be served without
 #: a change that has nowhere else to live.
 #:
-#:   * `Profile/ProfileSheetHelpers.swift` - the modal container all eight of the client's modals are
-#:     built on, and the one file whose status is not settled. See the note below.
+#:   * `Profile/ProfileSheetHelpers.swift` - the modal container every one of the client's modals is
+#:     built on, and a file whose Hako reference **is the original fork's own design** rather than an
+#:     edit of this work. See the note on it below.
 #:
 #: `ApplicationLibrary/Views/EnvironmentValues.swift` was on this list for one commit and is not any
 #: more: the `hakoCompactRows` key moved to `HakoStyle/HakoEnvironmentValues.swift`, the shared file went
@@ -511,10 +512,17 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
     ".gitignore":
         "`__pycache__/` and `*.pyc`, for the two Python scripts under scripts/dev",
     "ApplicationLibrary/Views/Profile/ProfileSheetHelpers.swift":
-        "the close control every modal on this container needs. Eight modals are built on it and none "
-        "had one, so a sheet could only be dismissed by dragging it down; the change is not "
-        "phone-specific, and forking the container would have meant retargeting eight shared call sites "
-        "to a Hako-only type",
+        "PROVENANCE: the `HakoCloseButton()` this file calls on its toolbar is the **original fork's own "
+        "code at c1935cf** (blob b5da8118, line 90), introduced upstream by b0a71b7 \"feat(ui): give the "
+        "configuration centre the manual's modal chrome\", whose message says the close \"lives in the "
+        "container rather than in each sheet, so it cannot be forgotten\". This entry therefore records "
+        "a divergence that exists **between the original fork and upstream/dev** - upstream's copy has "
+        "no such toolbar at all - and not an edit made here. Our bytes are the fork's; the only "
+        "difference from c1935cf is that this work re-wrapped the comment above it. It is registered "
+        "rather than removed because removing it would take the close control away from the phone's "
+        "modals, which is the original's design; and it is named here rather than left implicit because "
+        "the alternative - forking the container into the Hako namespace - is the change that would "
+        "actually isolate an iPad, and it is not done yet",
     "Localizable.xcstrings":
         "one String Catalog entry for the phone's remaining-quota row (`%@ left`)",
     "Library/Database/Database.swift":
