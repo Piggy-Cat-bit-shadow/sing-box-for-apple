@@ -240,7 +240,12 @@ def read_text(path: str) -> str | None:
 #:     It is full of Hako references by design, and counting them would make the audit report the
 #:     holding area as a boundary violation.
 #:   * `.git`, `.build` and `.swiftpm` are not this project's source at all.
-NOT_A_TARGET_TREE = ("docs/", ".build/", ".swiftpm/")
+#:   * `Tests/` holds SwiftPM packages, not app sources. They are not in `sing-box.xcodeproj` at all -
+#:     grep for `HakoSubscriptionUsage` in the project file finds nothing - and they deliberately
+#:     redeclare `ExtensionProfile`, `FilePath` and `HTTPClient` as stubs so the shared logic can be
+#:     tested without an Apple SDK. Counting them made the duplicate check report three conflicts that
+#:     cannot exist, because no target compiles a stub and the real file together.
+NOT_A_TARGET_TREE = ("docs/", ".build/", ".swiftpm/", "Tests/")
 
 
 def swift_files(root: str, under: str | None = None) -> list[str]:
@@ -507,6 +512,187 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
         "`CFBundleDisplayName` for the SFI and SFM app targets",
 }
 
+
+
+def check_shared_declaration_duplicates(root: str) -> Check:
+    """No module-scope name declared twice.
+
+    A duplicate declaration is a compile error for **every** Apple target that compiles the pair, not
+    only the phone's - so this is the one defect in the whole audit whose blast radius is the entire
+    product. It is also invisible to every other check here: the page-coverage check reads a switch,
+    the boundary checks read names and bytes, and none of them would notice that two files both define
+    `SettingsPage`.
+
+    The three shapes that collide:
+
+      * the same type declared in two files;
+      * the same type extended with the same member in two files;
+      * a type declared in one file and given a member another file also gives it.
+
+    `private` and `fileprivate` declarations are scoped to their file in Swift, so two files may each
+    have one and this does not report them. That is exactly the distinction that makes the phone's
+    `HakoPendingSettingsPageKey` legitimate while a second `SettingsPage` was not.
+
+    The check reports the *name* and every site. It does not try to decide which declaration is the
+    right one: that is a judgement about ownership, and
+    `REVIEWED_UPSTREAM_MODIFICATIONS` plus the port generators are where it belongs.
+    """
+    #: Type declarations, with the file they live in and whether they are visible outside it.
+    type_decl = re.compile(
+        r"^(?P<mods>(?:@\w+(?:\([^)]*\))?[ \t]+|public[ \t]+|internal[ \t]+|private[ \t]+|"
+        r"fileprivate[ \t]+|final[ \t]+|indirect[ \t]+)*)"
+        r"(?P<kind>struct|class|enum|protocol)\s+(?P<name>\w+)", re.M)
+
+    #: `extension SomeType {` - the member list is scanned inside it.
+    extension = re.compile(
+        r"^(?P<mods>(?:public[ \t]+|internal[ \t]+|private[ \t]+|fileprivate[ \t]+)*)"
+        r"extension\s+(?P<name>[\w.]+)\s*\{", re.M)
+
+    #: A member declaration, as it appears at the top level of an extension body.
+    member = re.compile(
+        r"^[ \t]*(?P<mods>(?:@\w+(?:\([^)]*\))?[ \t]+|public[ \t]+|internal[ \t]+|private[ \t]+|"
+        r"fileprivate[ \t]+|nonisolated[ \t]+|static[ \t]+|class[ \t]+|override[ \t]+)*)"
+        r"(?P<kind>var|let|func|subscript)\s+(?P<name>\w+)")
+
+    def is_file_scoped(mods: str) -> bool:
+        return bool(re.search(r"\b(?:private|fileprivate)\b", mods or ""))
+
+    def extension_members(text: str, body_start: int) -> list[tuple[str, str]]:
+        """(mode, name) for each member declared at the **top level** of an extension body.
+
+        The body is walked with a brace counter rather than matched line by line, because an extension
+        body contains nested things whose members are not the extension's: a nested `struct` (which
+        `Profile+Transferable.swift` has three of), a computed property's accessor block, a function
+        body, a closure. A line-based scan collected those, so `Profile.content` and `Profile.type`
+        were reported as duplicates when the real declarations were `TransferableProfile.content` and a
+        local `let type = type` inside a function. Only depth 1 counts here, and only the first
+        declaration on a line.
+        """
+        found: list[tuple[str, str]] = []
+        depth = 1  # We are already inside the extension's `{`.
+        index = body_start
+        length = len(text)
+        while index < length and depth > 0:
+            line_end = text.find("\n", index)
+            if line_end < 0:
+                line_end = length
+            line = text[index:line_end]
+
+            if depth == 1:
+                match = member.match(line)
+                if match:
+                    found.append((match.group("mods") or "", match.group("name")))
+
+            depth += line.count("{") - line.count("}")
+            index = line_end + 1
+        return found
+
+    #: Directories whose Swift files are compiled into **more than one** target. `ApplicationLibrary`
+    #: and `Library` are shared: the app targets each compile them alongside their own sources. So a
+    #: name declared in one of these collides with the same name in any app target, while two names in
+    #: two *different* app targets never meet.
+    #:
+    #: `MacLibrary` is deliberately **not** here. It is its own framework - `MacLibrary.framework` is a
+    #: target in the project - so `MainView` existing in both `MacLibrary` and `SFI` is the same
+    #: arrangement as `Application` existing in each app target, and listing it here made the check
+    #: report both.
+    #:
+    #: Without the target grouping at all, the check reported `Application` as a duplicate. It is
+    #: declared once in each of the four app entry points, which is what an app entry point *is*. A
+    #: check that cries wolf is a check that gets switched off.
+    SHARED_TARGET_DIRS = ("ApplicationLibrary/", "Library/")
+
+    def target_group(path: str) -> str:
+        for shared in SHARED_TARGET_DIRS:
+            if path.startswith(shared):
+                return "shared"
+        return path.split("/", 1)[0]
+
+    def collides(paths: list[str]) -> bool:
+        """True when some single target would compile two of these files."""
+        unique = set(paths)
+        if len(unique) < 2:
+            return False
+        groups = {target_group(path) for path in unique}
+        return "shared" in groups or len(groups) == 1
+
+    #: The namespace this fork owns for the phone's UI. A duplicate that involves one of these files is
+    #: a duplicate this project introduced and can fix; one that involves none of them is a property of
+    #: the pinned upstream commit.
+    #:
+    #: That distinction is the whole scoping rule, and it was arrived at by measurement rather than by
+    #: preference. The check's first version failed on two pre-existing upstream pairs -
+    #: `NEVPNStatus.isStarted` in `Library/Network/` and `WidgetExtension/`, and `View.alert`
+    #: overloaded with different arities in `ApplicationLibrary/` and `Library/` - and neither is
+    #: something this fork can or should change. Reporting them would make the check red on a clean
+    #: checkout, which is how a check gets ignored.
+    #:
+    #: The two are still *reported*, as notes, because a reader comparing this audit to a compiler
+    #: should know they are there.
+    HAKO_NAMESPACE = "ApplicationLibrary/Views/HakoStyle/"
+
+    types: dict[str, list[str]] = {}
+    members: dict[str, list[str]] = {}
+
+    for path in swift_files(root):
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        for match in type_decl.finditer(text):
+            if is_file_scoped(match.group("mods")):
+                continue
+            types.setdefault(match.group("name"), []).append(path)
+        for match in extension.finditer(text):
+            type_name = match.group("name")
+            for mods, found in extension_members(text, match.end()):
+                if is_file_scoped(mods):
+                    continue
+                members.setdefault(f"{type_name}.{found}", []).append(path)
+
+    problems = [
+        Blame(sorted(set(paths))[0], 0,
+              f"{name} is declared in {len(set(paths))} files that a single target compiles together: "
+              f"{', '.join(sorted(set(paths)))}")
+        for name, paths in sorted(types.items())
+        if collides(paths)
+    ]
+    for name, paths in sorted(members.items()):
+        unique = sorted(set(paths))
+        if collides(unique):
+            problems.append(Blame(unique[0], 0,
+                                  f"{name} is added in {len(unique)} files that a single target "
+                                  f"compiles together: {', '.join(unique)}"))
+
+    # A type declared in one file and given the same member in another is the same defect seen from the
+    # other side, and the extension scan above already catches it - so this guard only has to prove the
+    # scan actually looked at something. A check that silently scanned nothing would pass forever.
+    if not types:
+        return Check(
+            "shared-declaration-duplicates",
+            "UNKNOWN",
+            "no type declaration was found anywhere in the tree, so nothing was compared",
+        )
+
+    # Split by whether this project could have caused it. A pair that involves no file in the fork's own
+    # namespace is a property of the pinned upstream commit, and is reported rather than failed.
+    ours = [problem for problem in problems if HAKO_NAMESPACE in str(problem)]
+    inherited = [problem for problem in problems if HAKO_NAMESPACE not in str(problem)]
+
+    if ours:
+        return Check(
+            "shared-declaration-duplicates",
+            "FAIL",
+            f"{len(ours)} module-scope name(s) declared more than once together with a file in "
+            f"{HAKO_NAMESPACE}, which is a compile error for every target that compiles the pair",
+            [str(problem) for problem in ours + inherited],
+        )
+    detail = (f"{len(types)} module-scope type name(s) and {len(members)} extension member(s); none in "
+              f"{HAKO_NAMESPACE} is declared twice")
+    if inherited:
+        detail += (f". {len(inherited)} duplicate pair(s) exist in the pinned upstream commit itself, "
+                   f"involving no file this fork owns, and are reported without being failed")
+    return Check("shared-declaration-duplicates", "PASS", detail,
+                 [str(problem) for problem in inherited])
 
 def check_upstream_files_untouched(root: str, upstream_ref: str | None) -> Check:
     """The upstream-owned page files must be identical to the pinned upstream commit.
@@ -1597,6 +1783,7 @@ CHECKS = (
     check_tablet_and_mac_entry,
     check_shared_pages_are_clean,
     check_no_reverse_dependency,
+    check_shared_declaration_duplicates,
     check_hako_page_coverage,
     check_hako_feature_preservation,
     check_ipad_mac_ui_gate,

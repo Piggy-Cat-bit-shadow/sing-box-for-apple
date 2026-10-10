@@ -18,29 +18,17 @@
 //
 //  The pages this one leads to. Every one of them is still upstream's: the reference's change to each
 //  is a single modifier or a single row, and the page a user lands on is what this slice delivers.
-//  The list, with what each needs, is in `docs/HAKO-UI-MIGRATION-MATRIX.md`.
+//  The list, with what each needs, is in `docs/HAKO-LOSSLESS-PARITY-AUDIT.md`.
 //
-//  Generated from `origin/hako-ui` by `scripts/dev/port_tools_and_more.py`. Re-run that after a sync
-//  rather than editing here, or the next port will disagree with this file.
+//  Generated from `c1935cf` by `scripts/dev/port_tools_and_more.py`. That script resolves the
+//  reference's platform conditionals for iPhone and drops the declarations the shared tree already
+//  owns; re-run it rather than editing here, or the next run will disagree with this file.
 //
 
 import Library
 import SwiftUI
 
-#if os(macOS)
-    private struct SettingsNavigationPathKey: EnvironmentKey {
-        static let defaultValue: Binding<NavigationPath>? = nil
-    }
 
-    public extension EnvironmentValues {
-        var settingsNavigationPath: Binding<NavigationPath>? {
-            get { self[SettingsNavigationPathKey.self] }
-            set { self[SettingsNavigationPathKey.self] = newValue }
-        }
-    }
-#endif
-
-#if os(iOS)
     private struct HakoPendingSettingsPageKey: EnvironmentKey {
         static let defaultValue: Binding<SettingsPage?>? = nil
     }
@@ -58,7 +46,7 @@ import SwiftUI
             set { self[HakoPendingSettingsPageKey.self] = newValue }
         }
     }
-#endif
+
 
 /// What the settings page should do about a page the root asked it to open.
 ///
@@ -97,14 +85,7 @@ public enum HakoSettingsRoute {
     }
 }
 
-public extension Notification.Name {
-    static let navigateToSettingsPage = Notification.Name("navigateToSettingsPage")
-}
 
-public enum SettingsPage: Hashable {
-    case app
-    case core, packetTunnel, onDemandRules, profileOverride, remoteControl
-}
 
 public struct HakoSettingView: View {
     /// A destination the More tab can open.
@@ -126,13 +107,8 @@ public struct HakoSettingView: View {
         /// Whether the row leaves the app rather than pushing a page.
         var linksOut: Bool = false
         let content: () -> AnyView
-        #if os(macOS)
-            /// The value `NavigationLink(value:)` pushes. Derived from the row's own key
-            /// rather than written twice, so a row cannot push a page it does not name.
-            var page: SettingsPage? {
-                SettingsPage(settingsKey: pageKey)
-            }
-        #endif
+
+
     }
 
     /// The More tab's information architecture.
@@ -150,24 +126,23 @@ public struct HakoSettingView: View {
         let destinations: [HakoSettingsDestination]
     }
 
-    #if os(iOS)
+
         @State private var showRemoteControl = false
         @Environment(\.pendingSettingsPage) private var pendingSettingsPage
-    #endif
+
 
     public init() {}
 
     public var body: some View {
-        #if os(macOS) || os(tvOS)
-            formBody
-        #else
+
+
             compactBody
-        #endif
+
     }
 
     // MARK: - The compact root
 
-    #if os(iOS)
+
         private var compactBody: some View {
             HakoRootScaffold {
                 ForEach(groups) { group in
@@ -248,77 +223,14 @@ public struct HakoSettingView: View {
                 showRemoteControl = true
             }
         }
-    #endif
+
 
     // MARK: - The desktop form
 
-    #if os(macOS) || os(tvOS)
-        private var formBody: some View {
-            FormView {
-                ForEach(desktopGroups) { group in
-                    Section {
-                        ForEach(group.destinations) { destination in
-                            #if os(macOS)
-                                FormNavigationLink(value: destination.page) {
-                                    HakoToolRow(
-                                        title: destination.title,
-                                        systemImage: destination.systemImage,
-                                        tint: destination.accent
-                                    )
-                                }
-                            #else
-                                FormNavigationLink {
-                                    destination.content()
-                                } label: {
-                                    HakoToolRow(
-                                        title: destination.title,
-                                        systemImage: destination.systemImage,
-                                        tint: destination.accent
-                                    )
-                                }
-                            #endif
-                        }
-                    } header: {
-                        Text(group.title)
-                    }
-                }
-
-                aboutFormSection
-            }
-            #if os(macOS)
-            .formNavigationDestination(for: SettingsPage.self) { page in
-                Self.destinationView(for: page)
-            }
-            #endif
-        }
-
-        #if os(macOS)
-            @MainActor
-            private static func destinationView(for page: SettingsPage) -> some View {
-                Group {
-                    switch page {
-                    case .app:
-                        AppView()
-                    case .core:
-                        CoreView()
-                    case .packetTunnel:
-                        PacketTunnelView()
-                    case .onDemandRules:
-                        OnDemandRulesView()
-                    case .profileOverride:
-                        ProfileOverrideView()
-                    case .remoteControl:
-                        RemoteControlView()
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            }
-        #endif
-    #endif
 
     // MARK: - About
 
-    #if os(iOS)
+
         private var aboutSection: some View {
             HakoPageSection(String(localized: "About")) {
                 Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/"))!) {
@@ -365,50 +277,7 @@ public struct HakoSettingView: View {
                 content: { AnyView(EmptyView()) }
             )
         }
-    #endif
 
-    #if os(macOS) || os(tvOS)
-        private var aboutFormSection: some View {
-            Section("About") {
-                Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/"))!) {
-                    Label("Documentation", systemImage: "doc.on.doc.fill")
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.accentColor)
-                .contextMenu {
-                    Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/changelog/"))!) {
-                        Text("Changelog")
-                    }
-                    Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/configuration/"))!) {
-                        Text("Configuration")
-                    }
-                }
-                Link(destination: URL(string: String("https://github.com/Piggy-Cat-bit-shadow/sing-box"))!) {
-                    Label("Source Code", systemImage: "pills.fill")
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.accentColor)
-                .contextMenu {
-                    Link(destination: URL(string: "https://github.com/Piggy-Cat-bit-shadow/sing-box/releases")!) {
-                        Text("Releases")
-                    }
-                }
-                #if os(macOS)
-                    #if JAILBREAK
-                        FormNavigationLink {
-                            JailbreakView()
-                        } label: {
-                            Label("Jailbreak", systemImage: "lock.shield.fill")
-                        }
-                    #endif
-                #endif
-            }
-        }
-
-        private var desktopGroups: [HakoSettingsSectionGroup] {
-            groups
-        }
-    #endif
 
     // MARK: - The map
 
@@ -511,6 +380,7 @@ private extension SettingsPage {
         case .onDemandRules: "onDemandRules"
         case .profileOverride: "profileOverride"
         case .remoteControl: "remoteControl"
+        case .sponsors: "sponsors"
         }
     }
 }

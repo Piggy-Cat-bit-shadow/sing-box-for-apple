@@ -18,10 +18,11 @@
 //
 //  The pages this one leads to. Every one of them is still upstream's: the reference's change to each
 //  is a single modifier or a single row, and the page a user lands on is what this slice delivers.
-//  The list, with what each needs, is in `docs/HAKO-UI-MIGRATION-MATRIX.md`.
+//  The list, with what each needs, is in `docs/HAKO-LOSSLESS-PARITY-AUDIT.md`.
 //
-//  Generated from `origin/hako-ui` by `scripts/dev/port_tools_and_more.py`. Re-run that after a sync
-//  rather than editing here, or the next port will disagree with this file.
+//  Generated from `c1935cf` by `scripts/dev/port_tools_and_more.py`. That script resolves the
+//  reference's platform conditionals for iPhone and drops the declarations the shared tree already
+//  owns; re-run it rather than editing here, or the next run will disagree with this file.
 //
 
 import Library
@@ -37,51 +38,42 @@ public struct HakoToolsView: View {
     @StateObject private var usbipViewModel = USBIPStatusViewModel()
     @StateObject private var openConnectViewModel = OpenConnectStatusViewModel()
     @StateObject private var openVPNViewModel = OpenVPNStatusViewModel()
-    #if os(macOS)
-        @StateObject private var usbipProviderViewModel = USBIPProviderViewModel()
-    #endif
-    #if os(iOS)
+
+
         @State private var showCrashReportList = false
         @State private var showOOMReportList = false
         @State private var showPowerReportList = false
-    #endif
-    #if !os(tvOS)
+
+
         @EnvironmentObject private var sendManager: TaildropSendManager
         @State private var sshPromptPeer: TailscalePeerData?
         @State private var sshPromptEndpointTag: String = ""
         @State private var sshPresentedSession: TailscaleSSHPresentedSession?
         @State private var pendingSSHSession: TailscaleSSHPresentedSession?
         @State private var taildropEndpointTag: String?
-    #endif
-    #if os(macOS)
-        @Environment(\.openWindow) private var openWindow
-    #endif
+
 
     public init() {}
 
     public var body: some View {
         Group {
-            #if os(iOS)
+
                 HakoRootScaffold {
                     sections
                 }
-            #else
-                FormView {
-                    sections
-                }
-            #endif
+
+
         }
         .modifier(ConnectionLifecycleObserver(profile: environments.extensionProfile, remoteServerID: environments.remoteServer?.id, onActive: { usbipViewModel.subscribe() }, onInactive: { usbipViewModel.cancel() }))
         .modifier(ConnectionLifecycleObserver(profile: environments.extensionProfile, remoteServerID: environments.remoteServer?.id, onActive: { openConnectViewModel.subscribe() }, onInactive: { openConnectViewModel.cancel() }))
         .modifier(ConnectionLifecycleObserver(profile: environments.extensionProfile, remoteServerID: environments.remoteServer?.id, onActive: { openVPNViewModel.subscribe() }, onInactive: { openVPNViewModel.cancel() }))
-        #if os(macOS)
-            .modifier(ConnectionLifecycleObserver(profile: environments.extensionProfile, remoteServerID: environments.remoteServer?.id, onActive: { usbipProviderViewModel.start() }, onInactive: { usbipProviderViewModel.cancel() }))
-        #endif
+
+
             .alert($tailscaleViewModel.alert)
         // The top-right menu lived here. It held the home-layout sheet and the remote control
         // picker, and the review's item is that neither belongs in a root page's chrome: both are
         // settings, and both are on the client settings page now.
-        #if !os(tvOS)
+
         .background {
             NavigationDestinationCompat(isPresented: Binding(
                 get: { taildropEndpointTag != nil },
@@ -113,20 +105,14 @@ public struct HakoToolsView: View {
         }) { peer in
             TailscaleSSHPromptView(peer: peer, endpointTag: sshPromptEndpointTag, onConnect: { session in pendingSSHSession = session })
         }
-            #if os(iOS)
+
         .sheet(item: $sshPresentedSession) { presented in
             NavigationStackCompat {
                 TerminalSessionContainerView(presented)
             }
         }
-            #elseif os(macOS)
-        .onChangeCompat(of: sshPresentedSession) { newValue in
-            guard let newValue else { return }
-            openWindow(value: newValue)
-            sshPresentedSession = nil
-        }
-            #endif
-        #endif
+
+
     }
 
     // MARK: - Information architecture
@@ -175,19 +161,19 @@ public struct HakoToolsView: View {
                                     tint: HakoAccentRole.neutral.color
                                 )
                             }
-                            #if !os(tvOS)
+
                                 if sendManager.hasFailedSessions(endpointTag: endpoint.endpointTag) {
                                     Spacer()
                                     Image(systemName: "exclamationmark.circle.fill")
                                         .foregroundStyle(.red)
                                 }
-                            #endif
+
                         }
-                        #if !os(tvOS)
+
                         .badge(sendManager.hasFailedSessions(endpointTag: endpoint.endpointTag) ? 0 : Int(endpoint.unreadFileCount))
-                        #endif
+
                     }
-                    #if !os(tvOS)
+
                     .contextMenu {
                         let sshPeers = sshAvailablePeers
                         if sshPeers.count == 1 {
@@ -206,7 +192,7 @@ public struct HakoToolsView: View {
                             }
                         }
                     }
-                    #endif
+
                 }
 
                 ForEach(openConnectViewModel.endpoints) { endpoint in
@@ -242,12 +228,10 @@ public struct HakoToolsView: View {
                 ForEach(usbipViewModel.servers) { server in
                     HakoRowDivider()
                     FormNavigationLink {
-                        #if os(macOS)
+
+
                             USBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
-                                .environmentObject(usbipProviderViewModel)
-                        #else
-                            USBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
-                        #endif
+
                     } label: {
                         HakoNavigationRow(
                             title: usbipViewModel.servers.count == 1
@@ -302,7 +286,7 @@ public struct HakoToolsView: View {
             HakoPageSection(
                 String(localized: "Runtime & Reports")
             ) {
-                #if os(iOS)
+
                     NavigationLink(isActive: $showCrashReportList) {
                         CrashReportListView()
                     } label: {
@@ -359,40 +343,8 @@ public struct HakoToolsView: View {
                     }
                     .buttonStyle(HakoPushRowButtonStyle())
                     .accessibilityIdentifier("hako.tools.powerReports")
-                #else
-                    FormNavigationLink {
-                        CrashReportListView()
-                    } label: {
-                        HakoNavigationRow(
-                            title: String(localized: "Crash Report"),
-                            subtitle: unreadDetail(environments.crashReportManager.unreadCount),
-                            systemImage: "ladybug.fill",
-                            tint: HakoAccentRole.neutral.color
-                        )
-                    }
-                    HakoRowDivider()
-                    FormNavigationLink {
-                        OOMReportListView()
-                    } label: {
-                        HakoNavigationRow(
-                            title: String(localized: "Out of Memory Report"),
-                            subtitle: unreadDetail(environments.oomReportManager.unreadCount),
-                            systemImage: "memorychip",
-                            tint: HakoAccentRole.neutral.color
-                        )
-                    }
-                    HakoRowDivider()
-                    FormNavigationLink {
-                        PowerReportListView()
-                    } label: {
-                        HakoNavigationRow(
-                            title: String(localized: "Power Report"),
-                            subtitle: unreadDetail(environments.powerReportManager.unreadCount),
-                            systemImage: "battery.50percent",
-                            tint: HakoAccentRole.neutral.color
-                        )
-                    }
-                #endif
+
+
             }
         }
     }
@@ -427,7 +379,7 @@ public struct HakoToolsView: View {
         count > 0 ? String(localized: "\(count) unread") : nil
     }
 
-    #if !os(tvOS)
+
         private func resolveTaildropNavigation() {
             guard let requested = environments.pendingTaildropEndpointTag else { return }
             guard let endpoint = tailscaleViewModel.endpoint(tag: requested) ?? tailscaleViewModel.endpoints.first else { return }
@@ -461,11 +413,10 @@ public struct HakoToolsView: View {
                 if quickPeers.contains(info.peer.stableID) {
                     let usernames = await SharedPreferences.tailscaleSSHRememberedUsernames.get()
                     let termTypes = await SharedPreferences.tailscaleSSHRememberedTerminalTypes.get()
-                    #if os(macOS)
-                        let forwardAgent = await SharedPreferences.tailscaleSSHForwardAgent.get()
-                    #else
+
+
                         let forwardAgent = false
-                    #endif
+
                     sshPresentedSession = TailscaleSSHPresentedSession(
                         endpointTag: info.endpointTag,
                         peerHostName: info.peer.hostName,
@@ -481,5 +432,5 @@ public struct HakoToolsView: View {
                 }
             }
         }
-    #endif
+
 }
