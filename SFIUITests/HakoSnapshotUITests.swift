@@ -73,11 +73,36 @@ final class HakoSnapshotUITests: XCTestCase {
         return app.tabBars.firstMatch.buttons.element(boundBy: index)
     }
 
-    /// Relaunch the app in one of the fixture's states.
+    /// Relaunch the app, setting `SCREENSHOT_STATE`.
     ///
-    /// The suite launches once in `setUp` with no state, and the fixture reads its state from
-    /// the environment at launch, so a case that needs another state has to start the app
-    /// again rather than navigate to it.
+    /// # This does not select a state, and four cases depend on it as though it did
+    ///
+    /// The suite launches once in `setUp` with no state, and the intent here was that a case
+    /// needing another state starts the app again rather than navigating to it. **The app does
+    /// not read `SCREENSHOT_STATE`.** It appears nowhere outside the test files:
+    ///
+    ///     grep -rn 'SCREENSHOT_STATE' --include=*.swift .   # two hits, both test files
+    ///
+    /// What the app's fixture actually reads is this, and nothing else:
+    ///
+    ///     -FASTLANE_SNAPSHOT        -> `Variant.screenshotMode`, set by `setupSnapshot` in setUp
+    ///     SCREENSHOT_PAGE           -> the page to open on, in `HakoPhoneRootView`/`MainView`
+    ///     SCREENSHOT_LANGUAGE       -> `ScreenshotLocalization`
+    ///     SCREENSHOT_LOCALE         -> `ScreenshotLocalization`
+    ///
+    /// So a relaunch through this helper is the same launch as the one `setUp` already made, and
+    /// the four cases that use it - `test14OutboundModeIsAbsentByDefault` (`"clashModes"`),
+    /// `test15ProfileLoadFailure` (`"profileError"`), `test18HomeWithoutATunnel`
+    /// (`"notInstalled"`) and `test43ActivityDataDensity` (`"activity"`) - assert against states
+    /// the app was never put into. That is why they fail, and it is not something the product can
+    /// be changed to fix: none of those states is reachable from a test.
+    ///
+    /// `SCREENSHOT_APPEARANCE`, set in `setUp`, is ignored for the same reason: a capture's light
+    /// appearance comes from the simulator, not from that variable.
+    ///
+    /// Kept rather than deleted because a case may still want a fresh launch; a real per-case
+    /// state needs the product to grow a selector for it, which is a decision about the fixture
+    /// model rather than a test fix. See `APPLE-UI-MAC-VERIFICATION-REPORT.md` §6c.
     private func launch(state: String) {
         app.terminate()
         app.launchEnvironment["SCREENSHOT_STATE"] = state
