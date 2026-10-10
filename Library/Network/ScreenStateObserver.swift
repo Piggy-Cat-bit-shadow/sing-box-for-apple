@@ -275,7 +275,7 @@ final class ScreenStateObserver {
     /// deadlocking on itself.
     private let queueKey = DispatchSpecificKey<UInt8>()
 
-    /// Guards `generation` and `registrations`.
+    /// Guards `generation`, `registrations` and `cancelled`.
     private let access = NSLock()
     /// Bumped by every `start()` and every `cancel()`. A callback may publish only while the
     /// generation it was registered under is still current.
@@ -283,6 +283,19 @@ final class ScreenStateObserver {
     /// The tokens that actually registered. A source is absent when its registration failed, so a
     /// failed registration is never cancelled.
     private var registrations: [ScreenStateSource: Int32] = [:]
+    /// Set by `cancel()`, and read by a `start()` that is already in flight on another thread.
+    ///
+    /// The generation alone cannot carry this: `cancel()` does not enter the queue, so a cancel that
+    /// lands while `start()` is inside `registerDispatch` finds an empty token table, cancels nothing
+    /// and returns - and `start()` then finishes and legitimately reports success for an observer the
+    /// caller has already stopped. That is a start that succeeded against a stop, which is not a state
+    /// any caller can act on: `ExtensionProvider.stopTunnel` would record a live observer, and
+    /// `startTunnel` would install one the same stop is already tearing down.
+    ///
+    /// With this, the outcome is decided rather than raced: the cancel is remembered, the in-flight
+    /// start releases the tokens it just took and reports failure, and the caller sees one ordering
+    /// instead of two. Cleared at the top of `start()`, which is the only thing that clears it.
+    private var cancelled = false
 
     /// Queue-confined. The last raw value each source successfully observed, whether or not it was
     /// published.
@@ -331,20 +344,51 @@ final class ScreenStateObserver {
     /// callback that follows it, and the repeat rule collapses the case where both happen into one
     /// publication. The unsafe order - read first, register second - loses a transition that happens
     /// in between, and is what this replaces.
+    ///
+    /// # `cancel()` on another thread, and why the epoch and the tokens move together
+    ///
+    /// `cancel()` is callable from any thread - `ExtensionProvider.stopTunnel` calls it from whatever
+    /// thread the NetworkExtension uses - and it fences by bumping the generation. It does **not**
+    /// enter this queue, so it can land at any point in the block below.
+    ///
+    /// The epoch this start publishes under and the tokens it stores are therefore taken in ONE
+    /// critical section, `advanceGenerationAndStore`. Split in two - bump the generation, register,
+    /// then store - a `cancel()` that lands inside the registration loop finds an empty token table,
+    /// cancels nothing and returns; this start then stores tokens whose epoch is already dead. The
+    /// observer would report `.started`, none of its callbacks could ever publish again because
+    /// `isCurrent` refuses them, `hasRegistrations` would stay true so no later `start()` could revive
+    /// it, and both registrations would live in notifyd for the life of the process - the exact
+    /// "pause entered and never lifted" failure this file exists to prevent.
+    ///
+    /// Joining the two makes "the tokens in the table are the tokens of the current epoch" an
+    /// invariant of this type rather than a property of how two threads happened to interleave: after
+    /// the store, either the epoch is still current and the observer is live, or the generation has
+    /// moved and this start releases the tokens itself.
+    ///
+    /// The snapshot read is deliberately outside the lock. It is the one call that can take time, and
+    /// holding `access` across it would let a `notify_get_state` block `cancel()`.
     @discardableResult
     func start() -> ScreenStateStartResult {
         syncOnQueue {
+            // A new start is a fresh intent, so a cancel that finished before it began does not
+            // refuse it. A cancel that lands during the registration loop below does.
+            clearCancelled()
             guard !hasRegistrations else {
                 return .alreadyStarted
             }
-            let epoch = advanceGeneration()
             var registered: [ScreenStateSource: Int32] = [:]
             var failed: [ScreenStateSource] = []
+            // The handlers are created before the epoch exists - it is taken at the end, together
+            // with the tokens - so they read it from this box instead of capturing it.
+            let epochBox = EpochBox()
             for source in ScreenStateSource.allCases {
                 let registration = notify.registerDispatch(name: source.notificationName,
                                                            queue: queue) { [weak self] _ in
                     // The token is deliberately unused: the generation is what identifies whether
                     // this callback still belongs to a live registration.
+                    guard let epoch = epochBox.value else {
+                        return
+                    }
                     self?.handleEvent(source: source, epoch: epoch)
                 }
                 switch registration {
@@ -362,12 +406,49 @@ final class ScreenStateObserver {
                 }
                 return .failed(sources: failed)
             }
-            storeRegistrations(registered)
+            let epoch = advanceGenerationAndStore(registered)
+            // Published only now, so a handler can never observe an epoch for a registration that is
+            // not yet live; `registerDispatch` has already returned for every source by this point.
+            epochBox.value = epoch
+            guard isCurrent(epoch), !isCancelled else {
+                // A `cancel()` landed while this start was registering. It could not release these
+                // tokens, because they were not in the table yet, so this start releases them and
+                // reports the failure rather than leaving either a leak or a live-looking observer
+                // whose owner has already stopped it.
+                epochBox.value = nil
+                for token in takeRegistrations() {
+                    _ = notify.cancel(token: token)
+                }
+                return .failed(sources: ScreenStateSource.allCases)
+            }
             for source in ScreenStateSource.allCases {
                 observe(source: source, provenance: .snapshot, epoch: epoch)
             }
+            // Re-checked AFTER the snapshot. `observe` already refuses to publish once the epoch has
+            // moved - it fences on both sides of the `notify_get_state` read - so no fact escapes; what
+            // this guards is the RESULT. Without it, a `cancel()` that lands during the snapshot loop
+            // releases the registrations and this start still returns `.started`, so the caller
+            // (`ExtensionProvider.startScreenStateObserver`) stores an observer that holds no tokens
+            // behind `guard screenStateObserver == nil` and no later start can replace it. The tokens
+            // are already gone at that point, so there is nothing to release here; the retry is simply
+            // reported as failed, which is what it was.
+            guard isCurrent(epoch), !isCancelled else {
+                epochBox.value = nil
+                return .failed(sources: ScreenStateSource.allCases)
+            }
             return .started
         }
+    }
+
+    /// Carries the epoch from `start()` to the callbacks it registered.
+    ///
+    /// The handlers are created inside the registration loop, before the epoch exists, because the
+    /// epoch and the tokens are deliberately taken together at the end of that loop - see `start()`.
+    /// A callback cannot arrive before the value is set: the registration is not live in notifyd until
+    /// `registerDispatch` returns, and the block holding this box is the same serial queue those
+    /// callbacks are delivered on.
+    private final class EpochBox {
+        var value: UInt64?
     }
 
     /// Stops watching, and makes every callback that is already queued a no-op.
@@ -381,6 +462,7 @@ final class ScreenStateObserver {
     ///
     /// Idempotent, and it cancels only the tokens that actually registered.
     func cancel() {
+        markCancelled()
         _ = advanceGeneration()
         for token in takeRegistrations() {
             _ = notify.cancel(token: token)
@@ -487,6 +569,23 @@ final class ScreenStateObserver {
         return generation
     }
 
+    /// Bumps the generation AND publishes the token table under the same acquisition.
+    ///
+    /// This is the one place a start's epoch and its registrations are allowed to be established, and
+    /// the atomicity is the point rather than an optimisation. `cancel()` takes the same lock, so a
+    /// cancel either happens entirely before this call - in which case this start's epoch is the newer
+    /// one and its tokens are the live ones - or entirely after it, in which case the cancel sees these
+    /// tokens and releases them. There is no interleaving in which the table holds tokens belonging to
+    /// a generation that has already moved, which is the dead-observer state `start()` guards against
+    /// immediately after this returns. See `start()` for the sequence that used to produce it.
+    private func advanceGenerationAndStore(_ registered: [ScreenStateSource: Int32]) -> UInt64 {
+        access.lock()
+        defer { access.unlock() }
+        generation &+= 1
+        registrations = registered
+        return generation
+    }
+
     private func currentGeneration() -> UInt64 {
         access.lock()
         defer { access.unlock() }
@@ -498,17 +597,30 @@ final class ScreenStateObserver {
         currentGeneration() == epoch
     }
 
+    /// Whether a `cancel()` has been seen since the current `start()` began.
+    private var isCancelled: Bool {
+        access.lock()
+        defer { access.unlock() }
+        return cancelled
+    }
+
+    private func markCancelled() {
+        access.lock()
+        defer { access.unlock() }
+        cancelled = true
+    }
+
+    private func clearCancelled() {
+        access.lock()
+        defer { access.unlock() }
+        cancelled = false
+    }
+
     /// Whether a registration is already in place, so `start()` can be a no-op.
     private var hasRegistrations: Bool {
         access.lock()
         defer { access.unlock() }
         return !registrations.isEmpty
-    }
-
-    private func storeRegistrations(_ registered: [ScreenStateSource: Int32]) {
-        access.lock()
-        defer { access.unlock() }
-        registrations = registered
     }
 
     private func takeRegistrations() -> [Int32] {

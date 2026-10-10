@@ -171,7 +171,19 @@ lock source `0` means **unlocked**, so a snapshot that published it would invent
 extension start. `ScreenStatePolicy.decide` therefore refuses any non-sleep fact from a `.snapshot`,
 while still *remembering* the value so the next real transition is measured against it.
 
-### 4.4 Cancel race — `NO_BUG_FOUND`, and here is the argument
+### 4.4 Cancel race — `NO_BUG_FOUND` was too strong; corrected below
+
+> **Correction (Phase 1 runtime hardening).** This section's verdict was reached by reading the
+> observer, and its central premise is wrong: `cancel()` does **not** run on the observer's queue, so
+> the generation can advance between the last `isCurrent(epoch)` check and `publish(fact)` in
+> `observe`. The narrow window it dismissed is real. What is more, the argument below was never
+> executed — `Tests/HakoScreenState` did not compile at the time (§5), so no assertion in it had ever
+> run. The defect that analysis missed entirely is at the other end of the lifecycle: a `cancel()`
+> landing inside `start()`'s registration loop used to leave a started-looking, permanently dead
+> observer behind, with both `notifyd` registrations leaked. Both are now fixed and tested; see the
+> section "What changed in this phase" below.
+
+The original argument, kept for the record:
 
 The brief asks whether a `cancel()` can return after the last `isCurrent(epoch)` check and before
 `publish(fact)`, letting a fact reach the core after teardown.
@@ -199,27 +211,91 @@ passed the generation check would still find no token to read.
 `cancel()` from inside the read, which is the in-flight window the fence exists for, and asserts that
 nothing is published.
 
-### 4.5 What was *not* changed
+### 4.5 What changed in this phase
 
-Nothing in the observer or in `ExtensionProvider` was modified this phase. The implementation already
-matches the kernel contract, and the brief's own rule applies: *"如果现有修复已正确且没有未决风险，
-就只补充分清事实的审计文档和测试，不为改而改。"* The deliverable is the corrected attribution, the
-kernel-contract evidence, and the fault-injection tests.
+`NO_BUG_FOUND` above is superseded. What the earlier phase did **not** change was correct at the time
+only because the defects had not been found; two of them are real and are now fixed and tested.
+
+**Defect 1 — a `start()` that loses a race to `cancel()` used to leave a dead observer that reports
+success.** `cancel()` deliberately does not enter the observer's queue, and it can be called from any
+thread (`ExtensionProvider.stopTunnel` calls it from whatever thread the NetworkExtension uses).
+`start()` took its epoch before the registration loop and stored the tokens after it, so a `cancel()`
+landing inside that loop found an empty token table, cancelled nothing and returned — and `start()`
+then stored tokens whose generation was already dead:
+
+```
+T0  start()            advanceGeneration() -> N
+T1  cancel()  (other)  generation -> N+1; takeRegistrations() finds {} -> cancels nothing; returns
+T2  start()            storeRegistrations(...)   <- tokens under a DEAD epoch
+                       observe(...) -> isCurrent(N) == false -> publishes nothing
+                       return .started           <- a lie
+```
+
+The observer then reported `.started`, none of its callbacks could ever publish again, the tokens
+leaked in `notifyd` for the life of the process, and `hasRegistrations` stayed true so no later
+`start()` could revive it. The fix: the generation bump and the token store are one critical section
+(`advanceGenerationAndStore`), a sticky `cancelled` flag lets an in-flight `start()` release what it
+just took and report `.failed`, and the epoch reaches the handlers through an `EpochBox` published
+after the store. The result of the snapshot loop is re-checked too, so a cancel landing there cannot
+produce a `.started` for an observer that holds no tokens.
+
+**Defect 2 — the fence is not a lock around `publish`.** `observe` checks `isCurrent` before and after
+the `notify_get_state` read, but it cannot check it atomically with `publish`, because `cancel()`
+advances the generation from another thread. A fact read before the fence can therefore be published
+after `cancel()` returned. The damage today is bounded by the Go side — `CommandServer`'s record
+methods resolve a nil instance and return, and the power recorder is nil-guarded — so this is a
+falsified guarantee rather than a crash, and it is recorded as such.
+
+**Defect 3 — nothing re-published the level after a core reload, and the core then lost it.** In the
+core, a profile reload replaced the Box — and, because `pause.WithDefaultManager` was only ever called
+inside `box.New`, the pause manager with it, silently releasing the device pause. That is fixed in the
+core (`daemon.NewStartedService` now registers one manager for the service's life, and `CommandServer`
+remembers the level across the reload window so a fact delivered while there was no Box is not
+dropped). The client's half of the contract is unchanged and is now correct rather than accidentally
+masked: the observer deliberately outlives a reload, and the level it reported survives one.
+
+**Also changed in `ExtensionProvider`.** `startService()` used `commandServer!` — the file's only
+force-unwrap of that property, and reachable with a nil server on two paths that need no exotic
+timing. It is a `guard let` now, and the post-server half of `startTunnel` releases what it created if
+it fails, instead of leaving a created, started, listening command server behind.
+
+### 4.6 What was *not* changed
+
+Still unchanged, and still deliberately so: the device-axis policy itself. Screen-off remains a level
+pause; display-on remains a resume edge and not a wake; `WakeNow()` is still not called by this client,
+so the unlock is the only lifter. That means the residual in §4.2 stands — if
+`com.apple.springboard.lockstate` is never delivered to a sandboxed extension on a given iOS version,
+this client has no lifter for the pause at all, and that is a device measurement, not something to
+guess at from here.
 
 ---
 
 ## 5. What can be proven on this machine, and what cannot
 
+The `Tests/HakoScreenState` rows below were marked "written; not executed" because there was no Swift
+toolchain. **A Swift 6.3.3 toolchain and XCTest were found on this host in the runtime-hardening
+phase, and the package was then run for the first time.** It did not compile — four
+`publisher.calls.removeAll()` calls are illegal against a `private(set)` property — and once it did
+compile, ten more assertions failed because the fakes had the display polarity reversed, the token
+numbers hard-coded, and one test delivered a notification before starting. All of that is repaired;
+the suite now runs and passes.
+
 | Layer | Where it is proven | Status |
 |---|---|---|
-| Which fact a value maps to; failed read; undefined value; repeat; snapshot rules | `Tests/HakoScreenState` (pure, no frameworks) | **written**; not executed — no Swift toolchain here |
-| The cancel fence, including the in-flight window | same | **written**; not executed |
-| Partial registration, retry, idempotent start/cancel, deinit | same | **written**; not executed |
-| Resync recovers a lock and cannot invent a wake | same | **written**; not executed |
+| Which fact a value maps to; failed read; undefined value; repeat; snapshot rules | `Tests/HakoScreenState` (pure, no frameworks) | **EXECUTED, passing** — 35 tests, 0 failures |
+| The cancel fence, including the in-flight window | same | **EXECUTED, passing** |
+| Partial registration, retry, idempotent start/cancel, deinit | same | **EXECUTED, passing** |
+| Resync recovers a lock and cannot invent a wake | same | **EXECUTED, passing** |
+| `start()` racing `cancel()` leaves no dead-but-started observer | same | **EXECUTED, passing** — deterministic via a register hook, with a reverse-break |
 | The Darwin adapter's status handling | `ScreenStateObserverDarwin.swift` | `UNVERIFIED_SDK` — needs iOS |
 | Whether the two notification names are delivered to a sandboxed extension | device log from `ScreenStateStartResult` | `NEEDS_DEVICE` |
 | Whether the pause actually latches on a real device | `docs/APPLE-DEVICE-ACCEPTANCE.md` §2.5 | `DEFERRED` |
 | Whether the kernel's contract is *correct* for hotspot / Wi-Fi-sharing traffic | parent repository `docs/fork/` | not this repository's question; see §6 |
+
+The runner is `scripts/run-screen-state-tests.sh` on a host where `swift test` works. On Windows,
+`swift test` cannot work at all (SwiftPM generates the XCTest entry point after the task that consumes
+it), so the suite is compiled and run directly against the toolchain's XCTest; the runner and its
+reasoning are recorded with the phase report.
 
 **A Python model of this policy would be a second implementation, and a passing Python model would
 not be evidence about the Swift.** None was written.
