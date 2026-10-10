@@ -93,18 +93,20 @@ interpreter and a new switch cannot become a second one by accident.
 | `noClashModes` | `setupMockData()` installs an empty `clashModeList` instead of `rule`/`global`/`direct` | `test14` |
 | `notInstalled` | `ExtensionEnvironments.reload()` presents no tunnel profile (`usesMockTunnelProfile`) | `test18` |
 | `profileError` | sets `profileLoadFailure`, so the page draws its "could not read the configuration" line — with the tunnel **installed**, because that is the only state in which the page reports a failed read | `test15` |
+| `activity` | seeds four high-density connection rows at the display layer (`ConnectionDataModel.seedDataDensityFixture()`) | `test43` |
 
-**Two states are implemented**, and the whole list of places either is read is:
+**Three states are implemented**, and the whole list of places any is read is:
 
 ```
 $ grep -rn 'uiTestFixtureState' --include=*.swift Library/ ApplicationLibrary/ SFI/
-Library/Network/CommandClient.swift:181        != "noClashModes"
-Library/Network/ExtensionEnvironments.swift:273 == "profileError"
+Library/Network/CommandClient.swift:181                  != "noClashModes"
+Library/Network/ExtensionEnvironments.swift:273          == "profileError"
+ApplicationLibrary/Views/Connections/ConnectionListViewModel.swift  == "activity"
 ```
 
 ### Names the tests pass that nothing implements
 
-Four cases call `launch(state:)` with a name this project does not act on. That is **not** an
+Two cases call `launch(state:)` with a name this project does not act on. That is **not** an
 error in itself — a launch with an unrecognised state is simply a launch with no state, which is
 the full default fixture — but it is worth knowing which cases are relying on that rather than on
 a state:
@@ -113,7 +115,6 @@ a state:
 | --- | --- | --- |
 | `clashModes` | `test14b` | the default fixture, which already installs the three modes. The name documents the intent; the default is what satisfies it |
 | `remote` | `test16` | the default fixture. The case passes on the remote-control shape the default already draws |
-| `activity` | `test43` | the default fixture, and the case fails: it wants seeded connection rows, which no state provides |
 
 So a name in this table is a **comment**, not a contract. If a case ever needs its name to mean
 something, it has to be added above and read in exactly one place.
@@ -141,10 +142,11 @@ Two states look like fixture gaps and are not:
   make the product populate it: that needs `reload()` to keep the reason and a decision about the
   sentence a user reads. The plumbing exists (`ExtensionEnvironments.profileLoadFailure`,
   supplied by `HakoPageContent`); only the fixture sets it today.
-* **Connection rows.** `ConnectionListViewModel` fills `connections` from `commandClient.$connections`,
-  a `[LibboxConnection]` — and `LibboxConnection` is a Go-bound type with **no Swift initializer**,
-  so no test can construct one. The connection fixture calls `dataModel.finishLoading()` and seeds
-  no rows (`test43`).
+* **Connection rows, on the real path.** `ConnectionListViewModel` fills `connections` from
+  `commandClient.$connections`, a `[LibboxConnection]` — and `LibboxConnection` is a Go-bound type
+  with **no Swift initializer**, so no test can construct one. `test43` is satisfied by seeding
+  `Connection` (this client's own struct) at the display layer instead, which is where the values
+  are laid out anyway. Nothing about the production path changed.
 
 ---
 

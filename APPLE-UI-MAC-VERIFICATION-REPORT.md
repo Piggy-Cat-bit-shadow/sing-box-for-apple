@@ -25,7 +25,7 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
 | Swift tests — `HakoScreenState` | **PASS — 33/33** (was 25/33). The policy question was decided and implemented; the 8 observer failures were fixture defects, all corrected — §6h |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
-| Snapshot UI tests (`HakoSnapshotUITests`) | **25 of 28 pass; 3 fail** — measured on a full run. Five of the original six are fixed and re-verified in-suite; `test43` needs a seeding path the bindings do not expose, and `test34`/`test36` fail because this install has no app-group container (§6e). See §6c–§6d |
+| Snapshot UI tests (`HakoSnapshotUITests`) | **26 of 28 pass; 2 fail** — measured on a full run. Six of the original failures are fixed and re-verified in-suite; `test34`/`test36` remain, and fail because this install has no app-group container (§6e). See §6c–§6d |
 | Family routing | **PASS by construction, not by test** (see §5.3) |
 | ABI gate, Apple layers | **PASS** (21 violations → 0) |
 
@@ -88,7 +88,7 @@ to get a compiling client — that is the user's call and was deliberately not t
 | `HakoSubscriptionUsage` (SwiftPM) | **PASS** | 24 tests, 0 failures |
 | `HakoScreenState` (SwiftPM) | **PASS — 33 tests, 0 failures** | `ScreenStatePolicyTests` 9/9, `ScreenStateObserverTests` 24/24. Was 25/33 — see §6h |
 | `HakoNavigationUITests` | **PASS** | 18 tests, 0 failures, 513 s |
-| `HakoSnapshotUITests` | **25 PASS / 3 FAIL** | Fixed and re-verified **in the full suite**: `test10Home`, `test14`, `test15`, `test17`, `test18`. Remaining: `test43` (no seeding path), `test34`/`test36` (no app-group container — §6e) |
+| `HakoSnapshotUITests` | **26 PASS / 2 FAIL** | Fixed and re-verified **in the full suite**: `test10Home`, `test14`, `test15`, `test17`, `test18`, `test43`. Remaining: `test34`/`test36` (no app-group container — §6e) |
 | Freeze guards (`check-iphone-hako-freeze.sh`, `test-iphone-hako-freeze.sh`) | **N/A** | **these scripts do not exist in this tree** — they belong to the `hako-ui`/`ipad-upstream-ui` line, not to `jiejiebox/integrated`. Not "skipped"; absent. |
 | Route guard (`check-hako-primary-route.sh`) | **NOT RUN** | present; needs a prior `SFM` build plus a simulator runtime, and was not exercised in this round |
 | `check_hako_macos_parse.py` | **PASS — and misleading** | reports `macos: checked=54 errors=0` while the compiler reported 21 errors in the same tree. It models a symbol table and cannot see `EditMode`, member accesses or `@available`. Recorded as a tool limitation, not evidence. |
@@ -548,6 +548,7 @@ twenty-three cases that use the whole fixture working as they did.
 | `test14OutboundModeIsAbsentByDefault` | a configuration with no outbound modes | New `noClashModes` state. `CommandClient.setupMockData()` is the only place the three Clash modes are hardcoded (one caller), so it is the whole of the state. `test14` and `test14b` now pass **from the same launch** under opposite states |
 | `test18HomeWithoutATunnel` | no registered tunnel profile | `Variant.usesMockTunnelProfile`. Deliberately a second bit, not a narrowing of `screenshotMode`: the branch it guards is the early return that also stops the real lookup, so keying the profile on the same bit is what made the state unreachable |
 | `test17HomeAgreesWithTheProxySheet` | the two views to count the same groups | `ScreenshotFixtureGroups.make()` — one copy, seeded by the sheet **and** published by `CommandClient.setupMockData()`. The fixture had been written twice, once per consumer, and one copy was never installed |
+| `test43ActivityDataDensity` | four high-density connection rows, values intact | **Ported from `hako-ui`**, which had it and the integration dropped it. `Connection` is byte-identical between the two branches, so the port is exact. A `LibboxConnection` is Go-backed and cannot be fabricated, so the rows go in as `Connection` at the display layer — where the values are laid out anyway. The fork's marker-file filter came with it |
 | `test15ProfileLoadFailure` | a reachable path for the page's "could not read the configuration" line | `ExtensionEnvironments.profileLoadFailure` — the state the page has always read and nothing ever set — supplied by `HakoPageContent` and set by the `profileError` fixture. The **product** path still discards the reason (`reload()`'s `try?`), so this makes the state assertable rather than fixing the message a user sees |
 | `test10Home` | the label the core actually has | §6.7 (previous round) |
 
@@ -653,7 +654,8 @@ without the groups line:  Executed 2 tests, with 2 failures
 
 Not the cause, and the line was restored. That part of the earlier finding stands.
 
-**What this means for the numbers.** The suite is **24 of 28**, not the 26 of 28 an earlier draft
+**What this means for the numbers.** At the time of this finding the suite was **24 of 28**, not
+the 26 of 28 an earlier draft
 claimed on the strength of individual re-runs. An individual re-run proves a case passes; it does
 not prove the suite does, and the suite is what a reviewer will run. `test34`/`test36` are counted
 as failures and named as environment-caused.
@@ -914,6 +916,50 @@ ScreenStateObserverTests 24 of 24
 
 ---
 
+## 6i. The Fix For `test34`/`test36` Exists In The Fork, Ported-Ready
+
+`test43` was the case this report called unfixable: "`LibboxConnection` is a Go-bound type with no
+Swift initializer, so no test can construct one". That was true and it was **the wrong conclusion**
+— the fork's `hako-ui` branch had already solved it, by seeding `Connection` (this client's own
+struct) at the display layer instead of trying to fabricate a Go object. The integration dropped it.
+Porting it back is exact, because `Connection.swift` is **byte-identical** between the two branches:
+
+```
+$ git hash-object ApplicationLibrary/Views/Connections/Connection.swift
+a12b438bfa0c4e26daecc295d624881a009751bd
+$ git show hako-ui:ApplicationLibrary/Views/Connections/Connection.swift | git hash-object --stdin
+a12b438bfa0c4e26daecc295d624881a009751bd
+```
+
+`test43` passes. **The same is true of the two remaining failures, and the port was not taken this
+round.** `hako-ui` seeds every report store the same way - through the archives' own writers, so the
+list, the file list and the readers all run their real code over real files rather than over a
+stubbed manager:
+
+| File | What `hako-ui` has that this branch does not | Removed vs here |
+| --- | --- | --- |
+| `Library/Shared/CrashReportArchive.swift` | `ReportArchive.fixtureMarkerFileName` and `ReportArchive.writeArtifact(...)` | 0 lines |
+| `Library/Shared/OOMReportArchive.swift` | `writeArchivedReport(metadata:date:configContent:goLog:profileFiles:)` | 0 lines |
+| `Library/Shared/PowerReportArchive.swift` | `writeArchivedReport(...)` with `timeline`/`events` | 0 lines |
+| `Library/Shared/OOMReportManager.swift` | `seedScreenshotFixtureIfNeeded()`, called at the top of `refresh()` | 0 lines |
+| `Library/Shared/PowerReportManager.swift` | the same | 0 lines |
+| `Library/Shared/CrashReportManager.swift` | the same, plus `CrashReportArtifactContents` | 0 lines |
+
+"Removed vs here" is the count of lines that exist **here** and would be lost — zero in every file,
+so each change is purely additive and nothing local is overwritten. The one structural difference
+is that this branch is **ahead** on crash reporting (`ReportFileKind.hangReport`, `CrashReport.kind`)
+and `hako-ui` knows nothing about it, so its `CrashReportManager` fixture would have to be adapted
+rather than pasted.
+
+**Why it was not done here.** It is six shared files, and the instruction named
+`test14`/`test15`/`test18`/`test43` — all four are now done. `test34`/`test36` are a different
+failure with a different cause (§6e), and landing a six-file fixture port into shared code without
+the ability to run those two cases to green afterwards would be committing a change whose result
+this environment cannot verify. The port is characterised above so the next round is a
+transcription rather than an investigation.
+
+---
+
 ## 7. Environment-only Blockers
 
 Every one of these was worked around; none remains a blocker.
@@ -1039,7 +1085,7 @@ configuration — verified, so it stays out of the repository) and
    byte-identical-upstream assertion for `SFI/MainView.swift`) is a *different* branch from
    `jiejiebox/integrated` (which has `SFIUIFamily` and the generated pages). The freeze guard
    that protects the frozen iPhone UI exists on the branch the parent no longer pins.
-7. **The snapshot suite stands at 25 of 28, and no remaining failure is this round's work.**
+7. **The snapshot suite stands at 26 of 28, and no remaining failure is this round's work.**
    Five were fixed and re-verified **in the full suite** (`test10Home`, `test14`, `test15`,
    `test17`, `test18` — §6d). Of the three left: `test43` needs a seeding path the Go
    bindings do not expose, and `test34`/`test36` fail because **this install has no app-group

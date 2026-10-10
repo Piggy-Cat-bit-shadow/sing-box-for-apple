@@ -1894,14 +1894,18 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
     ".gitignore":
         "`__pycache__/` and `*.pyc`, for the two Python scripts under scripts/dev",
     "ApplicationLibrary/Views/Connections/ConnectionListViewModel.swift":
-        "BEHAVIOUR FIX, cross-platform: the `commandClient.$isConnected` sink that calls "
-        "`finishLoading()` when the command client is not connected. `isLoading` starts true and only a "
+        "TWO CHANGES. (1) BEHAVIOUR FIX, cross-platform: the `commandClient.$isConnected` sink that "
+        "calls `finishLoading()` when the command client is not connected. `isLoading` starts true and only a "
         "delivered connection list cleared it, so with the tunnel stopped - no client, nothing to "
         "deliver - the Activity page showed a spinner for as long as it was open and its own empty state "
         "was unreachable. The original fork has this sink; the integration dropped it. It is correct on "
         "an iPad and a Mac too, which is why it belongs in the shared view model rather than in a "
         "phone-only copy. `finishLoading()` is idempotent, so a disconnect after a delivered list is a "
-        "no-op",
+        "no-op. (2) FIXTURE ONLY: `ConnectionDataModel.seedDataDensityFixture()` and its "
+        "`activity` hook in `connect()`, ported from `hako-ui` where the integration dropped it. "
+        "`Connection` is byte-identical across the two branches, so the port is exact. Reachable "
+        "only under `Variant.screenshotMode` **and** `Variant.uiTestFixtureState == \"activity\"`; a "
+        "production launch takes neither and the production path is untouched",
     "Localizable.xcstrings":
         "one String Catalog entry for the phone's remaining-quota row (`%@ left`)",
     "Library/Database/Database.swift":
