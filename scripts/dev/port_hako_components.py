@@ -16,8 +16,16 @@ Upstream's component is untouched. Code duplication is the accepted cost; appear
 
 `hakoConnectionActionButtonStyle` already lives in `HakoStyle/HakoRow.swift`, so it is already
 Hako-owned and the copy can call it as it stands.
+
+# Why `--regenerate` alone no longer overwrites
+
+The candidate is a fresh function of the pinned upstream text; the file on disk is the product of the last
+run **plus every human repair since**. Regenerating over those repairs silently reverts them - the platform
+guards and the renamed call sites this round restored come back spelled the upstream way - with exit status
+0, and `audit_hako_lossless_parity.py` does not notice, because a deleted guard does not change the set of
+UI tokens. So an existing, differing target now has to be authorized by name and by blob, exactly as
+`migrate_secondary_page.py` requires; see `_safety_gate.OverwriteAuthorization`.
 """
-import io
 import os
 import re
 import subprocess
@@ -26,6 +34,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+from _safety_gate import OverwriteAuthorization, plan_writes  # noqa: E402
 from swift_directives import resolve  # noqa: E402
 
 GIT = os.environ.get("DSH_GIT") or "git"
@@ -86,12 +95,14 @@ def git(*args: str) -> str:
 def main() -> int:
     check_only = "--check" in sys.argv
     regenerate = "--regenerate" in sys.argv
+    guard = OverwriteAuthorization(sys.argv)
 
     resolved = git("rev-parse", f"{FORK_REF}^{{commit}}").strip()
     if resolved != FORK_REF:
         raise SystemExit(f"FAILED: {FORK_REF} resolved to {resolved}")
     print(f"    pin {FORK_REF[:7]}")
 
+    items = []
     for component in SOURCES:
         print(f"  [{component['label']}]")
         source = git("show", f"{FORK_REF}:{component['source']}")
@@ -113,19 +124,12 @@ def main() -> int:
         if text.count("{") != text.count("}"):
             raise SystemExit(f"FAILED [{component['label']}]: braces unbalanced")
 
-        if check_only:
-            continue
         destination = os.path.join(ROOT, component["destination"].replace("/", os.sep))
-        if os.path.exists(destination) and not regenerate:
-            if io.open(destination, encoding="utf-8").read() != text:
-                print("    differs from what this script would write; pass --regenerate",
-                      file=sys.stderr)
-                return 1
-            print(f"    unchanged ({len(text.splitlines())} lines)")
-            continue
-        io.open(destination, "w", encoding="utf-8", newline="").write(text)
-        print(f"    wrote {os.path.relpath(destination, ROOT)}: {len(text.splitlines())} lines")
-    return 0
+        items.append((component["label"], destination, text))
+
+    _approved, failure = plan_writes(guard, items, "port_hako_components.py",
+                                     plan_only=check_only, regenerate=regenerate)
+    return failure or 0
 
 
 if __name__ == "__main__":

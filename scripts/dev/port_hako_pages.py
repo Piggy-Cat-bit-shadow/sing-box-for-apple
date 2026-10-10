@@ -12,14 +12,26 @@ Set `DSH_GIT` if `git` is not on PATH.
 
 Re-run this after an upstream sync rather than editing the generated pages, or the next port will
 disagree with them.
+
+# Why `--regenerate` alone no longer overwrites
+
+The candidate this script computes is a fresh function of the pinned upstream text; the file on disk is the
+product of the last run **plus every human repair since**. Regenerating over those repairs silently reverts
+them - the platform guards and the renamed call sites this round restored come back spelled the upstream
+way - with exit status 0, and `audit_hako_lossless_parity.py` does not notice, because a deleted guard does
+not change the set of UI tokens. So an existing, differing target now has to be authorized by name and by
+blob, exactly as `migrate_secondary_page.py` requires; see `_safety_gate.OverwriteAuthorization`.
 """
-import io
 import os
 import re
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+from _safety_gate import OverwriteAuthorization, plan_writes  # noqa: E402
+
 GIT = os.environ.get("DSH_GIT") or "git"
 REPO = os.environ.get("DSH_REPO") or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "sing-box-for-apple")
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -120,21 +132,14 @@ def port(page: dict) -> str:
 
 def main() -> int:
     regenerate = "--regenerate" in sys.argv
+    guard = OverwriteAuthorization(sys.argv)
+    items = []
     for page in PAGES:
         destination = os.path.join(ROOT, page["destination"].replace("/", os.sep))
         print(f"  [{page['label']}]")
-        text = port(page)
-        if os.path.exists(destination) and not regenerate:
-            current = io.open(destination, encoding="utf-8").read()
-            if current != text:
-                print(f"    differs from what this script would write; pass --regenerate",
-                      file=sys.stderr)
-                return 1
-            print(f"    unchanged ({len(text.splitlines())} lines)")
-            continue
-        io.open(destination, "w", encoding="utf-8", newline="").write(text)
-        print(f"    wrote {os.path.relpath(destination, ROOT)}: {len(text.splitlines())} lines")
-    return 0
+        items.append((page["label"], destination, port(page)))
+    _approved, failure = plan_writes(guard, items, "port_hako_pages.py", regenerate=regenerate)
+    return failure or 0
 
 
 if __name__ == "__main__":

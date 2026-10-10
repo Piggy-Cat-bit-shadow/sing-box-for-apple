@@ -9,6 +9,47 @@ change it.
 The one-sentence version: **the tool plans by default, it refuses far more often than it proceeds, and no
 file is ever left half-written.**
 
+## 0. Scope: the same rule now covers the three `port_*.py` generators
+
+This document was written around `migrate_secondary_page.py` alone, and the three generators beside it -
+`port_tools_and_more.py`, `port_hako_pages.py`, `port_hako_components.py` - did **not** obey it. Each of
+them read
+
+```python
+if os.path.exists(destination) and not regenerate:
+    ... report a difference and exit 1 ...
+io.open(destination, "w", ...).write(text)
+```
+
+so `--regenerate` did not merely permit an overwrite, it **skipped the comparison that would have reported
+one**. Measured on a copy of this tree, `port_tools_and_more.py --regenerate` rewrote `HakoLogView.swift`,
+`HakoToolsView.swift` and `HakoSettingView.swift` to their upstream shape: every `#if !os(tvOS)` guard the
+round restored was gone, unguarded `import UIKit` was back, and `HakoCoreView()`, `HakoAppView()`,
+`HakoRemoteControlView()`, `HakoPacketTunnelView()`, `HakoProfileOverrideView()` and
+`HakoOnDemandRulesView()` were spelled with their upstream names again on the phone's More page - the
+reverse-dependency regression this whole document exists to prevent, written with exit status 0.
+`audit_apple_ui_boundary.py --strict` goes FAIL on four checks, and `audit_hako_lossless_parity.py` stays
+green on those same bytes, because deleting a guard does not change the set of UI tokens.
+
+All three now go through `_safety_gate.plan_writes` and `_safety_gate.OverwriteAuthorization`, so §2
+(`--replace` / `--expect-sha256`) and §4 (nothing is written until everything has been decided) apply to
+them exactly as they apply to `migrate_secondary_page.py`. What differs is deliberate:
+
+| | `migrate_secondary_page.py` | the three `port_*.py` |
+| --- | --- | --- |
+| what it plans | one page, named by `--page` | every page in its own table |
+| when it writes | only with `--write` | only with `--regenerate` |
+| a target whose bytes already match | `UNCHANGED`, no write | `unchanged`, no write |
+| an existing target that differs | `TARGET_DIFFERS` refusal | `TARGET_DIFFERS` refusal |
+| several differing targets | impossible (one page per run) | one refusal each, reported together, each needing its own `--replace`/`--expect-sha256` |
+| the escape hatch | `--replace <path> --expect-sha256 <hex>` | the same, one pair per target |
+
+Two things the generators deliberately still do **not** do: they do not merge a human repair into a
+regenerated candidate (a generator cannot know which of the two is right), and they do not offer a blanket
+override. `test_port_script_authorization.py` asserts the refusal shapes and, just as importantly, that the
+command the refusal prints **works** - a guard whose escape hatch does not work is a guard that gets worked
+around - and that authorizing one target does not authorize the others.
+
 ---
 
 ## 1. What went wrong, in one paragraph

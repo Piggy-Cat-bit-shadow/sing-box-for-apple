@@ -28,9 +28,21 @@ a file that declares the shared type twice again.
 Usage:
     python port_tools_and_more.py --check        # report only; writes nothing
     python port_tools_and_more.py                # compare; fail if a file differs
-    python port_tools_and_more.py --regenerate   # write
+    python port_tools_and_more.py --regenerate   # write, but only over an authorized target
+    python port_tools_and_more.py --regenerate --replace <path> --expect-sha256 <hex>   # deliberate overwrite
+
+# Why `--regenerate` alone no longer overwrites
+
+It used to. `--regenerate` skipped the comparison at the bottom of `main()` and wrote unconditionally,
+which made the flag not "permission to regenerate" but "skip the check that would have reported the
+regeneration". The candidate this script computes is a fresh function of the pinned upstream text; the
+file on disk is the product of the last run **plus every human repair since**, and the repairs include the
+platform guards and the renamed call sites this round restored. Regenerating over them spells those call
+sites the upstream way again - the reverse dependency the whole boundary audit exists to prevent - with
+exit status 0, and `audit_hako_lossless_parity.py` does not notice, because a deleted guard does not change
+the set of UI tokens. So an existing target now has to be authorized by name and by blob, exactly as
+`migrate_secondary_page.py` requires; see `_safety_gate.OverwriteAuthorization`.
 """
-import io
 import os
 import re
 import subprocess
@@ -39,6 +51,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+from _safety_gate import OverwriteAuthorization, plan_writes  # noqa: E402
 from swift_directives import resolve  # noqa: E402
 
 GIT = os.environ.get("DSH_GIT") or "git"
@@ -314,27 +327,20 @@ def port(page: dict, shared: set[str]) -> str:
 def main() -> int:
     check_only = "--check" in sys.argv
     regenerate = "--regenerate" in sys.argv
+    guard = OverwriteAuthorization(sys.argv)
     assert_pinned_ref()
     shared = shared_tree_names()
     print(f"    pin {FORK_REF[:7]}; shared tree declares {len(shared)} module-scope names")
 
+    items = []
     for page in PAGES:
         print(f"  [{page['label']}]")
         destination = os.path.join(ROOT, page["destination"].replace("/", os.sep))
-        text = port(page, shared)
-        if check_only:
-            continue
-        if os.path.exists(destination) and not regenerate:
-            current = io.open(destination, encoding="utf-8").read()
-            if current != text:
-                print("    differs from what this script would write; pass --regenerate",
-                      file=sys.stderr)
-                return 1
-            print(f"    unchanged ({len(text.splitlines())} lines)")
-            continue
-        io.open(destination, "w", encoding="utf-8", newline="").write(text)
-        print(f"    wrote {os.path.relpath(destination, ROOT)}: {len(text.splitlines())} lines")
-    return 0
+        items.append((page["label"], destination, port(page, shared)))
+
+    _approved, failure = plan_writes(guard, items, "port_tools_and_more.py",
+                                     plan_only=check_only, regenerate=regenerate)
+    return failure or 0
 
 
 if __name__ == "__main__":

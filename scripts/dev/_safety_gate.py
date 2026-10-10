@@ -37,6 +37,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import sys
 import tempfile
 
 #: Set to a 1-based step index to make the *n*-th swap in a commit fail, for the fault-injection case in
@@ -89,6 +90,251 @@ def sha256_file(path: str) -> str | None:
     "the target was not there" is exactly what a create-once check has to compare."""
     data = read_bytes(path)
     return None if data is None else sha256_bytes(data)
+
+
+# --------------------------------------------------------------------------------------------------
+# Overwrite authorization
+# --------------------------------------------------------------------------------------------------
+
+
+class OverwriteAuthorization:
+    """`--replace <path> --expect-sha256 <hex>`: permission to overwrite exactly one file, one blob.
+
+    # Why this is here rather than in each generator
+
+    `migrate_secondary_page.py` learnt it needed this the hard way, and the three `port_*.py` scripts
+    beside it never did. They each read
+
+        if os.path.exists(destination) and not regenerate:
+            ... report a difference and exit 1 ...
+        io.open(destination, "w", ...).write(text)
+
+    so `--regenerate` did not merely *allow* an overwrite, it **skipped the comparison that would have
+    reported one**. Measured on a copy of this tree, `port_tools_and_more.py --regenerate` rewrites
+    `HakoToolsView.swift`, `HakoLogView.swift` and `HakoSettingView.swift` to their upstream shape: every
+    `#if !os(tvOS)` guard the round restored is gone, and `HakoCoreView()`, `HakoAppView()`,
+    `HakoRemoteControlView()`, `HakoPacketTunnelView()`, `HakoProfileOverrideView()` and
+    `HakoOnDemandRulesView()` are spelled with their upstream names again - exactly the reverse-dependency
+    regression the round exists to prevent, written with exit status 0. `audit_apple_ui_boundary.py
+    --strict` goes FAIL on four checks; `audit_hako_lossless_parity.py` stays green, because it compares
+    token sets and the token set does not change when a guard is deleted.
+
+    A generator cannot see those repairs: its candidate is a fresh function of the pinned upstream text,
+    and the file on disk is the product of the last run *plus* every human repair since. So the rule is the
+    same one `migrate_secondary_page.py` states: **an existing target is compared, never assumed
+    replaceable**, and replacing one is a deliberate act that names the exact blob it is discarding.
+
+    # Usage
+
+        guard = OverwriteAuthorization(sys.argv)
+        wanted = guard.authorize(destination, text, label="Tools")
+        if wanted is not None:
+            text = wanted      # authorized: the caller may keep the repairs it already made
+
+    `authorize` returns `None` when the destination may be written as computed, the existing text when the
+    caller is authorized to overwrite (and should merge rather than discard), and raises `Refusal` with the
+    complete reason list otherwise. A create is not an overwrite and needs no authorization; deleting a
+    guard must not be a way to skip the check, so the flag is read from `argv` and cannot be defaulted.
+    """
+
+    #: `--replace=path` authorizes one target. `--expect-sha256=hex` names the blob. Both accept a
+    #: separate-value spelling as well, so a reader who types the flags out of habit still gets an
+    #: authorization rather than a silent no-op; the `=` spelling is what `authorization_commands` prints,
+    #: because it is the one that stays unambiguous when a run has to authorize several targets.
+    REPLACE_PREFIX = "--replace"
+    EXPECT_PREFIX = "--expect-sha256"
+
+    def __init__(self, argv) -> None:
+        self.replacements = self._values(argv, self.REPLACE_PREFIX)
+        self.expectations = self._values(argv, self.EXPECT_PREFIX)
+        #: Every refusal this run produced, so a caller can report all of them at once.
+        self.reasons: list[str] = []
+        #: Targets this run was authorized to overwrite, for the report.
+        self.authorized: list[str] = []
+
+    @classmethod
+    def _values(cls, argv, flag: str) -> list[str]:
+        """Every value given for `flag`, in argv order, in both `--flag=v` and `--flag v` spellings."""
+        found: list[str] = []
+        index = 0
+        while index < len(argv):
+            argument = argv[index]
+            if argument.startswith(flag + "="):
+                found.append(argument.split("=", 1)[1])
+                index += 1
+            elif argument == flag:
+                if index + 1 >= len(argv):
+                    raise Refusal([f"{flag} requires a value"])
+                found.append(argv[index + 1])
+                index += 2
+            else:
+                index += 1
+        return found
+
+    def refuse(self, reason: str) -> None:
+        self.reasons.append(reason)
+
+    def report(self, stream=None) -> None:
+        """Print every refusal, one per line. A run that refused wrote nothing."""
+        stream = stream or sys.stderr
+        for reason in self.reasons:
+            print(f"REFUSED: {reason}", file=stream)
+
+    def authorization_commands(self, script: str) -> list[str]:
+        """One complete command line authorizing every target this run would have overwritten.
+
+        One authorization covers one target, so a generator with three differing pages needs three pairs.
+        The whole set is printed as a single command because that is the run a reader actually wants, and
+        none of it is executed here: authorizing is a deliberate act, and this method's job is to make the
+        deliberate act a copy-and-paste rather than a guess.
+        """
+        pairs: list[str] = []
+        marker = "To proceed deliberately: "
+        for reason in self.reasons:
+            if marker not in reason:
+                continue
+            # The reason reads `... To proceed deliberately: --replace <path> --expect-sha256 <hex>`, so
+            # the literal flag has to come off before the pair is re-spelled in its `=` form. Leaving it on
+            # produced `--replace=--replace <path>`, which is not an authorization for anything - and a
+            # refusal whose own suggested command does not work is worse than one that suggests nothing.
+            target, _, expected = reason.split(marker, 1)[1].strip().partition(" --expect-sha256 ")
+            target = target.strip()
+            if target.startswith(self.REPLACE_PREFIX):
+                target = target[len(self.REPLACE_PREFIX):].strip()
+            pairs.append(f"{self.REPLACE_PREFIX}={target} {self.EXPECT_PREFIX}={expected.strip()}")
+        if not pairs:
+            return []
+        return [f"python scripts/dev/{script} --regenerate " + " ".join(pairs)]
+
+    def check(self, path: str, candidate: str, label: str = "") -> str | None:
+        """`None` when the target may be written as computed; otherwise the reason to refuse.
+
+        Every reason is *also* appended to `self.reasons`, so a caller that keeps planning reports all of
+        them at once. This never raises, because the caller has to distinguish "this target needs an
+        authorization" from "this target is fine": raising would abandon the rest of the plan, and
+        reporting only the first of three unauthorized targets turns a one-line fix into three runs.
+        """
+        existing = read_text(path)
+        if existing is None:
+            return None  # a create is not an overwrite
+        if existing == candidate:
+            return None  # byte-identical: writing it changes nothing
+        relative = os.path.relpath(path).replace("\\", "/")
+        on_disk = sha256_text(existing)
+        candidate_sha = sha256_text(candidate)
+        prefix = f"[{label}] " if label else ""
+        named = [self._normalize(item) for item in self.replacements]
+        if not self.replacements:
+            return self._note(
+                f"{prefix}TARGET_DIFFERS: {relative} already exists and differs from the freshly "
+                f"generated candidate (on disk {on_disk}, candidate {candidate_sha}). Nothing was "
+                f"written. Overwriting it would discard every repair made to that file since it was "
+                f"generated - including the platform guards and the renamed call sites this round "
+                f"restored, which a regenerated copy spells the upstream way again. To proceed "
+                f"deliberately: --replace {relative} --expect-sha256 {on_disk}")
+        if relative not in named:
+            self._note(
+                f"{prefix}REPLACE_UNAUTHORIZED: --replace names {', '.join(named)}, which does not include "
+                f"this run's target {relative}. One authorization covers one target, and it has to name "
+                f"the one being replaced")
+            return self.reasons[-1]
+        if on_disk not in [item.strip().lower() for item in self.expectations]:
+            if not self.expectations:
+                self._note(f"{prefix}REPLACE_UNAUTHORIZED: --replace requires --expect-sha256 naming the "
+                           f"blob it is authorized to replace")
+            else:
+                self._note(
+                    f"{prefix}REPLACE_UNAUTHORIZED: no --expect-sha256 matches {relative} on disk "
+                    f"({on_disk}); this run was given {', '.join(self.expectations)}. The authorization "
+                    f"does not describe the tree it was given")
+            return self.reasons[-1]
+        return None
+
+    @staticmethod
+    def _normalize(path: str) -> str:
+        """A path as it will be compared: relative to the working directory, forward slashes."""
+        if os.path.isabs(path):
+            try:
+                path = os.path.relpath(path)
+            except ValueError:
+                # A different drive: it cannot be this run's target, and keeping the absolute spelling
+                # makes the refusal say which path was named.
+                pass
+        return path.replace("\\", "/")
+
+    def _note(self, reason: str) -> str:
+        self.reasons.append(reason)
+        return reason
+
+    def authorize(self, path: str, candidate: str, label: str = "") -> str | None:
+        """`None` to write `candidate`; the existing text when overwriting is authorized.
+
+        Raises `Refusal` naming every reason collected so far when the destination exists, differs from
+        the candidate, and this run does not carry a matching authorization. A caller that wants to
+        report every target's reason at once should use `check` in a planning pass and this in the
+        writing pass, rather than catching the first refusal.
+        """
+        reason = self.check(path, candidate, label)
+        if reason is None:
+            existing = read_text(path)
+            if existing is not None and existing != candidate:
+                self.authorized.append(os.path.relpath(path).replace("\\", "/"))
+            return existing
+        raise Refusal(self.reasons)
+
+
+def plan_writes(guard: OverwriteAuthorization, items, script: str, plan_only: bool = False,
+                regenerate: bool = False):
+    """Decide every target before writing any, and report the whole set of refusals at once.
+
+    `items` is an iterable of `(label, absolute_path, candidate_text)`. For each target:
+
+      * `plan_only` - stop at the candidate, decide nothing, write nothing. This is `--check`.
+      * the file does not exist, or is byte-identical - nothing to authorize.
+      * the file differs and this run carries a matching `--replace`/`--expect-sha256` - approved.
+      * the file differs and it does not - recorded on `guard` as a refusal.
+
+    Returns `(approved, None)` when every target was approved, and `(None, exit_code)` when at least one
+    refusal was recorded - after printing every reason and one command line that authorizes the whole set.
+    The caller writes only the approved list, so a run that refuses anything writes nothing anywhere: a
+    partial regeneration is not a state these generators are allowed to leave behind, and reporting one
+    unauthorized target at a time would turn a one-line fix into three runs.
+
+    This lives here, rather than in each `port_*.py`, because three scripts had the same three lines -
+    `if os.path.exists(destination) and not regenerate: ... else: write` - and the same hole in them.
+    """
+    approved: list[tuple] = []
+    for label, path, text in items:
+        if plan_only:
+            continue
+        if os.path.exists(path):
+            current = read_text(path)
+            if current == text:
+                # Byte-identical: writing it would touch the file's mtime and change nothing else, and
+                # `port_hako_components.py` reaches here on the healthy tree. A file that reports as
+                # written while its bytes do not move is a claim the caller cannot check.
+                print(f"    unchanged ({len(text.splitlines())} lines)")
+                continue
+            if not regenerate:
+                print("    differs from what this script would write; pass --regenerate", file=sys.stderr)
+                return None, 1
+        if guard.check(path, text, label=label) is not None:
+            continue
+        approved.append((label, path, text))
+
+    if guard.reasons:
+        guard.report()
+        for command in guard.authorization_commands(script):
+            print(f"REFUSED: to authorize every target above, deliberately:\n    {command}", file=sys.stderr)
+        print(f"REFUSED: {len(guard.reasons)} target(s) need an authorization that this run does not "
+              f"carry; nothing was written", file=sys.stderr)
+        return None, 1
+
+    for _label, path, text in approved:
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+        print(f"    wrote {os.path.relpath(path)}: {len(text.splitlines())} lines")
+    return approved, None
 
 
 # --------------------------------------------------------------------------------------------------
