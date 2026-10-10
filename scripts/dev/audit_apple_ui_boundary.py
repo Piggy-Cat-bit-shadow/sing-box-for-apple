@@ -245,7 +245,15 @@ def read_text(path: str) -> str | None:
 #:     redeclare `ExtensionProfile`, `FilePath` and `HTTPClient` as stubs so the shared logic can be
 #:     tested without an Apple SDK. Counting them made the duplicate check report three conflicts that
 #:     cannot exist, because no target compiles a stub and the real file together.
-NOT_A_TARGET_TREE = ("docs/", ".build/", ".swiftpm/", "Tests/")
+NOT_A_TARGET_TREE = ("docs/", ".build/", ".swiftpm/", "Tests/", "scripts/")
+
+#: Swift files that are deliberately compiled by a shell script rather than by Xcode. They are not part
+#: of the app, so the boundary rules about what a page may name do not apply to them - but they are
+#: Swift, so swift_files still finds them and a check has to say so explicitly rather than be
+#: surprised. scripts/dev/check-hako-primary-route.swift is the one such file: the harness compiles it
+#: against the built framework to exercise the shell's page mapping, which is why it names Hako types
+#: and why no synchronized root contains it.
+OUTSIDE_THE_APP = ("scripts/dev/check-hako-primary-route.swift",)
 
 
 def swift_files(root: str, under: str | None = None) -> list[str]:
@@ -456,6 +464,8 @@ def check_no_reverse_dependency(root: str) -> Check:
 
     for path in swift_files(root):
         if path.startswith(HAKO_PREFIX) or path in allowed:
+            continue
+        if path in OUTSIDE_THE_APP:
             continue
         checked += 1
         hits = grep(root, path, HAKO_TYPES + HAKO_MEMBERS)
