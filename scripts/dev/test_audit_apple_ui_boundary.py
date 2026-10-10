@@ -377,23 +377,31 @@ def mutate_hako_type_loses_its_caller(root: str) -> str:
     The mutation rewrites a call of a type the port *does* use back to its upstream spelling, so the ported
     name keeps its declaration and loses its caller while the upstream name gains one from a file that does
     not declare it - the only shape the check fails on.
-
-    It searches for the call rather than asserting a fixed form, because the harness runs every case against
-    the copy **after `git reset`**, so the file it sees is the committed one: a mutation anchored to a line
-    added in an uncommitted edit would fail here and read as a problem with the test rather than with the
-    tree. Both spellings are handled, and if neither is present the case says so instead of passing quietly.
     """
-    path = os.path.join(root, "ApplicationLibrary/Views/HakoStyle/HakoReportListView.swift")
+    # Every list view that calls it, not just the first: all three carry the restored `#if os(tvOS)` arm,
+    # so rewriting one left the type with two callers and the check correctly did not fire. The case has to
+    # remove the *last* caller to exercise the check, and which file that is, is not this case's business.
+    touched: list[str] = []
     for candidate in ("HakoCrashReportListView.swift", "HakoOOMReportListView.swift",
                       "HakoPowerReportListView.swift"):
         candidate_path = os.path.join(root, "ApplicationLibrary/Views/HakoStyle", candidate)
         text = read(candidate_path)
-        rewritten = re.sub(r"\bHakoReportLabel\(", "ReportLabel(", text, count=1)
-        if rewritten != text:
-            write(candidate_path, rewritten)
-            return (f"the phone's report row in {candidate} pointed back at upstream's `ReportLabel` while "
-                    f"the ported `HakoReportLabel` keeps its declaration")
-    raise AssertionError(f"HakoReportLabel is called in none of the three report list views under {path}")
+        # Line by line, and never on a comment line: the first `HakoReportLabel(` in these files is inside
+        # the comment that explains why the guard matters, and rewriting that leaves the real call site
+        # alone - the mutation "applies" and the check correctly does not fire.
+        lines = text.split(chr(10))
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith("//"):
+                continue
+            if "HakoReportLabel(" in line:
+                lines[index] = line.replace("HakoReportLabel(", "ReportLabel(", 1)
+                write(candidate_path, chr(10).join(lines))
+                touched.append(candidate)
+                break
+    if not touched:
+        raise AssertionError(f"HakoReportLabel is called in none of the three report list views under {root}")
+    return (f"{len(touched)} report list view(s) ({', '.join(touched)}) pointed back at upstream's "
+            f"`ReportLabel` while the ported `HakoReportLabel` keeps its declaration")
 
 
 def mutate_shared_container_gains_hako_close(root: str) -> str:
