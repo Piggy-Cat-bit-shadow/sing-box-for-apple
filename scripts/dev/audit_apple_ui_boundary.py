@@ -1127,6 +1127,12 @@ class FrameworkConditions:
     #: SDK symbols the ported files use from it. Kept short and specific on purpose: a name that also
     #: exists in SwiftUI or the standard library would turn this check into noise.
     symbols: tuple[str, ...] = ()
+    #: Other `canImport(…)` atoms that equally make this framework's symbols exist, for a framework that is
+    #: a *product* of an xcframework whose umbrella module is the one a file tests. Upstream's own
+    #: `FontPickerView`/`ThemePickerView` import `GhosttyTheme` inside `#if canImport(GhosttyTerminal)`,
+    #: because both products ship together; without this the check flags six correct lines in the port of
+    #: a file it is quoting.
+    also_implied_by: tuple[str, ...] = ()
 
 
 FRAMEWORK_CONDITIONS: dict[str, FrameworkConditions] = {
@@ -1158,6 +1164,17 @@ FRAMEWORK_CONDITIONS: dict[str, FrameworkConditions] = {
     # The types this package vends are declared in this repository under the same condition, so rule (a)
     # decides them; there is no SDK symbol list to keep here.
     "GhosttyTerminal": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)"), symbols=()),
+    # `GhosttyTheme` is a second package product of the same optional xcframework, and it carries the same
+    # `platformFilters = (ios, macos, )` in `sing-box.xcodeproj/project.pbxproj`. Added after this check
+    # reported `UNDECIDABLE` on it: an unknown framework is a legitimate refusal, but a framework the tree
+    # imports conditionally *and* the project links only for two platforms is a fact this table can hold.
+    "GhosttyTheme": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)"),
+                                        symbols=("GhosttyThemeDefinition", "GhosttyThemeCatalog"),
+                                        also_implied_by=("canImport(GhosttyTerminal)",)),
+    # `FileProvider` ships on iOS and macOS. tvOS is the platform without it, which is why the ported
+    # `HakoCoreView` guards its Files-app integration with `#if os(iOS)` as the original did.
+    "FileProvider": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)"),
+                                        symbols=("NSFileProviderManager", "NSFileProviderDomain")),
 }
 
 #: What one atom implies about the others, polarity included. Two directions matter and both are
@@ -1373,7 +1390,7 @@ def check_platform_guard_agreement(root: str) -> Check:
                     f"{path}:{number}: `import {framework}` is conditional and there is no condition "
                     f"table for {framework}, so whether its use sites are guarded cannot be decided")
                 continue
-            allowed = {"canImport(%s)" % framework, *table.os_atoms}
+            allowed = {"canImport(%s)" % framework, *table.os_atoms, *table.also_implied_by}
             for number, line in enumerate(lines, 1):
                 # Sorted, because a set's iteration order varies between runs: an audit whose findings
                 # come out in a different order on every invocation cannot be compared run to run, and

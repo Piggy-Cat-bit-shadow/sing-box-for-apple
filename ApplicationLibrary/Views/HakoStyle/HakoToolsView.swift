@@ -45,12 +45,17 @@ public struct HakoToolsView: View {
         @State private var showPowerReportList = false
 
 
-        @EnvironmentObject private var sendManager: TaildropSendManager
-        @State private var sshPromptPeer: TailscalePeerData?
-        @State private var sshPromptEndpointTag: String = ""
-        @State private var sshPresentedSession: TailscaleSSHPresentedSession?
-        @State private var pendingSSHSession: TailscaleSSHPresentedSession?
-        @State private var taildropEndpointTag: String?
+        // `#if !os(tvOS)`, as the original had it (`up-hako@c1935cf .../Tools/ToolsView.swift:22-29`).
+        // Every one of these reads a symbol declared under that same condition, so without it the tvOS
+        // slice of `ApplicationLibrary` is asked to resolve types it does not have.
+        #if !os(tvOS)
+            @EnvironmentObject private var sendManager: TaildropSendManager
+            @State private var sshPromptPeer: TailscalePeerData?
+            @State private var sshPromptEndpointTag: String = ""
+            @State private var sshPresentedSession: TailscaleSSHPresentedSession?
+            @State private var pendingSSHSession: TailscaleSSHPresentedSession?
+            @State private var taildropEndpointTag: String?
+        #endif
 
 
     public init() {}
@@ -74,37 +79,50 @@ public struct HakoToolsView: View {
         // picker, and the review's item is that neither belongs in a root page's chrome: both are
         // settings, and both are on the client settings page now.
 
-        .background {
-            NavigationDestinationCompat(isPresented: Binding(
-                get: { taildropEndpointTag != nil },
-                set: { newValue in
-                    if !newValue {
-                        taildropEndpointTag = nil
+        // `#if !os(tvOS)`, as the original had it (`up-hako@c1935cf .../Tools/ToolsView.swift:58-103`).
+        // The migration resolved the original's condition and kept the body, so this page read
+        // `TaildropSendManager` and constructed `HakoTaildropView` on a platform where neither exists:
+        // both are declared under `#if !os(tvOS)` in their own files, and `ApplicationLibrary` builds for
+        // `appletvos` (`sing-box.xcodeproj/project.pbxproj:2288`/`:2330`).
+        #if !os(tvOS)
+            .background {
+                NavigationDestinationCompat(isPresented: Binding(
+                    get: { taildropEndpointTag != nil },
+                    set: { newValue in
+                        if !newValue {
+                            taildropEndpointTag = nil
+                        }
+                    }
+                )) {
+                    if let taildropEndpointTag {
+                        HakoTaildropView(endpointTag: taildropEndpointTag)
                     }
                 }
-            )) {
-                if let taildropEndpointTag {
-                    HakoTaildropView(endpointTag: taildropEndpointTag)
+            }
+            .onAppear {
+                resolveTaildropNavigation()
+            }
+            .onChangeCompat(of: environments.pendingTaildropEndpointTag) { _ in
+                resolveTaildropNavigation()
+            }
+            .onChangeCompat(of: tailscaleViewModel.endpoints.map(\.endpointTag)) { _ in
+                resolveTaildropNavigation()
+            }
+        #endif
+        // The original guards the SSH prompt sheet with `#if !os(tvOS)` too
+        // (`up-hako@c1935cf .../Tools/ToolsView.swift:58-103`): it reads `sshPromptPeer`,
+        // `pendingSSHSession`, `sshPresentedSession` and `sshPromptEndpointTag`, all of which are declared
+        // under that condition above.
+        #if !os(tvOS)
+            .platformSheet(item: $sshPromptPeer, size: PlatformSheetSize(minWidth: 360, minHeight: 220), onDismiss: {
+                if let session = pendingSSHSession {
+                    pendingSSHSession = nil
+                    sshPresentedSession = session
                 }
+            }) { peer in
+                HakoTailscaleSSHPromptView(peer: peer, endpointTag: sshPromptEndpointTag, onConnect: { session in pendingSSHSession = session })
             }
-        }
-        .onAppear {
-            resolveTaildropNavigation()
-        }
-        .onChangeCompat(of: environments.pendingTaildropEndpointTag) { _ in
-            resolveTaildropNavigation()
-        }
-        .onChangeCompat(of: tailscaleViewModel.endpoints.map(\.endpointTag)) { _ in
-            resolveTaildropNavigation()
-        }
-        .platformSheet(item: $sshPromptPeer, size: PlatformSheetSize(minWidth: 360, minHeight: 220), onDismiss: {
-            if let session = pendingSSHSession {
-                pendingSSHSession = nil
-                sshPresentedSession = session
-            }
-        }) { peer in
-            HakoTailscaleSSHPromptView(peer: peer, endpointTag: sshPromptEndpointTag, onConnect: { session in pendingSSHSession = session })
-        }
+        #endif
 
         // The original guards this construction with `#if os(iOS)` (its `ToolsView.swift:90-96`, with a
         // macOS branch that opens a window instead). `HakoTerminalSessionContainerView` is now behind
@@ -169,15 +187,22 @@ public struct HakoToolsView: View {
                                 )
                             }
 
+                            // `#if !os(tvOS)`, as the original had it
+                            // (`up-hako@c1935cf .../Tools/ToolsView.swift:152-158`).
+                            #if !os(tvOS)
                                 if sendManager.hasFailedSessions(endpointTag: endpoint.endpointTag) {
                                     Spacer()
                                     Image(systemName: "exclamationmark.circle.fill")
                                         .foregroundStyle(.red)
                                 }
+                            #endif
 
                         }
 
-                        .badge(sendManager.hasFailedSessions(endpointTag: endpoint.endpointTag) ? 0 : Int(endpoint.unreadFileCount))
+                        // `#if !os(tvOS)`, as the original had it (`:160-162`).
+                        #if !os(tvOS)
+                            .badge(sendManager.hasFailedSessions(endpointTag: endpoint.endpointTag) ? 0 : Int(endpoint.unreadFileCount))
+                        #endif
 
                     }
 
@@ -387,6 +412,11 @@ public struct HakoToolsView: View {
     }
 
 
+    // `#if !os(tvOS)`, as the original had it (`up-hako@c1935cf .../Tools/ToolsView.swift:404-458`).
+    // Both the taildrop navigation and the whole SSH prompt path read symbols declared under that
+    // condition: `taildropEndpointTag`, `sshPromptPeer`, `sshPromptEndpointTag` and
+    // `sshPresentedSession` at the top of this type, and `TailscaleSSHPresentedSession` itself.
+    #if !os(tvOS)
         private func resolveTaildropNavigation() {
             guard let requested = environments.pendingTaildropEndpointTag else { return }
             guard let endpoint = tailscaleViewModel.endpoint(tag: requested) ?? tailscaleViewModel.endpoints.first else { return }
@@ -439,5 +469,6 @@ public struct HakoToolsView: View {
                 }
             }
         }
+    #endif
 
 }
