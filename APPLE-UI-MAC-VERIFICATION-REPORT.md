@@ -637,6 +637,105 @@ the right one.
 
 ---
 
+## 6f. iPad And macOS: Code Review, Which Is The Only Review They Can Get Here
+
+By instruction the iPad and Mac clients **do not run in this environment**, so neither simulator
+nor device acceptance of those two surfaces is possible. What follows is therefore a code review,
+and it is the whole of the evidence for them. The question it answers is not "do they look right"
+but **"is upstream's UI the code these two platforms actually load"** — because if it is, the
+largest risk on those surfaces is not present, and if it is not, nothing about the build being
+green would have caught it.
+
+### The answer: yes, and it is byte-identical
+
+Every presentation file the iPad and the Mac load is **the same blob as `upstream/dev`** — not
+merely similar, the same object hash:
+
+```
+SFI/MainView.swift                                 ae10d3e5  == upstream/dev
+MacLibrary/MainView.swift                                    == upstream/dev
+ApplicationLibrary/Views/SidebarView.swift                   == upstream/dev
+ApplicationLibrary/Views/NavigationPage.swift                == upstream/dev
+ApplicationLibrary/Views/Abstract/SidebarLayout.swift        == upstream/dev
+ApplicationLibrary/Views/Abstract/NavigationSheetContent.swift == upstream/dev
+ApplicationLibrary/Views/Dashboard/DashboardView.swift       == upstream/dev
+```
+
+So "absorb upstream into iPad and Mac" is **already done, and done in the strongest available
+form.** There is no fork-owned copy of any of that presentation to drift, because there is no
+fork-owned copy at all. The family router is what makes this safe rather than accidental:
+`SFIUIFamily.resolve` returns `.upstreamPad` for everything that is not `.phone`, and the only
+file that had to change to add the whole iPhone shell is `SFI/Application.swift` — 91 insertions
+against upstream, which is the router and its two roots.
+
+### The corollary, which is the part worth reading twice
+
+`git rev-list --count HEAD..upstream/dev` is **0**. `upstream/dev` @ `089d35e` *is* the merge-base
+of this branch — the fork was cut from upstream's tip and upstream has not moved since. So there
+was no upstream commit to bring across; the absorption that mattered was the **file-level** one
+above, and it is complete.
+
+### Findings
+
+1. **`GroupListViewModel` carries a Hako-only property into two surfaces that never read it**
+   — **LOW, real, not fixed.** `testingItems` (a `@Published Set<String>`) was added for
+   `HakoGroupListView`'s per-row spinner, which is an iPhone-shell page. Nothing else reads it:
+
+   ```
+   testingItems:  written at GroupListViewModel.swift:111,115,120,123
+                  read at    HakoGroupListView.swift:237       <- the only reader
+   ```
+
+   The writes sit in `startTesting`/`stopTesting`, which are shared code paths — so an iPad or Mac
+   session that tests a group populates a set, and on every `@Published` mutation invalidates
+   `GroupView`/`HakoGroupView` observers for data no view on that platform consumes. Harmless
+   today and correct in the phone shell; **the wrong home for it**, and the kind of thing that
+   becomes a real cost the next time something on those surfaces subscribes to that view model.
+   It is left in place because removing it means giving the Hako page somewhere else to keep
+   per-member state, which is a change to a frozen page rather than a cleanup.
+
+2. **The three shared files that *were* modified against upstream are all justified** —
+   **reviewed, no action.** They are the only modifications on a path the iPad and Mac load:
+   `GlobalChecksModifier.swift` (the libbox `*StringBox` migration — `.value` on `report.message()`,
+   not optional; the pinned revision does not compile without it), `ConnectionListViewModel.swift`
+   (a subscription to `commandClient.$isConnected` that clears a spinner the tunnel being stopped
+   would otherwise never clear), and `GroupListViewModel.swift` (finding 1 above, plus the fixture
+   consolidation in §6d, which is inert outside `Variant.screenshotMode`).
+
+3. **The fixture does not reach either surface** — **verified.** Everything this round added to
+   fixture behaviour is behind `Variant.screenshotMode` (a `-FASTLANE_SNAPSHOT` launch argument) or
+   `Variant.uiTestFixtureState` (which additionally requires `-ui_testing`). A production launch on
+   any platform takes neither branch, so the iPad and Mac are untouched by it by construction
+   rather than by review.
+
+### A contradiction in the brief, stated rather than resolved
+
+Two instructions this round cannot both be satisfied as written: *"absorb upstream's things into
+the Mac and iPad"*, and *"Hako is completely independent, stop looking to upstream."* They point in
+opposite directions for the shared layer — the first wants upstream content flowing into this tree,
+the second wants the tree to stop tracking upstream at all.
+
+**The tree's own evidence resolves it, and this is the reading I applied:** Hako's independence is
+about the **iPhone presentation**, which is already a self-contained `HakoStyle` tree that upstream
+knows nothing about. Upstream is not something Hako reaches toward; it is what the **iPad and Mac**
+run, which is a product requirement from the pinned brief, and `docs/APPLE-UI-ROUTING.md` is the
+authority for it. Absorbing upstream into those two surfaces and keeping Hako independent are the
+same architecture seen from two ends, and this tree already implements it.
+
+What would break it is reading "fully independent" as *fork the shared `Library` and the iPad/Mac
+presentation too*. That would forfeit the byte-identical property above — the thing that currently
+makes the iPad and Mac reviewable at all — and it would contradict §5.2's requirement that the iPad
+run the official UI. **I did not do that**, and it should not be done without the decision being
+made explicitly.
+
+**And a standing note, since the brief says not to fall behind:** upstream will keep moving.
+`upstream/dev` has not moved since the fork was cut, so nothing is behind today — but "do not fall
+behind" and "do not look to upstream" cannot both hold the first time upstream ships. The choice to
+make then is whether the iPad and Mac keep tracking upstream (this architecture) or stop
+(this architecture inverted).
+
+---
+
 ## 7. Environment-only Blockers
 
 Every one of these was worked around; none remains a blocker.
