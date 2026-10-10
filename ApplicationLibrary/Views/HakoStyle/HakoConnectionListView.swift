@@ -201,7 +201,7 @@ public struct HakoConnectionListView: View {
             let connections = viewModel.dataModel.filteredConnections
             return HakoDataCard(palette: .system) {
                 ForEach(Array(connections.enumerated()), id: \.element.id) { index, connection in
-                    ConnectionView(connection, style: .groupedRow)
+                    HakoConnectionView(connection, style: .groupedRow)
                     // The record's own text boundary, both sides: the row no longer leads with an
                     // icon, so the divider runs the full width of the card's content area - equal
                     // insets - and the last record has none after it.
@@ -238,13 +238,13 @@ public struct HakoConnectionListView: View {
                             // desktop keeps its independent cards, which is what a window list
                             // of this kind looks like there.
                             #if os(iOS)
-                                ConnectionView(connection, style: .groupedRow)
+                                HakoConnectionView(connection, style: .groupedRow)
                                     .padding(.horizontal, HakoTheme.Spacing.standard)
                                 if index != dataModel.filteredConnections.count - 1 {
                                     HakoRowDivider(leadingInset: HakoTheme.Spacing.standard + HakoTheme.Layout.proxyGroupIconSize + HakoTheme.Spacing.row)
                                 }
                             #else
-                                ConnectionView(connection)
+                                HakoConnectionView(connection)
                             #endif
                         }
                     }

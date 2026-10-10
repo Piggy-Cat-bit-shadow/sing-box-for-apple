@@ -291,14 +291,14 @@ public struct HakoGroupListView: View {
                             ForEach(viewModel.groups, id: \.tag) { group in
                                 if group.isExpand {
                                     Section {
-                                        GroupContentView(group: group)
+                                        HakoGroupContentView(group: group)
                                             .padding(.bottom, HakoTheme.Spacing.standard)
                                     } header: {
-                                        GroupHeaderView(group: group)
+                                        HakoGroupHeaderView(group: group)
                                     }
                                 } else {
-                                    GroupHeaderView(group: group)
-                                    GroupContentView(group: group)
+                                    HakoGroupHeaderView(group: group)
+                                    HakoGroupContentView(group: group)
                                         .padding(.bottom, HakoTheme.Spacing.standard)
                                 }
                             }

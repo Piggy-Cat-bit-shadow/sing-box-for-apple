@@ -112,6 +112,68 @@ def apply_renames(text: str, mapping: dict[str, str]) -> tuple[str, dict[str, in
     return text, counts
 
 
+#: A module-scope `extension SomeType { ... }`, with its access modifiers.
+EXTENSION_DECL = re.compile(
+    r"^(?P<mods>(?:public[ \t]+|internal[ \t]+|private[ \t]+|fileprivate[ \t]+)*)"
+    r"extension\s+(?P<type>[\w.]+)\s*\{", re.M)
+
+#: A member declared at the top level of an extension body.
+EXTENSION_MEMBER = re.compile(
+    r"^[ \t]{1,8}(?P<mods>(?:(?:public|internal|private|fileprivate|nonisolated|static|class|"
+    r"override|mutating)[ \t]+)*)(?:var|let|func|subscript)\s+(?P<name>\w+)")
+
+
+def members_added_by_extensions(text: str) -> list[tuple[str, str]]:
+    """(outer type, member name) for every member added by a module-scope extension in `text`.
+
+    A ported copy declares its own `extension View { func cardSegment(...) }` because the original did.
+    Renaming the types inside it is not enough: the extension itself is module scope, so the port and
+    upstream's file both add `View.cardSegment` and the module does not build. These members need the
+    same treatment the types get, and they are found structurally - by walking each extension body with a
+    brace counter - rather than by matching names, because a name is exactly what is being changed.
+    """
+    out: list[tuple[str, str]] = []
+    for match in EXTENSION_DECL.finditer(text):
+        if re.search(r"\b(?:private|fileprivate)\b", match.group("mods") or ""):
+            continue
+        depth, index, length = 1, match.end(), len(text)
+        body_lines: list[str] = []
+        while index < length and depth > 0:
+            end = text.find("\n", index)
+            if end < 0:
+                end = length
+            line = text[index:end]
+            if depth == 1:
+                body_lines.append(line)
+            depth += line.count("{") - line.count("}")
+            index = end + 1
+        for line in body_lines:
+            found = EXTENSION_MEMBER.match(line)
+            if found and not re.search(r"\b(?:private|fileprivate)\b", found.group("mods") or ""):
+                out.append((match.group("type"), found.group("name")))
+    return out
+
+
+def shared_extension_members() -> dict[str, set[str]]:
+    """outer type -> member names the shared tree already adds, outside the Hako namespace."""
+    out: dict[str, set[str]] = {}
+    skip = {".git", ".build", ".swiftpm", "build", "docs", "Tests"}
+    for base, dirs, files in os.walk(os.path.join(ROOT, "ApplicationLibrary")):
+        dirs[:] = [d for d in dirs if d not in skip]
+        for name in files:
+            if not name.endswith(".swift"):
+                continue
+            rel = os.path.relpath(os.path.join(base, name), ROOT).replace("\\", "/")
+            if rel.startswith(HAKO_DIR):
+                continue
+            text = read(os.path.join(base, name))
+            if text is None:
+                continue
+            for outer, member in members_added_by_extensions(text):
+                out.setdefault(outer, set()).add(member)
+    return out
+
+
 def retarget(types: list[str], dry: bool) -> dict[str, list[str]]:
     """Point the phone's own files at the Hako types. Returns file -> changed type names.
 
@@ -175,6 +237,22 @@ def migrate(source: str, write: bool) -> int:
         return 0
 
     text, counts = apply_renames(resolved, mapping)
+
+    # A module-scope extension member the ported copy adds that upstream's file also adds is a duplicate
+    # declaration just as a duplicated type is, and renaming the types inside it does not help.
+    shared_members = shared_extension_members()
+    member_counts: dict[str, int] = {}
+    for outer, member in members_added_by_extensions(text):
+        if member not in shared_members.get(outer, set()):
+            continue
+        pattern = rf"(?<![\w.]){re.escape(member)}(?=\s*\()"
+        text, count = re.subn(pattern, "hako" + member[0].upper() + member[1:], text)
+        if count:
+            member_counts[f"{outer}.{member}"] = count
+    if member_counts:
+        print("  extension members renamed to avoid a shared duplicate: "
+              + ", ".join(f"{k}({v})" for k, v in member_counts.items()))
+
     text = re.sub(r"\A(?://[^\n]*\n)+", "", text)
     header = (
         f"//\n//  Hako{os.path.basename(source)}\n//  ApplicationLibrary\n//\n"
