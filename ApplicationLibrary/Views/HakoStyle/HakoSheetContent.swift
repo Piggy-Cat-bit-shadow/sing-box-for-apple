@@ -19,11 +19,26 @@
 //      /// disagree about what the page is called, which is how a sheet ends up captioned
 //      /// "Groups" while the bar above its content says "Proxies".
 //
-//  # Why the Hako pages are presented bare rather than inside `SheetContent`
+//  # Why the container, not `SheetContent`
 //
-//  `HakoGroupListView` and `HakoConnectionListView` are complete pages: each draws a
-//  `HakoWorkspaceScaffold` with its own title (`"Proxies"` / `"Activity"`), its own search strip and its
-//  own leading control. Their source says which control and why:
+//  `HakoGroupListView` and `HakoConnectionListView` are complete pages, but they are not self-contained
+//  sheets: each ends in a `HakoWorkspaceScaffold` whose chrome is applied by `.navigationTitle(...)`,
+//  `.hakoLeadingControl(...)` and `.toolbar { ... }`. Those modifiers need a navigation container above
+//  them, and neither page provides one - the original supplied it from the outside, as
+//  `SheetContent("Proxies") { GroupListView() }`.
+//
+//  Presenting them bare therefore produces a sheet with no navigation context: the title has nothing to
+//  attach to, the leading control has no bar to attach to, and the close button the original's UI test
+//  taps (`app.navigationBars.buttons["hako.nav.close"]`) does not exist. The first version of this file
+//  did exactly that and its own comment claimed a `SheetContent` wrapper would add a *second* title;
+//  that was wrong, and the scaffold's modifiers only work inside a container.
+//
+//  So this draws the one thing a sheet needs and nothing else: a single `NavigationStackCompat` and the
+//  original's presentation - `.presentationDetentsIfAvailable()`, which is `.large` with a visible drag
+//  indicator. It deliberately **does not** set `navigationTitle`, because the page's own scaffold does
+//  that and two owners for one title is how a sheet ends up captioned twice.
+//
+//  The original's own words on why the close lives where it does:
 //
 //      /// The page is a sheet on the touch client and a sidebar selection on the desktop.
 //      /// Neither is a push, so neither wears a back control: a sheet ends and a desktop
@@ -36,16 +51,33 @@
 //          #endif
 //      }
 //
-//  So a `.close` control on the sheet is the original's design, and wrapping either page in
-//  `SheetContent` would add a second navigation container and a second title over a page that already
-//  draws both. The phone presents them bare.
-//
-//  The original's `HakoNavigationUITests.swift:244` taps `app.navigationBars.buttons["hako.nav.close"]`
-//  to dismiss the Connections workspace, which is the sheet's close and comes from this scaffold - not
-//  from `NavigationSheet`.
-//
 
 import SwiftUI
+
+/// The one navigation container a phone workspace sheet needs.
+///
+/// Mirrors upstream's `SheetContent` minus the title: upstream's own `GroupsSheetContent` is
+/// `SheetContent("Groups") { GroupListView() }`, and its `navigationTitle` is what the title would
+/// otherwise have to come from. The Hako pages carry their own titles, so this takes none.
+@MainActor
+private struct HakoSheetContainer<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        #if os(iOS) || os(tvOS)
+            NavigationStackCompat {
+                content
+            }
+            .presentationDetentsIfAvailable()
+        #else
+            content
+        #endif
+    }
+}
 
 /// The Proxies workspace, presented as a sheet on the phone.
 @MainActor
@@ -53,7 +85,9 @@ public struct HakoGroupsSheetContent: View {
     public init() {}
 
     public var body: some View {
-        HakoGroupListView()
+        HakoSheetContainer {
+            HakoGroupListView()
+        }
     }
 }
 
@@ -63,6 +97,8 @@ public struct HakoConnectionsSheetContent: View {
     public init() {}
 
     public var body: some View {
-        HakoConnectionListView()
+        HakoSheetContainer {
+            HakoConnectionListView()
+        }
     }
 }

@@ -511,6 +511,15 @@ def check_no_reverse_dependency(root: str) -> Check:
 REVIEWED_UPSTREAM_MODIFICATIONS = {
     ".gitignore":
         "`__pycache__/` and `*.pyc`, for the two Python scripts under scripts/dev",
+    "ApplicationLibrary/Views/Connections/ConnectionListViewModel.swift":
+        "BEHAVIOUR FIX, cross-platform: the `commandClient.$isConnected` sink that calls "
+        "`finishLoading()` when the command client is not connected. `isLoading` starts true and only a "
+        "delivered connection list cleared it, so with the tunnel stopped - no client, nothing to "
+        "deliver - the Activity page showed a spinner for as long as it was open and its own empty state "
+        "was unreachable. The original fork has this sink; the integration dropped it. It is correct on "
+        "an iPad and a Mac too, which is why it belongs in the shared view model rather than in a "
+        "phone-only copy. `finishLoading()` is idempotent, so a disconnect after a delivered list is a "
+        "no-op",
     "ApplicationLibrary/Views/Profile/ProfileSheetHelpers.swift":
         "PROVENANCE: the `HakoCloseButton()` this file calls on its toolbar is the **original fork's own "
         "code at c1935cf** (blob b5da8118, line 90), introduced upstream by b0a71b7 \"feat(ui): give the "
