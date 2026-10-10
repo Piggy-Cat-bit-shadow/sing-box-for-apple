@@ -145,7 +145,13 @@ private struct HakoLogViewContent: View {
         }
 
         private var logMenu: AnyView {
-
+            // The original's own two-arm condition, restored. `HakoLogMenuButton` is a
+            // `UIViewRepresentable` declared under `#if canImport(UIKit)`; the migration resolved this
+            // guard and kept the iOS arm, so on macOS the reference named a type that does not exist while
+            // the declaration stayed correctly guarded. `HakoLogMenuView` is declared outside any
+            // condition, exactly as the original's `LogMenuView` is, so the fallback arm is available on
+            // every platform the shared target builds for.
+            #if canImport(UIKit)
                 if #available(iOS 16.0, *) {
                     return AnyView(HakoLogMenuButton(
                         viewModel: viewModel,
@@ -161,8 +167,9 @@ private struct HakoLogViewContent: View {
                     // UIViewRepresentable views collapse to zero size in iOS 15 toolbars
                     return AnyView(HakoLogMenuView(viewModel: viewModel, remoteServers: remoteServers))
                 }
-
-
+            #else
+                return AnyView(HakoLogMenuView(viewModel: viewModel))
+            #endif
         }
 
 
@@ -510,10 +517,17 @@ private struct HakoLogContentInnerView: View {
                 }
                 .sheet(isPresented: $showShareSheet) {
                     if let url = dataModel.logFileURL {
-
+                        // The original's own split, restored. The migration kept an iOS-only declaration
+                        // and dropped the reference's guard, so macOS was asked to parse a reference to a
+                        // type the macOS SDK does not provide. The macOS arm is the original's, renamed
+                        // into the Hako namespace the same way its sibling was: a guarded reference with an
+                        // empty sheet on macOS would compile and present nothing, which is not the
+                        // original's behaviour and not an acceptable substitute for it.
+                        #if canImport(UIKit)
                             HakoShareViewController(activityItems: [url])
-
-
+                        #elseif canImport(AppKit)
+                            HakoShareView(items: [url], alert: $alert)
+                        #endif
                     }
                 }
                 .onChange(of: dataModel.logFileURL) { newValue in
@@ -565,6 +579,39 @@ private struct HakoLogContentInnerView: View {
             }
 
             func updateUIViewController(_: UIActivityViewController, context _: Context) {}
+        }
+        #elseif canImport(AppKit)
+        /// The macOS arm of the original's share presentation
+        /// (`up-hako@c1935cf .../Log/LogView.swift:626-652`), renamed into the Hako namespace.
+        ///
+        /// The migration kept the iOS declaration and dropped this one, together with the reference's
+        /// guard, so macOS had neither a valid reference nor anything to present.
+        private struct HakoShareView: NSViewRepresentable {
+            let items: [Any]
+            @Binding var alert: AlertState?
+
+            func makeNSView(context _: Context) -> NSView {
+                NSView()
+            }
+
+            func updateNSView(_ nsView: NSView, context: Context) {
+                // updateNSView re-runs whenever the observed data model publishes;
+                // the picker must only be presented once per sheet appearance.
+                guard !context.coordinator.didShowPicker else { return }
+                context.coordinator.didShowPicker = true
+                let picker = NSSharingServicePicker(items: items)
+                DispatchQueue.main.async {
+                    picker.show(relativeTo: .zero, of: nsView, preferredEdge: .minY)
+                }
+            }
+
+            func makeCoordinator() -> Coordinator {
+                Coordinator()
+            }
+
+            final class Coordinator {
+                var didShowPicker = false
+            }
         }
         #endif
 
