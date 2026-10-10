@@ -21,8 +21,9 @@
 //    - the environment the pages read: `\.selection`, `\.importProfile`,
 //      `\.importRemoteProfile`, the two editor closures.
 //    - the global lifecycle wiring upstream's iOS root also performs: profile reload on
-//      becoming active, connecting the command client when Logs is selected, and the
-//      crash/OOM report notification.
+//      becoming active, connecting the command client when Logs is selected, the
+//      crash/OOM report notification, and the system-proxy refresh a newly connected
+//      tunnel needs (`ProfileStatusObserver`, below).
 //
 //  # What it deliberately does not own
 //
@@ -249,6 +250,49 @@ struct HakoPhoneRootView: View {
                 // put the user on the destination that contains it.
                 selection = .settings
             }
+            // The original's third `connect` site and third `reloadSystemProxy` site, in one observation
+            // because they are one event. `up-hako ActiveDashboardView.swift:112-116` observes
+            // `profile.status` and, when the tunnel reports itself connected, connects the command client
+            // and refreshes the proxy snapshot. A tunnel started *after* launch is exactly when both
+            // matter, and no other site here can see it: the `.onAppear` and `scenePhase` sites above run
+            // before it exists, and `.onReceive(environments.$extensionProfile)` fires only when the
+            // *profile object* is replaced - `environments.reload()` assigns it only while it is nil or
+            // `.invalid` (`Library/Network/ExtensionEnvironments.swift:291`) - which a status change does
+            // not do. Without this, starting the tunnel from the phone's own button left the client
+            // disconnected and the Home page's system-proxy card showing the state from before the tunnel
+            // existed.
+            .background {
+                if let profile = environments.extensionProfile {
+                    ProfileStatusObserver(profile: profile) { status in
+                        guard status?.isConnected == true else { return }
+                        environments.connect()
+                        Task { await dashboard.reloadSystemProxy() }
+                    }
+                }
+            }
+    }
+
+    /// Calls back when an `ExtensionProfile`'s status changes.
+    ///
+    /// A view whose only job is to be the observation, which is how this repository already does it
+    /// (`GlobalChecksModifier.ProfileStatusObserver`, `ConnectionLifecycleObserver`): `profile` is an
+    /// `ObservableObject`, so a `View` holding it in an `@ObservedObject` is re-evaluated when `status`
+    /// changes, and `onChangeCompat` then fires. A closure on this view cannot observe anything, which is
+    /// why the equivalent hook is a view rather than one more `.onChangeCompat` line.
+    ///
+    /// `Color.clear` so it draws nothing; the phone's root is behind it and must not shift.
+    @MainActor
+    private struct ProfileStatusObserver: View {
+        @ObservedObject var profile: ExtensionProfile
+        let onChange: (NEVPNStatus?) -> Void
+
+        var body: some View {
+            Color.clear
+                .allowsHitTesting(false)
+                .onChangeCompat(of: profile.status) { status in
+                    onChange(status)
+                }
+        }
     }
 
     private func openURL(url: URL) {
