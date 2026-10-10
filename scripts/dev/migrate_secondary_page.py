@@ -61,7 +61,6 @@ sys.path.insert(0, HERE)
 from _safety_gate import (  # noqa: E402
     Refusal,
     StagedWrites,
-    find_in_code,
     hako_symbols,
     mask_noncode,
     read_text,
@@ -96,9 +95,15 @@ PHONE_FILES = (
     "SFI/HakoPageContent.swift",
 )
 
-#: The two prefixes a write may land under. Anything else is `REVERSE_DEPENDENCY`. `HAKO_DIR` is a prefix
-#: because it is a directory; `PHONE_FILES` are exact paths.
+#: Where a write may land: the `HakoStyle/` directory (a prefix) and the two phone-owned files (exact
+#: paths). Anything else is `REVERSE_DEPENDENCY`.
 WRITABLE = (HAKO_DIR,) + PHONE_FILES
+
+
+def is_writable(rel: str) -> bool:
+    """Whether a repository-relative, `/`-separated path is inside the write set."""
+    return any(rel.startswith(prefix) if prefix.endswith("/") else rel == prefix
+               for prefix in WRITABLE)
 
 PLATFORM = "ios"
 
@@ -738,7 +743,7 @@ def build_plan(source: str, gate: str, ref: str) -> Plan:
     del second_redirections
 
     for rel in plan.writes:
-        if not (rel.startswith(HAKO_DIR) or rel in PHONE_FILES):
+        if not is_writable(rel):
             plan.refusals.append(
                 f"REVERSE_DEPENDENCY: the run would write {rel}, which is neither a HakoStyle/ file nor "
                 f"one of the two phone-owned files. Moving a shared page onto a Hako type is the reverse "

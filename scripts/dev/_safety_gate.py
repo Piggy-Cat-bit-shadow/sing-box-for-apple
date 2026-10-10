@@ -193,10 +193,6 @@ def find_in_code(text: str, pattern: str) -> list[re.Match]:
     return list(re.finditer(pattern, mask_noncode(text)))
 
 
-def count_in_code(text: str, pattern: str) -> int:
-    return len(find_in_code(text, pattern))
-
-
 def sub_in_code(text: str, pattern: str, replacement: str) -> tuple[str, int]:
     """`re.subn(pattern, replacement, text)` restricted to code. Returns `(new_text, count)`.
 

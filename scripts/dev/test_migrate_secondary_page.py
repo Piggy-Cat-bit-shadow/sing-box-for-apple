@@ -63,10 +63,10 @@ TOOL = os.path.join(HERE, TOOL_NAME)
 #: The commit every page's provenance is stated against. Quoted rather than imported so a case cannot pass
 #: by agreeing with the tool about which commit it is looking at.
 FORK_REF = "c1935cff77246f97498400f5a0a7f430cfabbd55"
-FORK_REF_NAME = "origin/hako-ui"
 
-#: The two phone-owned files, listed here rather than imported: a case that asked the tool which files it
-#: may edit would not notice the tool answering wrongly.
+#: The two phone-owned files and the Hako directory, listed here rather than imported: a case that asked
+#: the tool which files it may edit would not notice the tool answering wrongly.
+HAKO_DIR = "ApplicationLibrary/Views/HakoStyle/"
 PHONE_FILES = ("SFI/HakoPhoneRootView.swift", "SFI/HakoPageContent.swift")
 
 #: The six report pages and the references each one's migrated copy must keep, with the anchor as the
@@ -608,6 +608,11 @@ def case_fault_injection(h: Harness) -> str:
     created = [rel for rel in outputs if sha256_file(h.path(rel)) is None]
     if not created:
         raise AssertionError("the case needs at least one file the run would create")
+    outside = [rel for rel in outputs
+               if not (rel.startswith(HAKO_DIR) or rel in PHONE_FILES)]
+    if outside:
+        raise AssertionError(f"the write set reaches outside HakoStyle/ and the two phone-owned files: "
+                             f"{outside}")
 
     # (a) a deterministic failure aimed at a middle step
     h.take_snapshot()
