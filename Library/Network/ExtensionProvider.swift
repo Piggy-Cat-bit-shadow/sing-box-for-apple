@@ -26,6 +26,9 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     }
 
     public var overridePreferences: OverridePreferences?
+    #if os(iOS)
+        private var screenStateObserver: ScreenStateObserver?
+    #endif
 
     private func applyStartOptions(_ options: [String: NSObject]) throws {
         try ApplicationLocale.apply(options["locale"] as? String)
@@ -211,6 +214,11 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             throw error
         }
         writeMessage("(packet-tunnel): Here I stand")
+        #if os(iOS)
+            if let commandServer {
+                screenStateObserver = ScreenStateObserver(commandServer: commandServer)
+            }
+        #endif
         #if os(macOS)
             if Variant.useSystemExtension {
                 xpcService.markServiceReady()
@@ -303,6 +311,8 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             locationDelegate = nil
         #endif
         #if os(iOS)
+            screenStateObserver?.cancel()
+            screenStateObserver = nil
             if #available(iOS 18.0, *) {
                 ControlCenter.shared.reloadControls(ofKind: ExtensionProfile.controlKind)
             }

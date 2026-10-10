@@ -1,5 +1,4 @@
 import ApplicationLibrary
-import Combine
 import Libbox
 import Library
 import NetworkExtension
@@ -7,6 +6,7 @@ import SwiftUI
 
 struct MainView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var environments: ExtensionEnvironments
     @EnvironmentObject private var sendManager: TaildropSendManager
 
@@ -26,35 +26,9 @@ struct MainView: View {
     @State private var showGroups = false
     @State private var showConnections = false
     @State private var buttonState = ButtonVisibilityState()
-    /// A settings page the notification asked for, handed to the settings root when it exists.
-    ///
-    /// Recording it here rather than inside the settings page is what makes the request survive
-    /// the tab switch: the page is installed by that switch, so a receiver living in it misses a
-    /// notification that arrives first.
-    @State private var pendingSettingsPage: SettingsPage?
-    /// The last tunnel status a trace line reported, so a transition can show both ends.
-    ///
-    /// Kept in the view rather than derived, because `NEVPNStatus` carries no previous value and
-    /// "connected -> reasserting" is the transition this instrument exists to make visible.
-    @State private var tracedProfileStatus: String?
-
-    /// The name a trace line uses for a status.
-    ///
-    /// Defined unconditionally so the call site compiles in both configurations; in Release the only
-    /// caller discards its argument and the body inlines to nothing.
-    @inline(__always)
-    private func traceName(for status: NEVPNStatus?) -> String? {
-        guard let status else { return nil }
-        switch status {
-        case .invalid: return "invalid"
-        case .disconnected: return "disconnected"
-        case .connecting: return "connecting"
-        case .connected: return "connected"
-        case .reasserting: return "reasserting"
-        case .disconnecting: return "disconnecting"
-        @unknown default: return "unknown"
-        }
-    }
+    @State private var initializedTabs: Set<NavigationPage> = []
+    @State private var logsAccessoryHeight: CGFloat = 0
+    @State private var remoteServers: [RemoteServer] = []
 
     private let profileEditor: (Binding<String>, Bool) -> AnyView = { text, isEditable in
         AnyView(ProfileEditorWrapperView(text: text, isEditable: isEditable))
@@ -64,31 +38,141 @@ struct MainView: View {
         AnyView(GhosttyConfigEditorWrapperView(text: text))
     }
 
-    /// The primary shell.
-    ///
-    /// This used to be a `TabView` over every `NavigationPage`, which put Logs on
-    /// the tab bar next to Dashboard, Tools and Settings. The shell presents the
-    /// three first-level destinations the design calls for - Home, Tools, More - and
-    /// keeps `NavigationPage` as the state of record, so every existing entry point
-    /// (the crash-report notification, the settings notification, the deep links, the
-    /// screenshot harness) still selects the same page it always did.
-    ///
-    /// The shell no longer takes a bottom accessory. It used to: a floating runtime
-    /// pill with its own start control sat above the tab bar, so the app had two
-    /// stacked global bars and the user could not tell which one was the navigation.
-    /// Runtime state and the start control now live on Home, where the rest of the
-    /// session already is, and remote control is a toolbar chip below.
     private var tabViewContent: some View {
-        HakoPrimaryShell(
-            selection: $selection,
-            toolsBadge: environments.toolsBadgeCount + sendManager.failedSessionCount
-        ) { page in
-            tabContent(for: page)
+        TabView(selection: $selection) {
+            ForEach(NavigationPage.tabPages, id: \.self) { page in
+                NavigationStackCompat {
+                    tabContent(for: page)
+                }
+                .tag(page)
+                .tabItem { page.label }
+                .badge(page == .tools ? environments.toolsBadgeCount + sendManager.failedSessionCount : 0)
+            }
+        }
+    }
+
+    private var sidebarPages: [NavigationPage] {
+        var pages: [NavigationPage] = [.dashboard]
+        if buttonState.showGroupsButton {
+            pages.append(.groups)
+        }
+        if buttonState.showConnectionsButton {
+            pages.append(.connections)
+        }
+        pages.append(contentsOf: NavigationPage.sidebarDefaultPages)
+        return pages
+    }
+
+    @available(iOS 18.0, *)
+    private var adaptiveTabViewContent: some View {
+        TabView(selection: $selection) {
+            ForEach(sidebarPages) { page in
+                Tab(value: page) {
+                    TabBarPlacementReader { tabBarPlacement in
+                        sidebarPageContent(for: page, remoteControlInToolbar: tabBarPlacement == .sidebar)
+                    }
+                } label: {
+                    page.label
+                }
+                .badge(page == .tools ? environments.toolsBadgeCount + sendManager.failedSessionCount : 0)
+            }
+        }
+        .tabViewStyle(.sidebarAdaptable)
+        .onChangeCompat(of: sidebarPages) { pages in
+            if !pages.contains(selection) {
+                selection = .dashboard
+            }
+        }
+    }
+
+    @available(iOS 16.0, *)
+    private var splitViewContent: some View {
+        NavigationSplitView {
+            SidebarView(selection: $selection)
+        } detail: {
+            sidebarPageContent(for: selection, remoteControlInToolbar: true)
+                .id(selection)
+        }
+    }
+
+    @available(iOS 18.0, *)
+    private struct TabBarPlacementReader<Content: View>: View {
+        @Environment(\.tabBarPlacement) private var tabBarPlacement
+        @ViewBuilder let content: (TabBarPlacement?) -> Content
+
+        var body: some View {
+            content(tabBarPlacement)
+        }
+    }
+
+    private func sidebarPageContent(for page: NavigationPage, remoteControlInToolbar: Bool) -> some View {
+        NavigationStackCompat {
+            page.contentView
+                .navigationTitle(page.title)
+                .toolbar {
+                    if remoteControlInToolbar, environments.remoteServer != nil || !remoteServers.isEmpty {
+                        ToolbarItem(placement: .topBarLeading) {
+                            remoteControlPicker
+                        }
+                        if #available(iOS 26.0, *) {
+                            ToolbarSpacer(.fixed, placement: .topBarLeading)
+                        }
+                    }
+                    ToolbarItem(placement: .topBarLeading) {
+                        serviceToolbarItem
+                    }
+                }
+        }
+        .environment(\.remoteControlInToolbar, remoteControlInToolbar)
+    }
+
+    private var remoteControlPicker: some View {
+        Menu {
+            RemoteControlMenuItems(servers: remoteServers)
+        } label: {
+            Text(environments.remoteServer?.displayName ?? String(localized: "Local Device"))
+        }
+    }
+
+    @ViewBuilder
+    private var serviceToolbarItem: some View {
+        if environments.remoteServer != nil {
+            Button {
+                environments.exitRemoteControl()
+            } label: {
+                HStack(spacing: 8) {
+                    RemoteUptimeText(commandClient: environments.commandClient)
+                    Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                }
+            }
+            .accessibilityLabel("Disconnect")
+        } else {
+            StartStopButton(showsRuntimeDuration: true)
+        }
+    }
+
+    private func reloadRemoteServers() async {
+        remoteServers = await (try? RemoteServerManager.list()) ?? []
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if #available(iOS 18.0, *), SidebarLayout.isEnabled(horizontalSizeClass) {
+            adaptiveTabViewContent
+        } else if #available(iOS 16.0, *), SidebarLayout.isEnabled(horizontalSizeClass) {
+            splitViewContent
+        } else {
+            tabViewContent
+                .onAppear {
+                    if !NavigationPage.tabPages.contains(selection) {
+                        selection = .dashboard
+                    }
+                }
         }
     }
 
     var body: some View {
-        if Variant.screenshotMode, !Variant.screenshotKeepsSystemAppearance {
+        if Variant.screenshotMode {
             mainBody.preferredColorScheme(.dark)
         } else {
             mainBody
@@ -97,74 +181,187 @@ struct MainView: View {
 
     @ViewBuilder
     private func tabContent(for page: NavigationPage) -> some View {
-        page.contentView
+        let accessory = accessoryInset
+            .transaction { transaction in
+                if !initializedTabs.contains(page) {
+                    transaction.disablesAnimations = true
+                }
+            }
+        let content = page.contentView
             .navigationTitle(page.title)
-            // A root page's title is inline, not a system large title. The reference draws
-            // its own heading in the content and shows no large title on a compact root;
-            // the tab bar is what names the page. Keeping the title inline means the page
-            // starts at the first card instead of under a 50pt headline, and the title is
-            // still announced when the content scrolls.
-            .hakoInlineNavigationTitle()
-            .modifier(RemoteControlChipModifier())
-    }
-
-    /// The remote-control chip a page wears while this client drives another device.
-    ///
-    /// The remote session is global - it changes what the whole client is showing - so
-    /// it belongs in the navigation bar every page already has, rather than in a second
-    /// floating bar reserved for the one state most users are never in. The chip is also
-    /// where disconnecting lives, which it has to be: the tab bar has no room for it and
-    /// a modal "you are in remote mode" interstitial is not a thing anyone wants.
-    private struct RemoteControlChipModifier: ViewModifier {
-        @EnvironmentObject private var environments: ExtensionEnvironments
-
-        func body(content: Content) -> some View {
-            #if os(iOS)
-                content.toolbar {
-                    if environments.remoteServer != nil {
-                        ToolbarItem(placement: .topBarLeading) {
-                            RemoteControlChip(serverName: environments.remoteServer?.displayName ?? "")
+            .onAppear {
+                if !initializedTabs.contains(page) {
+                    DispatchQueue.main.async {
+                        initializedTabs.insert(page)
+                    }
+                }
+            }
+        if page == .logs {
+            content
+                .navigationBarTitleDisplayMode(.inline)
+                .overlay(alignment: .bottom) {
+                    accessory.background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(key: AccessoryHeightKey.self, value: proxy.size.height)
                         }
-                    }
+                    )
                 }
-            #else
-                content
-            #endif
-        }
-    }
-
-    #if os(iOS)
-        private struct RemoteControlChip: View {
-            @EnvironmentObject private var environments: ExtensionEnvironments
-            let serverName: String
-
-            var body: some View {
-                Menu {
-                    Section(serverName) {
-                        RemoteUptimeText(commandClient: environments.commandClient)
-                    }
-                    Button(role: .destructive) {
-                        environments.exitRemoteControl()
-                    } label: {
-                        Label("Disconnect", systemImage: "antenna.radiowaves.left.and.right.slash")
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "antenna.radiowaves.left.and.right")
-                        Text(serverName)
-                            .lineLimit(1)
-                    }
-                    .font(.footnote.weight(.medium))
+                .onPreferenceChange(AccessoryHeightKey.self) { newValue in
+                    logsAccessoryHeight = newValue
                 }
-                .accessibilityLabel(Text("Remote control: \(serverName)"))
+                .environment(\.logBottomInset, logsAccessoryHeight)
+        } else {
+            content.safeAreaInset(edge: .bottom, spacing: 0) {
+                accessory
             }
         }
-    #endif
+    }
+
+    @ViewBuilder
+    private var accessoryInset: some View {
+        if environments.remoteServer != nil {
+            remoteStatusBarPill
+        } else if let profile = environments.extensionProfile, !environments.extensionProfileLoading, !environments.emptyProfiles {
+            AccessoryInset(profile: profile) {
+                statusBarPill
+            } fab: {
+                fabInset
+            }
+        }
+    }
+
+    private var fabInset: some View {
+        HStack {
+            Spacer()
+            FABStartButton()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+    }
+
+    private var statusBarPill: some View {
+        bottomAccessoryContent
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .modifier(AccessoryPillBackgroundModifier(cornerRadius: 22))
+            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+    }
+
+    private var remoteStatusBarPill: some View {
+        remoteAccessoryContent
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .modifier(AccessoryPillBackgroundModifier(cornerRadius: 22))
+            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+    }
+
+    private var remoteAccessoryContent: some View {
+        HStack(spacing: 12) {
+            RemoteStatusText(
+                commandClient: environments.commandClient,
+                serverName: environments.remoteServer?.displayName ?? ""
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            NavigationButtonsView(
+                showGroupsButton: buttonState.showGroupsButton,
+                showConnectionsButton: buttonState.showConnectionsButton,
+                groupsCount: buttonState.groupsCount,
+                connectionsCount: buttonState.connectionsCount,
+                onGroupsTap: { showGroups = true },
+                onConnectionsTap: { showConnections = true }
+            )
+            Divider()
+            RemoteUptimeText(commandClient: environments.commandClient)
+            Button {
+                environments.exitRemoteControl()
+            } label: {
+                Label("Disconnect", systemImage: "antenna.radiowaves.left.and.right.slash")
+                    .labelStyle(.iconOnly)
+            }
+        }
+        .padding(.horizontal)
+        .tint(.primary)
+        .buttonStyle(BarItemButtonStyle())
+    }
+
+    private struct RemoteStatusText: View {
+        @ObservedObject var commandClient: CommandClient
+        let serverName: String
+
+        var body: some View {
+            statusText
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+
+        private var statusText: Text {
+            if commandClient.isConnected {
+                return Text(serverName)
+            } else {
+                return Text("Connecting...")
+            }
+        }
+    }
+
+    private struct AccessoryPillBackgroundModifier: ViewModifier {
+        let cornerRadius: CGFloat
+        func body(content: Content) -> some View {
+            if #available(iOS 26.0, *), !Variant.debugNoIOS26 {
+                content.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            } else {
+                content.background(.bar, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            }
+        }
+    }
+
+    private var bottomAccessoryContent: some View {
+        HStack(spacing: 12) {
+            if let profile = environments.extensionProfile {
+                StatusText(profile: profile)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+            NavigationButtonsView(
+                showGroupsButton: buttonState.showGroupsButton,
+                showConnectionsButton: buttonState.showConnectionsButton,
+                groupsCount: buttonState.groupsCount,
+                connectionsCount: buttonState.connectionsCount,
+                onGroupsTap: { showGroups = true },
+                onConnectionsTap: { showConnections = true }
+            )
+            Divider()
+            StartStopButton(showsRuntimeDuration: true)
+        }
+        .padding(.horizontal)
+        .tint(.primary)
+        .buttonStyle(BarItemButtonStyle())
+    }
+
+    private struct BarItemButtonStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .opacity(configuration.isPressed ? 0.5 : 1)
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        }
+    }
 
     private var mainBody: some View {
-        tabViewContent
+        rootContent
             .onAppear {
                 updateButtonVisibility()
+                Task { await reloadRemoteServers() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .remoteServersUpdated)) { _ in
+                Task { await reloadRemoteServers() }
             }
             .onReceive(environments.commandClient.$groups) { _ in
                 Task { @MainActor in updateButtonVisibility() }
@@ -190,43 +387,20 @@ struct MainView: View {
             .onReceive(environments.$extensionProfile) { _ in
                 Task { @MainActor in updateButtonVisibility() }
             }
-            .onReceive(
-                environments.$extensionProfile
-                    .map { self.traceName(for: $0?.status) }
-                    .removeDuplicates()
-            ) { tracedName in
-                // The tunnel's own life cycle: connecting -> connected -> reasserting -> connected.
-                // Traced from the root rather than the accessory, so the transition is recorded even
-                // while a sheet or a child page covers the accessory - which is exactly when "the UI
-                // never showed Reasserting" is hard to tell from "it never happened".
-                //
-                // Deduplicated on the name: repeated object publications are common, and a trace line
-                // only means something when the state actually moved.
-                HakoUITrace.transition(
-                    "profile",
-                    from: tracedProfileStatus,
-                    to: tracedName,
-                    source: "MainView.onReceive(extensionProfile.status)"
-                )
-                tracedProfileStatus = tracedName
-            }
             .onReceive(environments.$emptyProfiles) { _ in
                 Task { @MainActor in updateButtonVisibility() }
             }
             .sheet(isPresented: $showGroups) {
                 GroupsSheetContent()
-                    .hakoTracePresentation("sheet groups", isPresented: $showGroups)
             }
             .sheet(isPresented: $showConnections) {
                 ConnectionsSheetContent()
-                    .hakoTracePresentation("sheet connections", isPresented: $showConnections)
             }
             .onChangeCompat(of: buttonState.showGroupsButton) { newValue in
                 if !newValue {
                     showGroups = false
                 }
             }
-            .onAppear { applyScreenshotFixture() }
             .onChangeCompat(of: buttonState.showConnectionsButton) { newValue in
                 if !newValue {
                     showConnections = false
@@ -247,85 +421,24 @@ struct MainView: View {
                     environments.connect()
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .reportReceived)) { notification in
-                let reportType = notification.object as? ReportType
-                HakoUITrace.event(
-                    "report-received \(reportType.map(String.init(describing:)) ?? "unknown")",
-                    source: "MainView.onReceive(reportReceived)"
-                )
+            .onReceive(NotificationCenter.default.publisher(for: .reportReceived)) { _ in
                 Task {
                     await environments.crashReportManager.refresh()
                     await environments.oomReportManager.refresh()
-                    navigate(to: .tools, source: "MainView.onReceive(reportReceived)")
+                    selection = .tools
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsPage)) { notification in
-                guard let page = notification.object as? SettingsPage else { return }
-                HakoUITrace.event(
-                    "settings-requested \(page)",
-                    source: "MainView.onReceive(navigateToSettingsPage)"
-                )
-                pendingSettingsPage = page
-                navigate(to: .settings, source: "MainView.onReceive(navigateToSettingsPage)")
+                guard notification.object is SettingsPage else { return }
+                selection = .settings
             }
-            .environment(\.pendingSettingsPage, $pendingSettingsPage)
             .environment(\.selection, $selection)
-            .environment(
-                \.hakoHomeActions,
-                HakoHomeActions(
-                    showGroups: { showGroups = true },
-                    showConnections: { showConnections = true }
-                )
-            )
             .environment(\.importProfile, $importProfile)
             .environment(\.importRemoteProfile, $importRemoteProfile)
             .environment(\.profileEditor, profileEditor)
             .environment(\.ghosttyConfigEditor, ghosttyConfigEditor)
             .handlesExternalEvents(preferring: [], allowing: ["*"])
             .onOpenURL(perform: openURL)
-    }
-
-    /// Opens the page, sheet or settings sub-page the screenshot harness asked for.
-    ///
-    /// `SCREENSHOT_PAGE` already chose a first-level page through `NavigationPage`; this
-    /// extends it to the pages that are not tabs and to the sheets, so every screen in the
-    /// client can be captured with one launch and no interaction.
-    private func applyScreenshotFixture() {
-        guard Variant.screenshotMode,
-              let raw = ProcessInfo.processInfo.environment["SCREENSHOT_PAGE"]?
-              .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        else {
-            return
-        }
-        switch raw {
-        case "proxies", "groups":
-            selection = .dashboard
-            showGroups = true
-        case "activity", "connections":
-            selection = .dashboard
-            showConnections = true
-        default:
-            if let page = SettingsPage(snapshotValue: raw) {
-                selection = .settings
-                pendingSettingsPage = page
-            }
-        }
-    }
-
-    /// The one place a programmatic navigation decision is written back to `selection`.
-    ///
-    /// Named rather than open-coded so the trace records the decision and its origin together:
-    /// "the report notification moved it to Tools" is what a reader needs, and the previous value is
-    /// still visible here because these are the transitions that happen away from a tap - the ones
-    /// that cannot be reproduced by pressing a control and watching.
-    private func navigate(to page: NavigationPage, source: StaticString) {
-        HakoUITrace.transition(
-            "selection",
-            from: String(selection.rawValue),
-            to: String(page.rawValue),
-            source: source
-        )
-        selection = page
     }
 
     private func updateButtonVisibility() {
@@ -340,6 +453,101 @@ struct MainView: View {
         }
         if newState != buttonState {
             buttonState = newState
+        }
+    }
+
+    private struct AccessoryHeightKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
+    }
+
+    private struct AccessoryInset<StatusBar: View, FAB: View>: View {
+        @ObservedObject var profile: ExtensionProfile
+        @ViewBuilder let statusBar: () -> StatusBar
+        @ViewBuilder let fab: () -> FAB
+
+        var body: some View {
+            ZStack(alignment: .bottomTrailing) {
+                if profile.status == .disconnected {
+                    fab()
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    statusBar()
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: profile.status)
+        }
+    }
+
+    private struct FABStartButton: View {
+        @EnvironmentObject private var environments: ExtensionEnvironments
+        @State private var alert: AlertState?
+
+        var body: some View {
+            Button {
+                guard let profile = environments.extensionProfile else { return }
+                Task {
+                    do {
+                        try await profile.start()
+                    } catch {
+                        alert = AlertState(action: "start service", error: error)
+                    }
+                }
+            } label: {
+                Label("Start", systemImage: "play.fill")
+                    .labelStyle(.iconOnly)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 56, height: 56)
+                    .modifier(FABBackgroundModifier())
+                    .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(environments.extensionProfile == nil || environments.emptyProfiles)
+            .alert($alert)
+        }
+
+        private struct FABBackgroundModifier: ViewModifier {
+            func body(content: Content) -> some View {
+                if #available(iOS 26.0, *), !Variant.debugNoIOS26 {
+                    content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                } else {
+                    content.background(.bar, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+            }
+        }
+    }
+
+    private struct StatusText: View {
+        @ObservedObject var profile: ExtensionProfile
+
+        var body: some View {
+            statusText
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+        }
+
+        private var statusText: Text {
+            switch profile.status {
+            case .disconnected:
+                return Text("Stopped")
+            case .connecting:
+                return Text("Starting")
+            case .connected:
+                return Text("Started")
+            case .reasserting:
+                return Text("Reasserting")
+            case .disconnecting:
+                return Text("Stopping")
+            default:
+                return Text("Unknown")
+                    .foregroundColor(.red)
+            }
         }
     }
 

@@ -93,16 +93,40 @@ public extension NavigationPage {
             return .tools
         case .settings:
             return .more
-        #if os(macOS)
-            case .groups, .connections:
-                return .tools
-        #endif
+        case .groups, .connections:
+            return .tools
         }
     }
 
     /// Whether this page is a primary's root rather than a child pushed inside it.
     var isHakoPrimaryRoot: Bool {
         self == hakoPrimary.rootPage
+    }
+
+    /// The name the Hako presentation shows for a page.
+    ///
+    /// `NavigationPage` carries upstream's vocabulary - Dashboard, Groups, Settings - because it is
+    /// shared with the Mac and iPad presentations, which are upstream's. The Hako phone names its
+    /// pages differently, and a name is presentation, so the mapping lives here with the rest of the
+    /// Hako presentation instead of in the shared enum.
+    ///
+    /// This is the only reason the phone's navigation-bar title still reads "Home" and "More" now
+    /// that `NavigationPage` has been restored to upstream.
+    var hakoTitle: String {
+        switch self {
+        case .dashboard:
+            return String(localized: "Home")
+        case .groups:
+            return String(localized: "Proxies")
+        case .settings:
+            return String(localized: "More")
+        case .connections:
+            return String(localized: "Connections")
+        case .logs:
+            return String(localized: "Logs")
+        case .tools:
+            return String(localized: "Tools")
+        }
     }
 }
 

@@ -51,11 +51,12 @@ isolates Hako's work from ordinary upstream drift.
 
 ## 1. Branch roles
 
-Five branches exist on the fork. Only `hako-ui` carries Hako work.
+Only `hako-ui` and `ipad-upstream-ui` carry fork work.
 
 | Branch | Role | Hako work? | Notes |
 | --- | --- | --- | --- |
 | `hako-ui` | **Product branch.** Hako UI + Hako data/network layer. | **Yes** — 80 commits | Only branch containing Hako work. Pinned by the parent submodule. |
+| `ipad-upstream-ui` | Presentation split: iPhone keeps Hako, iPad/macOS take upstream presentation. | Carries the split + branding | Cut from `hako-ui`. Also carries the `Jiejiebox` display-name change. |
 | `dev` | Fork's mirror of the upstream development channel, carrying a small amount of fork-local platform work. | Partly | Default branch of the fork. 3 fork commits ahead, 11 upstream commits behind. |
 | `main` | Upstream release-channel mirror. | No | Exact ancestor of `origin/dev`; 8 commits behind upstream. |
 | `stable` | Upstream stable-channel mirror. | No | Byte-identical to `upstream/stable`. |
@@ -89,6 +90,62 @@ This is the single most important structural fact in the audit and it is easy to
 Consequence: **`git diff origin/dev hako-ui` is not a Hako diff.** It mixes Hako's UI work
 with 56 files of fork-platform work and 11 releases of upstream drift. All classification
 below therefore uses `2b1763a` as the baseline instead.
+
+---
+
+## 1b. Presentation ownership — the rule that decides every conflict
+
+Ownership is not one axis. There are **two**, and conflating them is what made the first attempt at
+the iPad work wrong. The correction:
+
+> **We override iPhone presentation only. Upstream owns iPad and macOS presentation.**
+
+| Surface | Design authority | Owner |
+| --- | --- | --- |
+| iPhone presentation | The validated Hako UI | **Hako** |
+| iPad presentation | Current SagerNet upstream | **Upstream** |
+| macOS presentation | Current SagerNet upstream | **Upstream** |
+| Product display name | `Jiejiebox`, on all three platforms | **Fork (branding)** |
+| Shared application/core state | One set of objects, both families | Shared |
+
+### What this forbids
+
+Forking a second copy of upstream presentation in order to have an "iPad version":
+
+```
+IPadMainView            ✗  a re-implementation of upstream's root
+IPadNavigationPage      ✗  a second navigation enum
+IPadSidebarView         ✗  a copy of upstream's SidebarView
+IPadSidebarLayout       ✗  a copy of upstream's SidebarLayout
+IPadUpstream/           ✗  a maintained mirror of upstream presentation
+```
+
+iPad must run **upstream's implementation**. Where a Hako modification stands in the way, the fix is
+to **isolate the Hako behaviour out of the shared presentation** — not to fork the presentation.
+
+### Conflict-resolution order
+
+```
+iPhone presentation       -> Hako wins
+iPad / macOS presentation -> upstream wins
+product branding          -> Jiejiebox wins (all three)
+shared business logic     -> prefer upstream/shared; never copy without reason
+```
+
+### The freeze, restated precisely
+
+Earlier revisions of this document said "every Swift source file is frozen". That was too broad and
+is corrected here:
+
+> **The validated iPhone user experience is frozen — not every shared file that Hako has touched.**
+
+To restore upstream ownership of iPad/macOS presentation it is *permitted* to extract a Hako
+adapter, split platform presentation, or restore an upstream version of a shared file — **provided
+the iPhone UI and interaction do not change by one pixel**, proved by the snapshot, navigation and
+runtime tests.
+
+`ApplicationLibrary/Views/HakoStyle/` remains a high-protection zone: do not modify it if the
+isolation can be achieved without doing so.
 
 ---
 
@@ -579,29 +636,145 @@ mutations are Git branch metadata (§9.2).
 
 ---
 
-## 11. Summary
+## 11b. PRODUCT_BRANDING — the cross-platform fork overlay
+
+`PRODUCT_BRANDING` is deliberately **not** a kind of Hako ownership. The two have opposite reach:
+
+```
+Hako presentation   -> iPhone only
+Jiejiebox branding  -> iPhone + iPad + macOS
+```
+
+Conflating them is dangerous in both directions: treating branding as "Hako UI" would lose it on
+iPad and macOS, and treating Hako UI as branding would push the Hako shell onto platforms that must
+stay upstream.
+
+### 11b.1 Branding commits in history
+
+**There are none.** This is a finding, not an omission:
+
+```bash
+git log -S'Jiejiebox' --all --oneline   # -> empty
+git grep -i jiejiebox                    # -> no tracked file contains it
+```
+
+`Jiejiebox` has never existed in this repository or anywhere in its history, on any branch. The
+display name was upstream's `sing-box` everywhere, and Hako never touched it either:
+
+```bash
+git diff 2b1763a hako-ui -- sing-box.xcodeproj/project.pbxproj | grep -iE 'CFBundle|PRODUCT_NAME'
+# -> empty: Hako changed the deployment target, not the name
+```
+
+So there was no historic branding change to restore or preserve. The branding overlay is
+**introduced by this work**, in commit `docs/ipad`-series on `ipad-upstream-ui`.
+
+### 11b.2 Where the displayed name actually comes from
+
+Not from any `Info.plist` file — every one of them omits both `CFBundleDisplayName` and
+`CFBundleName`. It comes from the Xcode build setting `INFOPLIST_KEY_CFBundleDisplayName`, which is
+synthesised into the generated `Info.plist` because `GENERATE_INFOPLIST_FILE = YES`.
+
+The name is set in **12 places**, one per app/extension target's Debug and Release configuration:
+
+| Lines | Target | Platform | Value |
+| --- | --- | --- | --- |
+| 3108, 3152 | `SFI` | iOS app (**iPhone + iPad**) | **`Jiejiebox`** |
+| 3198, 3237 | `SFM` | macOS app | **`Jiejiebox`** |
+| 2683, 2719 | `SFT` | tvOS app | `sing-box` (out of scope) |
+| 3383, 3431 | `SFM.System` | macOS system extension | `SFMExtension` |
+| 3473, 3515 | `SystemExtension` | system extension | `sing-box` |
+| 3626, 3665 | `ShareExtension` | share extension | `sing-box` |
+| 3781, 3817 | `ShareExtension.System` | share extension | `sing-box` |
+| 2191, 2232 | `Extension` | network extension | `Extension` |
+| 2484, 2523 | `IntentsExtension` | intents | `IntentsExtension` |
+| 2614, 2647 | `FileProviderExtension` | file provider | `FileProviderExtension` |
+| 2753, 2789 | `TVExtension` | tvOS extension | `TVExtension` |
+| 2828, 2859 | `WidgetExtension` | widget | `WidgetExtension` |
+
+**Only 4 lines changed** (SFI Debug/Release + SFM Debug/Release). Extensions are not apps and keep
+their upstream names.
+
+`SFI` alone covers iPhone *and* iPad — `TARGETED_DEVICE_FAMILY = "1,2"` — so one product serves both
+and they cannot disagree.
+
+### 11b.3 Deliberately NOT changed
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| `PRODUCT_NAME` | `sing-box` | Renaming it changes the `.app` filename and build outputs, which the parent repo's CI scripts consume. Display name and product name are `CFBundleDisplayName` vs `CFBundleName` and are independent; only the displayed one was in scope. |
+| `PRODUCT_BUNDLE_IDENTIFIER` | `io.nekohasekai.sfamt` | Never change — signing, App Groups and the parent build all depend on it. |
+| `Variant.applicationName` | `SFI` / `SFM` / `SFT` | Internal identifier, not a display name. It feeds the HTTP `User-Agent`, the VPN profile's `localizedDescription` and Siri intent phrases. Renaming it would change what servers see and what the system VPN list shows — a behavioural change, not branding. |
+| Target / scheme / module / directory names | `SFI`, `SFM`, … | Internal. Renaming creates Xcode churn for no user-visible gain. |
+| `sing-box` as a *project* name in prose ("sing-box version", "sing-box documentation") | unchanged | Those refer to the kernel/project, not the app. They must not be rebranded. |
+
+### 11b.3a One related user-visible name is still un-rebranded — needs a decision
+
+`Variant.applicationName` is `"SFI"` (iOS) / `"SFM"` (macOS) / `"SFT"` (tvOS), and it is not purely
+internal. It reaches the user in two places that this change deliberately left alone:
+
+| Site | Effect | User-visible? |
+| --- | --- | --- |
+| `Library/Network/ExtensionProfile.swift:356` — `manager.localizedDescription = Variant.applicationName` | The tunnel profile's name in iOS **Settings › VPN** | **Yes** — a user who opens Settings sees `SFI`, not `Jiejiebox` |
+| `IntentsExtension/Intents.swift:199-223` — Siri phrases `"Start \(applicationName)"` | Spoken phrases | Yes, as speech |
+| `Library/Network/HTTPClient.swift:9` — `User-Agent` | What a subscription server sees | No |
+
+It was **not** changed here because it is not the app display name, and changing it alters what
+servers receive (a behavioural change, not branding) and would need a product decision about what
+the VPN profile and the Siri phrases should say. Flagged rather than assumed.
+
+### 11b.4 Upstream-sync rule for branding
+
+Branding will conflict on every upstream sync, because upstream owns line 3108/3152/3198/3237 and
+will keep writing `sing-box` there. The standing rule:
+
+> On an upstream merge, **UI/layout/navigation: upstream wins on iPad/macOS. App display name:
+> `Jiejiebox` wins on all three.** Never restore the app name to `sing-box` while restoring
+> upstream UI.
+
+---
+
+## 11c. Summary
+
+### Ownership model
+
+The model is deliberately **not** "everything the fork changed is Hako". Each class answers a
+different question — who owns the pixels, who owns the name, and who merely shipped the feature:
 
 ```
 PURE_UPSTREAM ...................... 315 untouched + 53 upstream-drift-only paths
-HAKO_OWNED ......................... 45 added (11 HakoStyle, 4 network/database, 2 UITests, 24 test pkg, 4 scripts)
-UPSTREAM_MODIFIED_BY_HAKO .......... 44 modified + 42 conflict-zone + xcstrings + pbxproj
+UPSTREAM_DRIFT ..................... same 53, seen from the fork's side
+HAKO_IPHONE_PRESENTATION ........... 45 added (11 HakoStyle, 4 network/database, 2 UITests,
+                                     24 test pkg, 4 scripts) + Hako's edits inside the 44
+UPSTREAM_MODIFIED_FOR_HAKO_IPHONE .. 44 modified + 42 conflict-zone
 HAKO_GLUE / INTEGRATION_BOUNDARY ... SFI/MainView.swift, MacLibrary/MainView.swift,
                                      EnvironmentValues.swift, NavigationPage.swift,
                                      NavigationSheetContent.swift, ExtensionEnvironments.swift
-HAKO_TEST .......................... SFIUITests/Hako*UITests.swift, Tests/HakoSubscriptionUsage/
-HAKO_DEV_TOOL ...................... scripts/dev/check-hako-primary-route.{sh,swift},
+PRODUCT_BRANDING ................... 4 build-setting lines; iPhone + iPad + macOS; §11b
+FORK_PLATFORM_FEATURE .............. the 3 fork `dev` commits (helper XPC, platform auto
+                                     redirect, version bump) — not Hako, not upstream
+TEST_TOOLING ....................... SFIUITests/Hako*UITests.swift, Tests/HakoSubscriptionUsage/,
+                                     scripts/dev/check-hako-primary-route.{sh,swift},
                                      scripts/link-test-sources.sh,
-                                     scripts/run-subscription-usage-tests.sh
+                                     scripts/run-subscription-usage-tests.sh,
+                                     scripts/dev/check-iphone-hako-freeze.sh
 UPSTREAM_ADDED_AFTER_FORK_POINT .... 9 files, never merged by Hako (incl. iPad adaptation)
 HAKO_DELETED ....................... 1 file (InstallProfileButton.swift)
 UNKNOWN / NEEDS_FUTURE_AUDIT ....... none — all 510 union paths classified
                                      (509 regular files + 1 unchanging gitlink; see §3.1–§3.3)
 ```
 
+The distinction that matters most:
+
+```
+HAKO_IPHONE_PRESENTATION  ->  iPhone only
+PRODUCT_BRANDING          ->  iPhone + iPad + macOS
+```
+
 ### Branch cleanup outcome
 
 ```
-KEEP ................. hako-ui, dev, main, stable
+KEEP ................. hako-ui, ipad-upstream-ui, dev, main, stable
 DELETED ............... wip (fork only) @ b3714ed957cb1505600943ca2bc15db9ef7a3222
 ```
 
@@ -612,5 +785,7 @@ commits that reach into 86 upstream files, of which **42 are fresh conflict mate
 current upstream. The `HakoStyle/` directory is only **11 of the 45 files Hako added** and a
 small fraction of Hako's actual footprint. The real boundary is `SFI/MainView.swift`.
 
-**iPhone Hako UI is frozen.** This round moved nothing, renamed nothing, and reformatted
-nothing. If tidying the tree and preserving the current iPhone UI ever conflict, the UI wins.
+**The validated iPhone experience is frozen** — and only that. iPad and macOS presentation belongs
+to upstream; where a Hako edit stands in the way, isolate the Hako behaviour rather than fork the
+presentation. Product branding is a separate, cross-platform overlay in which `Jiejiebox` wins on
+all three. If tidying the tree and preserving the current iPhone UI ever conflict, the UI wins.
