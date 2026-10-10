@@ -487,9 +487,18 @@ def main(argv: list[str] | None = None) -> int:
     # and fails the run, and a design-system comparison that did not reach every file is reported as
     # incomplete rather than printed with a count nobody checked.
     expected_pages = [port for port in PORTS if args.only in (None, port["group"])]
+    # `pages_compared` counts the pages a token comparison actually reached, which is **not** every page
+    # that is not `UNVERIFIED`. It used to be exactly that, and a destination file that does not exist is
+    # `MISSING_OR_DIFFERENT` - it returns before any comparison - so a tree with all six ported pages
+    # deleted reported `pages_compared` 6 of 6 and `lost_tokens` 0. `test_fail_closed_exit_codes.py`
+    # asserts those two figures as its evidence that "every page was compared, not skipped", and both were
+    # satisfied by the empty tree. The statuses below are the ones `audit_port` sets *after* comparing.
+    COMPARED_STATUSES = frozenset({"SOURCE_EQUIVALENT", "ADAPTED_NO_UI_DELTA"})
     coverage = {
         "pages_expected": len(expected_pages),
-        "pages_compared": len([r for r in results if r["status"] != "UNVERIFIED"]),
+        "pages_compared": len([r for r in results if r["status"] in COMPARED_STATUSES]),
+        "pages_unreadable_or_missing": len([r for r in results
+                                            if r["status"] == "MISSING_OR_DIFFERENT"]),
         "design_system_compared": (design or {}).get("checked", 0),
         "design_system_expected": (design or {}).get("expected", 0),
         "selected_by_only": args.only,

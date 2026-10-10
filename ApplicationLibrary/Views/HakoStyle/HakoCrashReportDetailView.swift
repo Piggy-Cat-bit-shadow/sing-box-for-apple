@@ -31,10 +31,10 @@ public struct HakoCrashReportDetailView: View {
         @State private var includeConfig = false
         @State private var includeLog = true
         @State private var useAgeEncryption = false
-        // `#if !os(tvOS)`, as the original has it: `ReportShareAction` is declared under that condition in
+        // `#if !os(tvOS)`, as the original has it: `HakoReportShareAction` is declared under that condition in
     // `ApplicationLibrary/Views/Tools/ReportShared.swift:135`, and only the share sheet above reads this.
     #if !os(tvOS)
-        @State private var pendingAction: ReportShareAction?
+        @State private var pendingAction: HakoReportShareAction?
     #endif
 
 
@@ -142,7 +142,7 @@ public struct HakoCrashReportDetailView: View {
                     alert = AlertState(action: "save crash report", error: error)
                 }
             }
-            // `#if !os(tvOS)`, as the original has it: `ReportShareAction` is declared under that
+            // `#if !os(tvOS)`, as the original has it: `HakoReportShareAction` is declared under that
             // condition in `ApplicationLibrary/Views/Tools/ReportShared.swift:135`, and this sheet is the
             // only thing that reads the property holding one. Wrapping the modifier rather than the
             // property alone keeps every read of it inside the same condition, which is the pairing the

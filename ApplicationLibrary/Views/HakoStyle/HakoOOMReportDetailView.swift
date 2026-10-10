@@ -31,11 +31,11 @@ public struct HakoOOMReportDetailView: View {
         @State private var includeConfig = false
         @State private var includeLog = true
         @State private var useAgeEncryption = false
-    // `#if !os(tvOS)`, as the original has it: `ReportShareAction` is declared under that condition in
+    // `#if !os(tvOS)`, as the original has it: `HakoReportShareAction` is declared under that condition in
     // `ApplicationLibrary/Views/Tools/ReportShared.swift:135`, and only the share sheet below reads
     // this property.
     #if !os(tvOS)
-        @State private var pendingAction: ReportShareAction?
+        @State private var pendingAction: HakoReportShareAction?
     #endif
 
 

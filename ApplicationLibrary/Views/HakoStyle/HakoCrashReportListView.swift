@@ -86,8 +86,12 @@ public struct HakoCrashReportListView: View {
     }
 
     private func reportLabel(_ report: CrashReport) -> some View {
-
-
+        // The original's own two-arm condition, restored: `ReportLabel` is the tvOS arm and the
+        // navigation row is every other platform's. Collapsing it removed the only caller the
+        // ported `HakoReportLabel` ever had, which left it declared and unreachable.
+        #if os(tvOS)
+            HakoReportLabel(date: report.date, isRead: report.isRead, origin: report.origin)
+        #else
             HakoNavigationRow(
                 title: report.date.formatted(date: .abbreviated, time: .shortened),
                 subtitle: report.origin == ReportArchive.tvOSDeviceOrigin
@@ -98,6 +102,7 @@ public struct HakoCrashReportListView: View {
                 badge: report.isRead ? nil : String(localized: "Unread"),
                 badgeEmphasis: .info
             )
+        #endif
 
     }
 }

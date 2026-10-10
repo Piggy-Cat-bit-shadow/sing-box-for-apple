@@ -138,6 +138,68 @@ def case_lossless_missing_original(script: str, root: str, unreachable: str) -> 
     return bool(ok)
 
 
+def case_lossless_missing_pages(root: str, scripts: str) -> bool:
+    """A tree whose ported pages are **gone** must not report that every page was compared.
+
+    The negative half of `lossless-positive`, and the case that was missing: `pages_compared` counted every
+    page that was not `UNVERIFIED`, and a page whose file does not exist is `MISSING_OR_DIFFERENT` - it
+    returns before any token comparison - so a tree with all six pages deleted reported `pages_compared`
+    6 of 6 and `lost_tokens` 0. Both of those are exactly what `lossless-positive` asserts as its evidence
+    that "every page was compared, not skipped" and that "no UI token was lost", so without this case the
+    positive assertions were satisfiable by an empty tree and the only thing actually holding was the exit
+    code. Verified by deleting the pages in a disposable copy. See `_work/r8/redteam/REDTEAM-FINDINGS.json`
+    M-4.
+    """
+    case = Case("lossless-missing-pages")
+    ok = True
+    script = os.path.join(scripts, "audit_hako_lossless_parity.py")
+    import shutil
+    import tempfile
+
+    # The page list comes from the audit under test rather than being restated here: a copy of it would
+    # drift, and this case would then delete a set of files the tool no longer looks at.
+    sys.path.insert(0, scripts)
+    try:
+        import audit_hako_lossless_parity
+
+        pages = [port["destination"] for port in audit_hako_lossless_parity.PORTS]
+    except Exception as error:  # noqa: BLE001
+        return case.check(False, f"the page list could not be read from the audit under test: {error}")
+
+    workspace = tempfile.mkdtemp(prefix="hako-parity-missing-")
+    try:
+        copy = os.path.join(workspace, "checkout")
+        shutil.copytree(root, copy, symlinks=True,
+                        ignore=shutil.ignore_patterns("__pycache__", ".git"))
+        deleted = []
+        for relative in pages:
+            path = os.path.join(copy, relative.replace("/", os.sep))
+            if os.path.exists(path):
+                os.remove(path)
+                deleted.append(relative)
+        if not deleted:
+            return case.check(False, "no ported page was found to delete, so this case proves nothing")
+        code, text = run(script, copy, "--json")
+        try:
+            payload = json.loads(text)
+        except ValueError as error:
+            return case.check(False, f"--json did not emit JSON: {error}")
+        coverage = payload.get("coverage") or {}
+        ok &= case.check(code != 0, f"a tree with no ported pages exits non-zero (exit {code})")
+        ok &= case.check(payload.get("verdict") != "STATIC_LOSSLESS_PORT_READY_FOR_APPLE_ACCEPTANCE",
+                         f"the verdict is not the ready one ({payload.get('verdict')})")
+        ok &= case.check(coverage.get("pages_compared") == 0,
+                         f"no page is reported as compared "
+                         f"(pages_compared={coverage.get('pages_compared')}, "
+                         f"deleted {len(deleted)})")
+        ok &= case.check(coverage.get("pages_unreadable_or_missing") == len(deleted),
+                         f"every deleted page is accounted for as missing "
+                         f"({coverage.get('pages_unreadable_or_missing')} of {len(deleted)})")
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+    return bool(ok)
+
+
 def case_lossless_positive(script: str, root: str) -> bool:
     """The healthy tree must still pass, or the negative case above proves nothing."""
     case = Case("lossless-positive")
@@ -183,6 +245,7 @@ def main() -> int:
     results = [
         case_lossless_missing_original(lossless, root, os.path.dirname(os.path.dirname(scripts))),
         case_lossless_positive(os.path.join(HERE, "audit_hako_lossless_parity.py"), root),
+        case_lossless_missing_pages(root, os.path.dirname(os.path.abspath(__file__))),
     ]
 
     print()

@@ -320,6 +320,82 @@ def mutate_environment_key_removed(root: str) -> str:
 
 
 
+def mutate_guarded_use_outside_hako_namespace(root: str) -> str:
+    """The H-2 hole: an unguarded use of a platform-guarded type, one directory outside `HakoStyle/`.
+
+    `platform-guard-agreement` used to walk `HakoStyle/` alone, so this exact line reported PASS while the
+    identical line inside `HakoStyle/` reported FAIL. The target is what compiles a file:
+    `ApplicationLibrary` is one synchronized group whose `SUPPORTED_PLATFORMS` includes `appletvos`
+    (`project.pbxproj:2288`), so a use here is compiled for the same platforms and is the same defect.
+
+    `HakoEditorToolbarView` is declared under `#if os(iOS) || os(macOS)`
+    (`HakoStyle/HakoEditorToolbarView.swift:21-25`) and the probe sits at file scope with no condition, so
+    it is a real tvOS compile break.
+    """
+    path = os.path.join(root, "ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift")
+    text = read(path)
+    write(path, text.rstrip(chr(10)) + chr(10) + chr(10)
+          + "private let redteamProbeF: Any.Type = HakoEditorToolbarView.self" + chr(10))
+    return ("an unguarded use of a platform-guarded type appended to ProfilePickerSheet.swift, outside "
+            "the ported namespace")
+
+
+def mutate_guarded_use_in_else_arm(root: str) -> str:
+    """The H-3 hole: a use inside the `#else` of the very `#if` that declares the type.
+
+    `condition_map` used to union an `#if`'s atoms into its `#else` arm, so every line in the `#else` was
+    judged to be inside the condition it is the negation of. `HakoLogMenuView` is declared at
+    `HakoLogView.swift:319` inside `#if !os(tvOS)`, so the `#else` arm is compiled on exactly tvOS, the one
+    platform the type does not exist on - and that arm reported PASS.
+
+    The probe is inserted **after line 1** so the two arm bodies land on lines 3 and 5: not at the start,
+    because three leading lines shift the declaration and the case then exercises the declaration's line
+    number instead of the arm.
+    """
+    path = os.path.join(root, "ApplicationLibrary/Views/HakoStyle/HakoLogView.swift")
+    lines = read(path).split(chr(10))
+    if len(lines) < 2:
+        raise AssertionError("HakoLogView.swift is too short to insert a probe into")
+    probe = ["#if !os(tvOS)",
+             "    private let redteamProbeE1: Any.Type = HakoLogMenuView.self",
+             "#else",
+             "    private let redteamProbeE2: Any.Type = HakoLogMenuView.self",
+             "#endif"]
+    write(path, chr(10).join(lines[:1] + probe + lines[1:]))
+    return ("a use of `HakoLogMenuView` inside the `#else` arm of the `#if !os(tvOS)` that declares it, "
+            "which compiles on tvOS")
+
+
+def mutate_hako_type_loses_its_caller(root: str) -> str:
+    """A ported type's only caller pointed back at the upstream type.
+
+    This is the defect class `hako-type-has-caller` was written for and never enforced: the ported page is
+    declared, faithfully, and something else builds the upstream view in its place. `HakoReportLabel` had
+    exactly this shape - declared in `HakoReportShared.swift` and never called - until round 9 restored the
+    `#if os(tvOS)` arm that calls it.
+
+    The mutation rewrites a call of a type the port *does* use back to its upstream spelling, so the ported
+    name keeps its declaration and loses its caller while the upstream name gains one from a file that does
+    not declare it - the only shape the check fails on.
+
+    It searches for the call rather than asserting a fixed form, because the harness runs every case against
+    the copy **after `git reset`**, so the file it sees is the committed one: a mutation anchored to a line
+    added in an uncommitted edit would fail here and read as a problem with the test rather than with the
+    tree. Both spellings are handled, and if neither is present the case says so instead of passing quietly.
+    """
+    path = os.path.join(root, "ApplicationLibrary/Views/HakoStyle/HakoReportListView.swift")
+    for candidate in ("HakoCrashReportListView.swift", "HakoOOMReportListView.swift",
+                      "HakoPowerReportListView.swift"):
+        candidate_path = os.path.join(root, "ApplicationLibrary/Views/HakoStyle", candidate)
+        text = read(candidate_path)
+        rewritten = re.sub(r"\bHakoReportLabel\(", "ReportLabel(", text, count=1)
+        if rewritten != text:
+            write(candidate_path, rewritten)
+            return (f"the phone's report row in {candidate} pointed back at upstream's `ReportLabel` while "
+                    f"the ported `HakoReportLabel` keeps its declaration")
+    raise AssertionError(f"HakoReportLabel is called in none of the three report list views under {path}")
+
+
 def mutate_shared_container_gains_hako_close(root: str) -> str:
     # The P0 this project shipped and then removed: `HakoCloseButton()` inside the **shared** modal
     # container's iOS body. `os(iOS)` is true on an iPad too, so that reaches every iPad modal built on
@@ -359,6 +435,15 @@ CASES = (
      mutate_shared_container_gains_hako_close, None),
     ("environment-key-removed", "hako-symbol-completeness", mutate_environment_key_removed, None),
     ("submodule-url-moved", "repository-hygiene", mutate_submodule_url, UPSTREAM_REF),
+    # The two holes the round-9 red team proved by injection. Both are the *same* defect as the canonical
+    # case above, placed where the old detector could not see it: one directory away, and in the `#else`
+    # arm. A detector whose coverage is a directory rather than the target is a detector with a blind
+    # spot, and these two cases are what keeps the difference visible.
+    ("guarded-use-outside-hako-namespace", "platform-guard-agreement",
+     mutate_guarded_use_outside_hako_namespace, None),
+    ("guarded-use-in-else-arm", "platform-guard-agreement", mutate_guarded_use_in_else_arm, None),
+    # The check round 8 wrote and did not register, with the shape it exists to catch.
+    ("hako-type-loses-its-caller", "hako-type-has-caller", mutate_hako_type_loses_its_caller, None),
 )
 
 

@@ -54,12 +54,29 @@ from dataclasses import dataclass, field
 from typing import Iterable
 from original_type_names import ORIGINAL_TYPE_NAMES
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import hako_platform_facts  # noqa: E402
+import swift_directives  # noqa: E402
+
+# The condition model asks `swift_directives` about modules the framework table does not carry, and its
+# answers have to be the proven ones. Installing the tables here rather than in `main` means a check
+# invoked directly - which is how the negative suite and the red-team probes call it - gets the same
+# answers as the CLI instead of "no condition table for platform", which would read as undecidable.
+hako_platform_facts.install_into(swift_directives)
+
 # --------------------------------------------------------------------------------------
 # Paths and constants
 # --------------------------------------------------------------------------------------
 
 #: A path prefix that only the fork's presentation may live under.
 HAKO_PREFIX = "ApplicationLibrary/Views/HakoStyle/"
+
+#: The one Xcode synchronized source group that compiles the iOS, macOS and tvOS slices of the shared
+#: code (`project.pbxproj:1101-1127`, `SUPPORTED_PLATFORMS` at `:2288`/`:2330`). A check about which
+#: platform compiles a line has to walk this, not a directory inside it: the target is what compiles a
+#: file, and `HakoStyle/` is only where the fork's own pages happen to live.
+SHARED_TARGET = "ApplicationLibrary"
 
 #: Files that are the phone root and its page factory. These may name Hako symbols.
 #: Files the phone's pages may reach, and the only places outside `HakoStyle/` that may name a Hako
@@ -1182,6 +1199,53 @@ FRAMEWORK_CONDITIONS: dict[str, FrameworkConditions] = {
     # `HakoCoreView` guards its Files-app integration with `#if os(iOS)` as the original did.
     "FileProvider": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)"),
                                         symbols=("NSFileProviderManager", "NSFileProviderDomain")),
+    # The four below were added when this check stopped walking only `HakoStyle/`: they are imported
+    # conditionally by files elsewhere in the same target (`ApplicationLibrary/Service/NWSocket.swift:3`,
+    # `.../UpdateManager.swift:8`, `.../Abstract/GlobalChecksModifier.swift:6`,
+    # `.../Abstract/RequestReviewButton.swift:3`), and an unknown framework makes the whole check
+    # UNDECIDABLE - which is a refusal, but one that a fact about the Apple platform matrix can answer.
+    # The symbol lists are the names those files actually use, kept short for the same reason as above.
+    "Network": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)", "os(tvOS)"),
+                                   symbols=("NWPathMonitor", "NWPath", "NWInterface", "NWConnection",
+                                            "NWEndpoint", "NWListener", "NWParameters")),
+    "Security": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)", "os(tvOS)"),
+                                    symbols=("SecTrust", "SecCertificate", "SecKey", "SecPolicy",
+                                             "SecStaticCode", "SecCSFlags")),
+    "CoreLocation": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)", "os(tvOS)"),
+                                        symbols=("CLLocationManager", "CLAuthorizationStatus",
+                                                 "CLLocation", "CLGeocoder")),
+    "StoreKit": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)", "os(tvOS)"),
+                                    symbols=("SKStoreReviewController", "AppStore", "Product",
+                                             "Transaction", "StoreKit")),
+    # The scanner is two implementations, one per platform, and `AVCaptureSession` is used in the iOS one
+    # while `VNDetectBarcodesRequest` is used in the macOS one. tvOS has neither, which the file's own
+    # `+iOS` / `+macOS` split already states.
+    "AVFoundation": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)"),
+                                        symbols=("AVCaptureSession", "AVCaptureDevice",
+                                                 "AVCaptureVideoPreviewLayer", "AVCaptureMetadataOutput",
+                                                 "AVPlayer", "AVPlayerViewController", "AVRoutePickerView")),
+    "Vision": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)"),
+                                  symbols=("VNDetectBarcodesRequest", "VNBarcodeObservation",
+                                           "VNDocumentCameraViewController")),
+    "CryptoKit": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)", "os(tvOS)"),
+                                     symbols=("SHA256", "AES", "SymmetricKey", "SHA256Digest")),
+    "GameController": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)", "os(tvOS)"),
+                                          symbols=("GCKeyboard", "GCController", "GCDevice")),
+    "UserNotifications": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)", "os(tvOS)"),
+                                             symbols=("UNUserNotificationCenter", "UNNotification",
+                                                      "UNMutableNotificationContent")),
+    "WebKit": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)", "os(tvOS)"),
+                                  symbols=("WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore")),
+    # `MarkdownUI` is an SPM product (`project.pbxproj:4144`), not an SDK framework, and its one import
+    # site is `ApplicationLibrary/Views/Setting/UpdateSheet.swift:5` inside `#if os(macOS)` - the file that
+    # writes the update sheet, which only the Mac has.
+    "MarkdownUI": FrameworkConditions(os_atoms=("os(macOS)",), symbols=("Markdown", "Theme", "MarkdownUI")),
+    # `GhosttyKit` is a second product of the optional xcframework `GhosttyTerminal` comes from, imported
+    # under the same `canImport(GhosttyTerminal)` in `.../Terminal/TailsshTerminalExtras.swift:4`, and the
+    # project links that package for ios and macos only (`project.pbxproj:52`).
+    "GhosttyKit": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)"),
+                                      symbols=("GhosttyKit",),
+                                      also_implied_by=("canImport(GhosttyTerminal)",)),
 }
 
 #: What one atom implies about the others, polarity included. Two directions matter and both are
@@ -1229,6 +1293,11 @@ ATOM_IMPLICATIONS: dict[str, set[str]] = {
 #: to tell a guarded use from an unguarded one, and guessing is what this round is removing.
 ALWAYS_AVAILABLE_FRAMEWORKS = frozenset({
     "SwiftUI", "Foundation", "Combine", "Library", "Libbox", "UniformTypeIdentifiers",
+    # Not a framework but a module name that reaches this rule: `import os` is Swift's logging module,
+    # which ships with the toolchain on every platform. Without it here the widened scope reports
+    # `ApplicationLibrary/Service/UpdateManager.swift:7` as an undecidable conditional import, which would
+    # make the whole check UNDECIDABLE over a false positive.
+    "os",
 })
 
 
@@ -1258,38 +1327,320 @@ def condition_atoms(directive: str) -> set[str]:
             for negated, kind, argument in CONDITION_ATOM.findall(directive)}
 
 
-def condition_map(text: str) -> tuple[list[set[str]], bool]:
-    """Per line, the platform atoms of every enclosing `#if` branch, plus whether the file balances.
+# --------------------------------------------------------------------------------------------------
+# The platform model
+#
+# An atom set is not enough to decide this question, and two holes came from treating it as though it
+# were:
+#
+#   * `#else` inherited its `#if`'s atoms verbatim, because `stack[-1] | condition_atoms("")` is
+#     `stack[-1]`. A use inside the `#else` of `#if !os(tvOS)` was therefore judged to be inside
+#     `!os(tvOS)` - the one place it is definitely *not*.
+#   * `&&` and `||` were both flattened into one unordered set, so a declaration under
+#     `#if os(iOS) && canImport(GhosttyTerminal)` was satisfied by a use under `#if os(macOS)`, through
+#     an implication entry for the second conjunct alone.
+#
+# So a condition is evaluated per platform into a three-valued state - reachable, definitely not
+# reachable, or undecided - and a branch's state is built from the *negation of the branches before it*
+# rather than by unioning atoms. `&&`, `||` and `!` are combined with the rules the operators actually
+# have. `False` is the only value that excludes a line, so an undecided platform stays undecided and can
+# never make a use look safe.
+# --------------------------------------------------------------------------------------------------
 
-    A line's own directive does not apply to the line's own content: `#if os(iOS)` is not itself inside
-    the iOS branch. An unbalanced file returns `False` for the balance flag, and its callers report
-    `UNDECIDABLE` rather than guessing a nesting.
+#: The platforms a shared file is compiled for. Order is fixed so a report is reproducible.
+AUDIT_PLATFORMS: tuple[str, ...] = ("ios", "macos", "tvos")
+
+#: `os(...)` argument -> the platform it names, lower-cased.
+_OS_TO_PLATFORM = {"ios": "ios", "macos": "macos", "tvos": "tvos",
+                   "watchos": "watchos", "visionos": "visionos"}
+
+PlatformState = dict[str, bool | None]
+
+
+def _os_platform(argument: str) -> str | None:
+    return _OS_TO_PLATFORM.get(argument.strip().lower())
+
+
+def _negate(state: PlatformState) -> PlatformState:
+    return {platform: None if value is None else not value for platform, value in state.items()}
+
+
+def _conjoin(left: PlatformState, right: PlatformState) -> PlatformState:
+    """`and` over three values: `False` absorbs, and anything undecided with no `False` is undecided."""
+    combined: PlatformState = {}
+    for platform in AUDIT_PLATFORMS:
+        a, b = left[platform], right[platform]
+        if a is False or b is False:
+            combined[platform] = False
+        elif a is None or b is None:
+            combined[platform] = None
+        else:
+            combined[platform] = True
+    return combined
+
+
+def _disjoin(left: PlatformState, right: PlatformState) -> PlatformState:
+    """`or` over three values: `True` absorbs, and anything undecided with no `True` is undecided."""
+    combined: PlatformState = {}
+    for platform in AUDIT_PLATFORMS:
+        a, b = left[platform], right[platform]
+        if a is True or b is True:
+            combined[platform] = True
+        elif a is None or b is None:
+            combined[platform] = None
+        else:
+            combined[platform] = False
+    return combined
+
+
+def _split_top_level(expression: str, operator: str) -> list[str] | None:
+    """Split on `operator` at bracket depth zero, or `None` when it does not occur there.
+
+    Depth matters: `#if canImport(A) && (os(iOS) || os(tvOS))` must split at the top-level `&&` only.
+    """
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    index = 0
+    while index < len(expression):
+        character = expression[index]
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+        elif depth == 0 and expression.startswith(operator, index):
+            parts.append(expression[start:index])
+            index += len(operator)
+            start = index
+            continue
+        index += 1
+    if not parts:
+        return None
+    parts.append(expression[start:])
+    return parts
+
+
+def framework_available(framework: str) -> PlatformState | None:
+    """Per platform, whether `framework` can be imported there, from this file's own table.
+
+    Derived rather than restated: `FRAMEWORK_CONDITIONS[framework].os_atoms` already names the platforms
+    the framework exists on - that is what the table is for - and `also_implied_by` names the umbrella
+    modules that imply it. A platform the table names nowhere is `False`, which is what makes
+    `QuickLook` on tvOS a finding rather than a silence.
+
+    `None` only when the framework has no entry at all, so the caller reports it as undecided instead of
+    deciding it.
+    """
+    conditions = FRAMEWORK_CONDITIONS.get(framework)
+    if conditions is None:
+        return None
+    state: PlatformState = {platform: False for platform in AUDIT_PLATFORMS}
+    for atom in (*conditions.os_atoms, *conditions.also_implied_by):
+        match = re.fullmatch(r"os\(([^)]+)\)", atom)
+        if match:
+            named = _os_platform(match.group(1))
+            if named in state:
+                state[named] = True
+            continue
+        match = re.fullmatch(r"canImport\(([^)]+)\)", atom)
+        if match:
+            implied = framework_available(match.group(1))
+            if implied is not None:
+                state = _disjoin(state, implied)
+    return state
+
+
+def condition_state(expression: str) -> PlatformState:
+    """The three-valued state of one `#if`/`#elseif` expression, per platform.
+
+    Understands `!`, `&&`, `||` and brackets, which is what the ported files actually write. Anything
+    else is undecided on every platform rather than guessed - the same refusal `swift_directives` makes,
+    and for the same reason.
+    """
+    text = expression.strip()
+    if not text:
+        return {platform: None for platform in AUDIT_PLATFORMS}
+
+    parts = _split_top_level(text, "||")
+    if parts is not None:
+        state = {platform: False for platform in AUDIT_PLATFORMS}
+        for part in parts:
+            state = _disjoin(state, condition_state(part))
+        return state
+
+    parts = _split_top_level(text, "&&")
+    if parts is not None:
+        state = {platform: True for platform in AUDIT_PLATFORMS}
+        for part in parts:
+            state = _conjoin(state, condition_state(part))
+        return state
+
+    if text.startswith("!"):
+        return _negate(condition_state(text[1:]))
+
+    if text.startswith("(") and text.endswith(")"):
+        return condition_state(text[1:-1])
+
+    if text in ("true", "false"):
+        value = text == "true"
+        return {platform: value for platform in AUDIT_PLATFORMS}
+
+    match = re.fullmatch(r"os\(([^)]+)\)", text)
+    if match:
+        named = _os_platform(match.group(1))
+        if named is None:
+            return {platform: None for platform in AUDIT_PLATFORMS}
+        return {platform: platform == named for platform in AUDIT_PLATFORMS}
+
+    match = re.fullmatch(r"canImport\(([^)]+)\)", text)
+    if match:
+        state = framework_available(match.group(1))
+        if state is not None:
+            return state
+        # A module the table does not carry: the tree's own evidence decides it, and where there is none
+        # the answer stays undecided. `hako_platform_facts` is the table with provenance behind every
+        # value, so it is asked first and its refusal is respected.
+        try:
+            return {platform: swift_directives.evaluate(text, platform)
+                    for platform in AUDIT_PLATFORMS}
+        except swift_directives.DirectiveError:
+            return {platform: None for platform in AUDIT_PLATFORMS}
+
+    match = re.fullmatch(r"targetEnvironment\(([^)]+)\)", text)
+    if match:
+        try:
+            return {platform: swift_directives.evaluate(text, platform)
+                    for platform in AUDIT_PLATFORMS}
+        except swift_directives.DirectiveError:
+            return {platform: None for platform in AUDIT_PLATFORMS}
+
+    match = re.fullmatch(r"(?:swift|compiler)\(>=([\d.]+)\)", text)
+    if match:
+        return {platform: True for platform in AUDIT_PLATFORMS}
+
+    # `DEBUG`, `JAILBREAK`, `SWIFT_PACKAGE` and anything else that selects a build rather than a
+    # platform: undecided everywhere, which is a refusal and not a pass.
+    return {platform: None for platform in AUDIT_PLATFORMS}
+
+
+def _branch_union(branches: list[PlatformState]) -> PlatformState:
+    """The state of "some earlier branch of this `#if` was taken" - `True` absorbs, as with `||`."""
+    union: PlatformState = {platform: False for platform in AUDIT_PLATFORMS}
+    for branch in branches:
+        union = _disjoin(union, branch)
+    return union
+
+
+def _line_states(stack: list[PlatformState]) -> PlatformState:
+    """Conjunction of every enclosing branch, per platform."""
+    state: PlatformState = {platform: True for platform in AUDIT_PLATFORMS}
+    for frame in stack:
+        state = _conjoin(state, frame)
+    return state
+
+
+def condition_map(text: str) -> tuple[list[set[str]], bool, list[PlatformState]]:
+    """Per line, the atoms of every enclosing `#if` branch, whether the file balances, and the state.
+
+    The atoms are still returned because they are what the findings quote; the **state** is what decides,
+    and it is the thing an atom set cannot express. See the note above `AUDIT_PLATFORMS`.
     """
     stack: list[set[str]] = []
+    states: list[PlatformState] = []
     per_line: list[set[str]] = []
+    lineage: list[dict] = []
     balanced = True
     for line in text.split("\n"):
         stripped = line.strip()
-        per_line.append(set().union(*stack) if stack else set())
+        # The directive is applied **first**, so the line's own state is the state it establishes. The
+        # other order - recording the enclosing state and then processing the directive - made every
+        # condition line carry its parent's state, which is a hole and not a cosmetic detail: an `#else`
+        # at depth zero then reported `{ios: ..., macos: False}` instead of the negation, so a use inside
+        # it was judged against the arm it is *not* in.
         directive = re.match(r"#(if|elseif|else|endif)\b(.*)", stripped)
-        if not directive:
-            continue
-        kind, rest = directive.group(1), directive.group(2)
-        if kind == "if":
-            stack.append(condition_atoms(rest))
-        elif kind in ("elseif", "else"):
-            if not stack:
-                balanced = False
+        if directive:
+            kind, rest = directive.group(1), directive.group(2)
+            if kind == "if":
+                stack.append(condition_atoms(rest))
+                # The `#if` branch counts as taken where it is live. It was missing from its own frame,
+                # so `_branch_union` of an `#else` saw an empty history and the negation returned
+                # "everything not excluded by the ancestors" - the `#else` of `#if os(iOS)` came out live
+                # on iOS, which is the one platform it is not in.
+                frame = {"active": condition_state(rest), "taken": []}
+                frame["taken"] = [frame["active"]]
+                lineage.append(frame)
+            elif kind in ("elseif", "else"):
+                if not stack:
+                    balanced = False
+                else:
+                    stack[-1] = stack[-1] | condition_atoms(rest)
+                    frame = lineage[-1]
+                    # A branch is live where every branch before it was not, *and* its own condition
+                    # holds. This is the negation an atom union cannot express: the `#else` of
+                    # `#if !os(tvOS)` is live on tvOS, which is exactly where `!os(tvOS)` is false.
+                    previous = _negate(_branch_union(frame["taken"]))
+                    own = ({platform: True for platform in AUDIT_PLATFORMS} if kind == "else"
+                           else condition_state(rest))
+                    frame["active"] = _conjoin(previous, own)
+                    frame["taken"] = frame["taken"] + [frame["active"]]
             else:
-                stack[-1] = stack[-1] | condition_atoms(rest)
-        else:
-            if not stack:
-                balanced = False
-            else:
-                stack.pop()
+                if not stack:
+                    balanced = False
+                else:
+                    stack.pop()
+                    lineage.pop()
+        per_line.append(set().union(*stack) if stack else set())
+        states.append(_line_states([frame["active"] for frame in lineage]))
     if stack:
         balanced = False
-    return per_line, balanced
+    return per_line, balanced, states
+
+
+def implies(atoms: set[str], wanted: set[str]) -> bool:
+    """Whether a condition spelled from `atoms` can only be true where `wanted` also holds.
+
+    Kept because the atom sets are still what the findings quote and because
+    `wrap_hako_platform_declarations` reasons in atoms. It is **no longer what decides a guard
+    disagreement**: an atom set cannot represent `#else`, cannot represent `&&` separately from `||`, and
+    cannot see that `!os(tvOS)` is a condition a `StoreKit` symbol may sit in. `state_implies` decides.
+    """
+    for atom in atoms:
+        if atom in wanted:
+            return True
+        if ATOM_IMPLICATIONS.get(atom, set()) & wanted:
+            return True
+    return False
+
+
+def _framework_allowed_state(framework: str, table: FrameworkConditions,
+                             availability: PlatformState) -> PlatformState:
+    """Per platform, whether a symbol from `framework` may be compiled on a line with this condition.
+
+    The union of two things: where the framework actually exists (`availability`, derived from the table's
+    own `os_atoms`), and where the file's own guard says so. The guard can only *add* platforms the file
+    is entitled to name - `#if canImport(StoreKit)` on a platform the table does not list stays false -
+    so this is a permission, not an override.
+    """
+    allowed = _disjoin(availability, condition_state(f"canImport({framework})"))
+    for atom in (*table.os_atoms, *table.also_implied_by):
+        allowed = _disjoin(allowed, condition_state(atom))
+    return allowed
+
+
+def state_implies(use: PlatformState, declaration: PlatformState) -> bool:
+    """Whether the use is compiled only where the declaration is.
+
+    The sound direction: for every platform the use is **definitely** compiled, the declaration must be
+    definitely compiled too. `None` on the declaration side fails, because an undecided declaration is not
+    evidence that the type exists.
+    """
+    return all(declaration[platform] is True
+               for platform in AUDIT_PLATFORMS if use[platform] is True)
+
+
+def state_text(state: PlatformState) -> str:
+    """One platform state as a short, reproducible phrase for a finding."""
+    return ", ".join(f"{platform}={value}" for platform, value in state.items())
 
 
 #: Type names the Swift standard library and the imported frameworks also declare. A text audit that
@@ -1299,7 +1650,8 @@ def condition_map(text: str) -> tuple[list[set[str]], bool]:
 AMBIGUOUS_TYPE_NAMES = frozenset({"Result", "Task", "State", "Error", "Data", "Date", "URL"})
 
 
-def guarded_declarations(root: str) -> tuple[dict[str, tuple[str, int, set[str]]], set[str]]:
+def guarded_declarations(root: str) -> tuple[dict[str, tuple[str, int, set[str]]], set[str],
+                                             dict[str, PlatformState]]:
     """Every type this repository declares inside a platform `#if`, keyed by name.
 
     A name declared more than once is dropped **unless every declaration agrees about its condition**,
@@ -1310,9 +1662,11 @@ def guarded_declarations(root: str) -> tuple[dict[str, tuple[str, int, set[str]]
     check starts reporting things that are not there.
 
     Also returns the names skipped as ambiguous, so the caller can say what it did not cover instead of
-    reporting a pass over it.
+    reporting a pass over it, and the **platform state** of each resolved declaration, which is what the
+    declaration/use comparison decides on.
     """
     seen: dict[str, list[tuple[str, int, set[str]]]] = {}
+    seen_states: dict[str, list[PlatformState]] = {}
     for path in swift_files(root):
         if path in OUTSIDE_THE_APP:
             continue
@@ -1320,38 +1674,59 @@ def guarded_declarations(root: str) -> tuple[dict[str, tuple[str, int, set[str]]
         if text is None:
             continue
         body = strip_comments_keeping_lines(text)
-        conditions, balanced = condition_map(body)
+        conditions, balanced, states = condition_map(body)
         if not balanced:
             continue
         for match in re.finditer(TYPE_DECLARATION + r"(\w+)", body, re.M):
             line = body.count("\n", 0, match.start()) + 1
             atoms = conditions[line - 1]
-            if not atoms:
+            # "Guarded" means excluded from *some* platform, which is what a use site can then get wrong.
+            # A line that is definitely compiled everywhere - an `#if DEBUG` arm, whose state is undecided
+            # rather than false - is not a guarded declaration, and treating it as one would report every
+            # use of it as a finding.
+            if not any(value is False for value in states[line - 1].values()):
                 continue
             seen.setdefault(match.group(1), []).append((path, line, atoms))
+            seen_states.setdefault(match.group(1), []).append(states[line - 1])
 
     ambiguous = {name for name in seen if name in AMBIGUOUS_TYPE_NAMES}
     resolved: dict[str, tuple[str, int, set[str]]] = {}
+    resolved_states: dict[str, PlatformState] = {}
     for name, entries in seen.items():
         if name in ambiguous:
             continue
         if len(entries) == 1 or all(entry[2] == entries[0][2] for entry in entries):
             resolved[name] = entries[0]
-    return resolved, ambiguous
+            resolved_states[name] = seen_states[name][0]
+    return resolved, ambiguous, resolved_states
 
 
 def check_platform_guard_agreement(root: str) -> Check:
-    """A condition on an import, a declaration or a use is not a condition on the others."""
+    """A condition on an import, a declaration or a use is not a condition on the others.
+
+    # Why the whole shared target, not only the ported namespace
+
+    This used to walk `ApplicationLibrary/Views/HakoStyle/` alone, and a use of a platform-guarded type
+    one directory away was invisible: appending `HakoEditorToolbarView.self` to
+    `ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift` reported PASS while the identical
+    line in `HakoStyle/HakoEmptyState.swift` reported FAIL. The target is what compiles a file, and it is
+    one `PBXFileSystemSynchronizedRootGroup` (`project.pbxproj:1101-1127`) whose `SUPPORTED_PLATFORMS` is
+    `appletvos appletvsimulator iphoneos iphonesimulator macosx` (`:2288`, `:2330`), so every file under
+    `ApplicationLibrary/` is compiled for the same three platforms the ported ones are, and a guard
+    disagreement between any two of them is the same defect. The ported namespace is still what must
+    exist - an empty HakoStyle is an environment error, not a pass - and its files are a subset of this
+    walk.
+    """
     namespace = os.path.join(root, HAKO_PREFIX)
     if not os.path.isdir(namespace):
         return Check("platform-guard-agreement", "UNDECIDABLE",
                      f"{HAKO_PREFIX} does not exist, so there is nothing to inspect")
-    files = swift_files(root, HAKO_PREFIX.rstrip("/"))
+    files = swift_files(root, SHARED_TARGET)
     if not files:
         return Check("platform-guard-agreement", "UNDECIDABLE",
-                     f"{HAKO_PREFIX} holds no Swift file, so nothing was inspected")
+                     f"{SHARED_TARGET} holds no Swift file, so nothing was inspected")
 
-    guarded, ambiguous_guarded = guarded_declarations(root)
+    guarded, ambiguous_guarded, guarded_states = guarded_declarations(root)
     if not guarded:
         return Check("platform-guard-agreement", "UNDECIDABLE",
                      "no type in this tree is declared inside a platform condition, so the audit cannot "
@@ -1370,7 +1745,7 @@ def check_platform_guard_agreement(root: str) -> Check:
             undecided.append(f"{path}: unreadable")
             continue
         body = strip_comments_keeping_lines(text)
-        conditions, balanced = condition_map(body)
+        conditions, balanced, states = condition_map(body)
         if not balanced:
             undecided.append(f"{path}: its `#if`/`#endif` directives do not balance, so no line's "
                              f"condition can be computed")
@@ -1398,18 +1773,27 @@ def check_platform_guard_agreement(root: str) -> Check:
                     f"table for {framework}, so whether its use sites are guarded cannot be decided")
                 continue
             allowed = {"canImport(%s)" % framework, *table.os_atoms, *table.also_implied_by}
+            availability = framework_available(framework)
+            if availability is None:
+                undecided.append(
+                    f"{path}:{number}: `import {framework}` is conditional and there is no entry for it "
+                    f"in the framework table, so whether its use sites are guarded cannot be decided")
+                continue
+            allowed_state = _framework_allowed_state(framework, table, availability)
             for number, line in enumerate(lines, 1):
                 # Sorted, because a set's iteration order varies between runs: an audit whose findings
                 # come out in a different order on every invocation cannot be compared run to run, and
                 # the negative suite does exactly that.
                 for symbol in sorted(identifiers[number - 1] & set(table.symbols)):
-                    atoms = conditions[number - 1]
-                    if not implies(atoms, allowed):
+                    if not state_implies(states[number - 1], allowed_state):
+                        violated = [platform for platform in AUDIT_PLATFORMS
+                                    if states[number - 1][platform] is True
+                                    and allowed_state[platform] is not True]
                         problems.append(Blame(
                             path, number,
                             f"`{symbol}` comes from {framework}, which this file imports behind a "
-                            f"condition, but this line is not inside a condition that makes "
-                            f"{framework} importable ({' or '.join(sorted(allowed))}); a conditional "
+                            f"condition, but this line compiles on {', '.join(violated)}, where "
+                            f"{framework} is not there ({' or '.join(sorted(allowed))}); a conditional "
                             f"import is not a usage guard"))
                     checked_uses += 1
 
@@ -1420,34 +1804,47 @@ def check_platform_guard_agreement(root: str) -> Check:
         # `CrashReportToolbarMenu` upstream declares behind `#if os(tvOS)` is a different type the file
         # never reaches - while `HakoLogView` declares its own `HakoLogMenuButton` *inside*
         # `#if canImport(UIKit)` at line 177 and then builds it at line 150, which is the defect.
-        local: dict[str, tuple[int, set[str]]] = {}
+        local: dict[str, tuple[int, set[str], PlatformState]] = {}
         for match in re.finditer(TYPE_DECLARATION + r"(\w+)", body, re.M):
             line = body.count("\n", 0, match.start()) + 1
-            local.setdefault(match.group(1), (line, conditions[line - 1]))
+            local.setdefault(match.group(1), (line, conditions[line - 1], states[line - 1]))
         guarded_names = set(guarded)
         for number, line in enumerate(lines, 1):
             for name in sorted(identifiers[number - 1] & guarded_names):
                 home, home_line, home_atoms = guarded[name]
+                home_state = guarded_states.get(name, {platform: None for platform in AUDIT_PLATFORMS})
                 if name in local:
-                    home_line, home_atoms = local[name]
+                    home_line, home_atoms, home_state = local[name]
                     home = path
                     if not home_atoms:
                         continue  # the file's own declaration is unconditional
                 if home == path and home_line == number:
                     continue
-                atoms = conditions[number - 1]
-                if not atoms:
+                use_state = states[number - 1]
+                # What decides is the *platform state*, not the atom set: two conditions can spell
+                # different atoms and still be the same set of platforms, and - the two holes this
+                # replaced - the same atoms can name different platforms once an `#else` negates them or a
+                # `&&` conjunct is dropped. The sound direction only: wherever the use is definitely
+                # compiled, the declaration must be definitely compiled too.
+                if not state_implies(use_state, home_state):
+                    violated = [platform for platform in AUDIT_PLATFORMS
+                                if use_state[platform] is True and home_state[platform] is not True]
+                    shown = ", ".join(f"{platform}={home_state[platform]}" for platform in violated)
+                    if not any(value is True for value in use_state.values()):
+                        # Nothing here is definitely compiled on any platform the audit models, so this is
+                        # an undecided pair rather than a defect. Saying so is not the same as passing it.
+                        undecided.append(
+                            f"{path}:{number}: `{name}` is used under a condition this audit cannot decide "
+                            f"({state_text(use_state)}), so whether it compiles where the declaration at "
+                            f"{home}:{home_line} exists cannot be decided")
+                        continue
                     problems.append(Blame(
                         path, number,
-                        f"`{name}` is declared inside a platform condition at {home}:{home_line} "
-                        f"({' && '.join(sorted(home_atoms))}) and used here with no condition at all, so "
-                        f"this file does not compile wherever that condition is false"))
-                elif not implies(atoms, home_atoms):
-                    problems.append(Blame(
-                        path, number,
-                        f"`{name}` is declared under {' && '.join(sorted(home_atoms))} at "
-                        f"{home}:{home_line} and used here under {' && '.join(sorted(atoms))}; the use's "
-                        f"condition does not imply the declaration's"))
+                        f"`{name}` is declared at {home}:{home_line} "
+                        f"({' && '.join(sorted(home_atoms)) or 'no condition'}) and used here under "
+                        f"{' && '.join(sorted(conditions[number - 1])) or 'no condition at all'}; the use "
+                        f"compiles on {', '.join(violated)} and the declaration does not "
+                        f"(declaration: {shown})"))
                 checked_uses += 1
 
     skipped = sorted(ambiguous_used)
@@ -1471,13 +1868,13 @@ def check_platform_guard_agreement(root: str) -> Check:
         # count per file is part of the detail rather than left to be counted by hand.
         return Check(
             "platform-guard-agreement", "FAIL",
-            f"{len(problems)} use(s) across {len(per_file)} ported file(s) sit outside the condition "
-            f"their declaration or import needs, so those files do not compile where the condition is "
-            f"false ({summary})",
+            f"{len(problems)} use(s) across {len(per_file)} file(s) of {SHARED_TARGET} sit outside the "
+            f"condition their declaration or import needs, so those files do not compile where the "
+            f"condition is false ({summary})",
             [str(problem) for problem in problems],
         )
 
-    detail = (f"{len(files)} ported file(s): {conditional_imports} conditional import(s) and "
+    detail = (f"{len(files)} file(s) of {SHARED_TARGET}: {conditional_imports} conditional import(s) and "
               f"{checked_uses} use(s) each sit inside a condition that matches where the symbol exists")
     if skipped:
         detail += (f"; NOT COVERED: {', '.join(skipped)} - a standard-library name this tree also "
@@ -1721,7 +2118,7 @@ def check_shared_declaration_duplicates(root: str) -> Check:
 
 
 def check_hako_symbol_completeness(root: str) -> Check:
-    """Every Hako symbol a file names must be declared by some file.
+    r"""Every Hako symbol a file names must be declared by some file.
 
     The other direction of the duplicate check: that one finds a name declared twice, this one finds a
     name used and never declared. `HakoRow` and `HakoScaffold` - the original's bytes - both read
@@ -1920,6 +2317,22 @@ def check_hako_type_has_caller(root: str) -> Check:
     Deliberately weaker than reachability and honest about it: an occurrence is not a call path. It proves
     the type was not left behind, not that the phone reaches it. Reachability needs the call graph, which
     this audit does not build.
+
+    # Two kinds of orphan, and only one of them is this check's business
+
+    A name can be uncalled because the port dropped its call site, or because the **frozen original** never
+    called it either - `hako-ui@c1935cf` declares `ConnectionMenuButton`, `ConnectionMenuView` and
+    `PrimaryTintModifier` and names each of them exactly once, at its own declaration. The first is a
+    migration defect and the second is inherited cruft that the port reproduced faithfully; failing on the
+    second would be a finding against the authority, and removing the declaration would be a deviation from
+    it. So the discriminator is the **upstream name**: if the tree still names `Foo` in code while
+    `HakoFoo` has no caller, the phone is building upstream's type where the frozen design says it builds
+    the ported one. If `Foo` is equally uncalled, the orphan came across with the file.
+
+    This is what makes the check registerable. It was kept out of `CHECKS` because it reported five
+    findings on a correct tree; two of those five were real (`HakoReportLabel` lost its only caller when
+    the three report list views collapsed an `#if os(tvOS)` arm - that arm was restored in the same round)
+    and three are `hako-ui`'s own dead code. Both categories are now reported, and only the first fails.
     """
     namespace = os.path.join(root, HAKO_PREFIX)
     if not os.path.isdir(namespace):
@@ -1966,23 +2379,131 @@ def check_hako_type_has_caller(root: str) -> Check:
         return Check("hako-type-has-caller", "UNKNOWN",
                      f"{HAKO_PREFIX} declares no Hako-prefixed type, so a scan for callers means nothing")
 
-    dead = []
+    def naming_files(name: str) -> list[tuple[str, str]]:
+        """One `(path, text)` per file that names `name` as a whole word, across the whole tree.
+
+        The pattern is anchored so `HakoReportLabel` is not counted as a mention of `ReportLabel`: without
+        the `Hako` lookbehind, the ported declarations inflate the upstream count and every orphan looks
+        like a live upstream name.
+        """
+        found: list[tuple[str, str]] = []
+        for path, text in sources.items():
+            if re.search(rf"(?<!Hako)\b{re.escape(name)}\b", text):
+                found.append((path, text))
+        return found
+
+    def mention_count(name: str) -> int:
+        """Every occurrence of `name` in the tree, the declaration included.
+
+        A count of **occurrences**, not of files. This was briefly `len(naming_files(name))`, and the caller
+        compares against `> 1` on the reasoning that the declaration is one occurrence - so a file that
+        named the type three times, its declaration and two constructions, counted as one and was reported
+        as an orphan. `HakoBackButton`, `HakoQRSDisplayView` and the rest were nearly reported that way.
+        """
+        return sum(len(re.findall(rf"(?<!Hako)\b{re.escape(name)}\b", text))
+                   for _path, text in naming_files(name))
+
+    def declaration_line(text: str, name: str) -> int | None:
+        """The line `name` is declared on, or `None` when this file does not declare it."""
+        declared = (r"^[ \t]*(?:(?:public|internal|private|fileprivate|final|indirect|@\w+)[ \t]+)*"
+                    r"(?:struct|class|enum|actor|protocol|extension)\s+")
+        for match in re.finditer(declared + rf"{re.escape(name)}\b", text, re.M):
+            return text.count("\n", 0, match.start()) + 1
+        match = re.search(rf"^[ \t]*(?:(?:public|internal|private|fileprivate)[ \t]+)?"
+                          rf"(?:typealias|func|var|let)[ \t]+{re.escape(name)}\b", text, re.M)
+        return None if match is None else text.count("\n", 0, match.start()) + 1
+
+    def called_elsewhere(name: str) -> bool:
+        """Whether `name` is named anywhere other than inside its own declaration.
+
+        A type that names itself - `ConnectionMenuButton` builds its own `ConnectionMenuButton()` inside
+        its body - is not an orphan at all: it is the construction site, and `hako-ui` declares those three
+        exactly that way. Counting every occurrence instead of every *outside* occurrence is what made the
+        first version of this discriminator report three inherited types as live upstream names.
+
+        The declaration's span is taken to be up to the next line that begins a declaration of the same
+        kind at the same or a shallower indent; a text audit cannot do better without a parser, and the
+        conservative direction is to treat a mention as inside the declaration - which reports *inherited*,
+        the answer that does not fail the tree.
+        """
+        for path, text in naming_files(name):
+            declared_at = declaration_line(text, name)
+            if declared_at is None:
+                return True  # named by a file that does not declare it: an ordinary call site
+            lines = text.split("\n")
+            indent = len(lines[declared_at - 1]) - len(lines[declared_at - 1].lstrip())
+            end = len(lines)
+            for number in range(declared_at, len(lines)):
+                line = lines[number]
+                if not line.strip():
+                    continue
+                line_indent = len(line) - len(line.lstrip())
+                if line_indent <= indent and re.match(
+                        r"^[ \t]*(?:(?:public|internal|private|fileprivate|final|indirect|@\w+)[ \t]+)*"
+                        r"(?:struct|class|enum|actor|protocol|extension|func|var|let|typealias)\b", line):
+                    end = number
+                    break
+            for match in re.finditer(rf"(?<!Hako)\b{re.escape(name)}\b", text):
+                if not (declared_at - 1 <= text.count("\n", 0, match.start()) < end):
+                    return True
+        return False
+
+    def called_from_another_file(name: str) -> bool:
+        """Whether `name` is named by a file that does not declare it.
+
+        This is the shape this check can decide honestly, and the one its motivating defects had:
+        `HakoGroupItemView`, `HakoOutboundPickerView` and `HakoEditorToolbarView` were each declared in
+        their own ported file and each replaced by a *phone page* that still built the upstream type.
+
+        A call from inside the declaring file is deliberately **not** evidence. `hako-ui`'s
+        `ConnectionListView.swift` declares `ConnectionMenuButton` at :99 inside one platform arm and calls
+        it at :19 inside another; the port renamed the arm that declares it and left the other, so the two
+        names coexist in one file and "is the upstream name still used" cannot be answered without deciding
+        which arm. Over-reporting there would put three inherited `hako-ui` declarations in the failure
+        list, which is how a check gets switched off - so the narrower question is the one asked.
+
+        The comparison is against the file that **declares the upstream name**, not against the ported
+        file: for `HakoConnectionMenuButton` the upstream `ConnectionMenuButton` lives in
+        `Connections/ConnectionListView.swift`, which is a different path from the ported
+        `HakoStyle/HakoConnectionListView.swift`, and comparing against the latter made every inherited
+        orphan look like a cross-file call.
+        """
+        callers = naming_files(name)
+        declarers = {path for path, text in callers if declaration_line(text, name) is not None}
+        return any(path not in declarers for path, _text in callers)
+
+    dead: list[Blame] = []
+    inherited: list[Blame] = []
     for name, home in sorted(declared.items()):
-        # The declaration itself is one occurrence; anything more means something names it.
-        occurrences = 0
-        for text in sources.values():
-            occurrences += len(re.findall(rf"\b{re.escape(name)}\b", text))
-        if occurrences <= 1:
+        _probe_count = mention_count(name)
+        if _probe_count > 1:
+            continue  # something names it
+        upstream = name[4:]
+        _probe_called = called_from_another_file(upstream)
+        if _probe_called:
             dead.append(Blame(home, 0,
-                              f"`{name}` is declared here and named nowhere else in the namespace; "
-                              f"the phone is building something else"))
+                              f"`{name}` is declared here and named nowhere else in the namespace, while "
+                              f"`{upstream}` is still called from another file; the phone is building the "
+                              f"upstream view where the frozen design builds this one"))
+        else:
+            inherited.append(Blame(home, 0,
+                                   f"`{name}` is declared here and named nowhere else - and `{upstream}`, "
+                                   f"its name in the frozen original, is only ever named inside its own "
+                                   f"declaration there too, so this orphan came across with the file "
+                                   f"rather than being introduced by the port"))
 
     if dead:
         return Check("hako-type-has-caller", "FAIL",
-                     f"{len(dead)} Hako type(s) have no caller anywhere in the namespace, so whatever "
-                     f"the phone builds in their place is not the frozen design", [str(item) for item in dead])
-    return Check("hako-type-has-caller", "PASS",
-                 f"all {len(declared)} Hako type(s) in {HAKO_PREFIX} are named beyond their own declaration")
+                     f"{len(dead)} Hako type(s) have no caller anywhere in the namespace while the upstream "
+                     f"type they replace still does, so whatever the phone builds in their place is not the "
+                     f"frozen design; {len(inherited)} further orphan(s) are the original's own dead code",
+                     [str(item) for item in dead + inherited])
+    detail = (f"all {len(declared) - len(inherited)} live Hako type(s) in {HAKO_PREFIX} are named beyond "
+              f"their own declaration")
+    if inherited:
+        detail += (f"; {len(inherited)} orphan(s) are inherited from the frozen original, which names each "
+                   f"of them exactly once at its own declaration too")
+    return Check("hako-type-has-caller", "PASS", detail, [str(item) for item in inherited])
 
 def check_hako_platform_imports(root: str) -> Check:
     """No ported file imports a platform framework outside a conditional.
@@ -3142,6 +3663,13 @@ CHECKS = (
     check_platform_guard_agreement,
     check_hako_page_coverage,
     check_hako_feature_preservation,
+    # Registered in round 9. It was written in round 8 and left out of this tuple because it reported five
+    # findings on a tree that was otherwise green, and "the check is red" was read as "the check is wrong".
+    # Three of those five were `hako-ui`'s own dead code and two were real: `HakoReportLabel` and
+    # `HakoReportShareAction` had each lost their only caller to a collapsed platform arm. Both are wired
+    # up now, the check distinguishes an inherited orphan from a port-introduced one and reports each as
+    # such, and it fails only on the second kind.
+    check_hako_type_has_caller,
     check_ipad_mac_ui_gate,
     check_upstream_files_untouched,
     check_project_membership,
