@@ -158,6 +158,11 @@ import UniformTypeIdentifiers
                 }
             }
 
+            // The original's `#if os(iOS)` / `#elseif os(macOS)`, restored (its lines 149-162). This guard
+            // selects **different modifiers**, not a variant of one: iOS previews the file in a QuickLook
+            // sheet, macOS hands it to `SharingServicePicker`. Migration resolved it for iOS and kept the
+            // sheet, which left `UIViewControllerRepresentable` in a file the macOS compiler also parses.
+            #if os(iOS)
             .sheet(item: $previewItem, onDismiss: {
                 let previewed = previewedFile
                 previewedFile = nil
@@ -168,8 +173,9 @@ import UniformTypeIdentifiers
                 TaildropQuickLookView(url: item.url)
                     .ignoresSafeArea()
             }
-
-
+            #elseif os(macOS)
+            .background(SharingServicePicker($sharePresented, $alert, $shareItemURL))
+            #endif
             .alert($alert)
         }
 
@@ -399,6 +405,11 @@ import UniformTypeIdentifiers
     }
 
 
+    // The original wraps this in `#if os(iOS)` (its line 394). `UIViewControllerRepresentable` is a UIKit
+    // protocol and `QLPreviewController` is not in the macOS SDK, so both the declaration and its only use
+    // site - the sheet above - belong inside the same condition. Guarding one and not the other would leave
+    // either an unresolved type or an unresolved call.
+    #if os(iOS)
         private struct TaildropQuickLookView: UIViewControllerRepresentable {
             let url: URL
 
@@ -430,4 +441,5 @@ import UniformTypeIdentifiers
                 }
             }
         }
+    #endif
 
