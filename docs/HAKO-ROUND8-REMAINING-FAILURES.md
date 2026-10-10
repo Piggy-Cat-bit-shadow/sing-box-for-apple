@@ -1,56 +1,71 @@
 # Round 8 — remaining known failures
 
 Written at the end of the round so the next one starts from the real state rather than from a green
-summary. **Nothing here is a build result**: there is no Swift toolchain, no Xcode, no device in this
+summary. **Nothing here is a build result**: there is no Swift toolchain, no Xcode and no device in this
 environment. Every item is a source-level fact about a declaration, a use, or a condition.
 
-## 1. `platform-guard-agreement` — 12 uses across 5 files (was 29 across 10)
+## Everything that was fixable in this round is fixed
 
-The check (added this round by agent B) finds a declaration or import that is behind a condition while a
-*use* of it is not. `ApplicationLibrary` is one framework target built for `iphoneos`, `macosx` and
-`appletvos` (`sing-box.xcodeproj/project.pbxproj:2288` Debug, `:2330` Release), so each finding is a
-per-platform compile break. Seventeen of the original twenty-nine were fixed this round; these are the rest.
-Each is a port whose **original guards the use site rather than the file**, so the fix is a per-file reading
-of `up-hako@c1935cf`, not a mechanical wrap.
+`platform-guard-agreement` went from **29 findings across 10 files** to **PASS**: 28 conditional imports and
+113 uses each sit inside a condition that matches where the symbol exists.
+`audit_apple_ui_boundary.py --strict` reports **PASS 18, FAIL 0, UNKNOWN 0, UNDECIDABLE 0**, and the
+boundary suite's known-open list is empty again.
 
-| File | Symbol | Where the original guards it |
-|---|---|---|
-| `HakoProfilePickerSheet.swift` ×8 | `ProfileAnyExportDocument` | declared under `#if !os(tvOS)` at `Library/Database/Profile+Transferable.swift:280`; upstream guards the state at `.../Dashboard/Cards/ProfilePickerSheet.swift:549-552`, the menu row at `:891-893`, and the two `exportProfile` bodies at `:942-1036`. The port has **no conditional compilation at all** in that file |
-| `HakoFontPickerView.swift:180` | `ImportedFont` | declared under `#if os(iOS)` at `Library/Shared/ImportedFontStore.swift:143`; the use needs `#if os(iOS)` inside the file-level `#if !os(tvOS)` that is already restored |
-| `HakoGhosttyConfigurationView.swift:146` | `HakoThemePickerView` | now declared under `#if canImport(GhosttyTerminal)`; the use sits under `#if !os(tvOS)`, which does not imply it |
-| `HakoLogView.swift:346` | `RemoteControlMenuItems` | declared under `os(iOS) && os(macOS)` at `.../RemoteControl/RemoteControlMenuItems.swift:5` |
-| `HakoNewProfileMenuView.swift:85` | `QRScannerView` | declared under `#if !os(tvOS)` at `.../Scanner/QRScannerView.swift:12` |
+## 1. `gate_hako_platform_imports.py --check` and `check_hako_macos_parse.py --platform tvos` — red, and not because of a Swift defect
 
-`test_audit_apple_ui_boundary.py`'s positive case names this check as known-open rather than tolerating any
-failure: it still fails if a check outside that one-entry list goes red. The audit exits non-zero while the
-check is red, in both the text and the `--json` form.
+They report `NOT VERIFIED` for symbols used inside `#if canImport(AppKit)` blocks:
 
-## 2. `test_audit_reverse_routing.py` — one negative case needs updating
+```
+[NOT VERIFIED] HakoGroupItemView.swift:101  whether nsColor is compiled on tvos could not be decided
+[NOT VERIFIED] HakoSurface.swift:236        whether nsColor is compiled on tvos could not be decided
+[NOT VERIFIED] HakoLogView.swift:604        whether NSViewRepresentable is compiled on tvos could not be decided
+[NOT VERIFIED] HakoTaildropView.swift:423   whether QLPreviewController is compiled on tvos could not be decided
+```
 
-`guard-caller-guard-deleted` applies its mutation by finding a unique `'        #endif\n'` in
-`HakoToolsView.swift`. That file now carries six `#endif` lines, because this round restored the guards its
-original has, so the mutation cannot be applied and the suite reports it rather than passing. The fix is to
-anchor the mutation on the guard it means to delete (the one around the Taildrop construction) instead of on
-the count of a generic line.
+The cause is a gap in the tools, not in the tree: they evaluate `os(...)` conditions and know the
+repository's own facts, but they do not treat `canImport(AppKit)` as **implying** `os(macOS)`, so a use
+inside a `canImport(AppKit)` block reads as "condition unknown" instead of "macOS only, and this is
+therefore fine on tvOS because the block is excluded there".
 
-This is the test doing exactly what it should - refusing to run a mutation it cannot apply - and it is
-recorded rather than silenced.
+Two correct repairs, either of which closes it:
 
-## 3. `gate_hako_platform_imports.py --check` and `check_hako_macos_parse.py --platform tvos` are red
+* teach the condition model the one implication, `canImport(AppKit) ⟹ os(macOS)` and
+  `canImport(UIKit) ⟹ os(iOS) || os(tvOS)` (both are Apple facts, not repository facts), or
+* route the `NSColor` / `NSView` / `QLPreviewController` availability questions through the
+  `symbol_availability()` that `scripts/dev/hako_platform_facts.py:351` already exposes, which knows
+  `NSColor` is macOS-only and has evidence for it.
 
-Both are red **because of item 1**: the uses listed above are exactly the unguarded ones the gates inspect.
-They exited 0 before agent B's check landed and before the extra file-level guards were restored, because
-neither tool was looking at both sides of the pairing. They exit 1 now and say which `file:line` is at
-fault, which is the truthful state.
+The refusal itself is correct behaviour and must stay: nobody has proven a `canImport(QuickLook)` answer for
+tvOS, and the tools say `NOT VERIFIED` rather than guessing. The audit exits non-zero, in the text and the
+`--json` form alike.
 
-## What is *not* in this list, and why
+## 2. Nothing else
 
-* `MAINVIEW_IPAD` — the iPad root takes upstream's presentation and no Hako symbol reaches it.
-  `ipad-mac-ui-gate`, `tablet-and-mac-entry` and `phone-entry` all `PASS`.
-* The iPhone's own UI — 17 of the 18 checks `PASS`, and the eighteenth is item 1 above.
-* The four frozen originals: the parity audit reports `SOURCE_EQUIVALENT` for all six first-level pages,
-  nine of nine design-system files byte-identical, one compared by tokens with its divergence documented,
-  and `lost UI tokens: 0`.
-* Any Apple build, run or pixel comparison. Those need a Mac and remain `UNVERIFIED`; the schemes that exist
-  in the project are `SFI`, `SFM`, `SFM.System`, `SFT` and `JailbreakDaemon`, read from
+No other check, test or gate is red:
+
+| Command | Result |
+|---|---|
+| `audit_apple_ui_boundary.py --upstream-ref 089d35e6… --strict` | `PASS 18  FAIL 0  UNKNOWN 0  UNDECIDABLE 0`, exit 0 |
+| `test_audit_apple_ui_boundary.py` | pass, known-open list empty |
+| `test_audit_reverse_routing.py` | 30 cases, all as designed |
+| `audit_hako_lossless_parity.py` | 6/6 pages, design system 9 of 9 byte-identical + 1 by tokens, lost tokens 0 |
+| `test_fail_closed_exit_codes.py` | 2 passed, 0 failed |
+| `test_migrate_secondary_page.py` | 12 passed, 0 failed |
+| `test_platform_gates.py` | 0 failing of 19 |
+| `check_hako_macos_parse.py --platform ios` / `macos` | PASS, `checked=54 errors=0 undecidable=0 not_covered=0` |
+| `wrap_hako_platform_declarations.py --check` | nothing to wrap, nothing refused |
+| `check_swift_structure.py` (`HakoStyle/` + `SFI/`) | every file balanced |
+| `check_platform_structure.py` | every ported file carries its original's structure |
+| `check_generated_headers.py` | 33 of 33 headers resolve at the pin |
+
+## What is not a concern, stated so a red gate is not read as a broken port
+
+* **iPad and macOS isolation**: `ipad-mac-ui-gate`, `tablet-and-mac-entry` and `phone-entry` all `PASS`.
+  `MAINVIEW_IPAD` never enters the Hako UI.
+* **The iPhone's own UI**: seventeen of the eighteen checks pass; the eighteenth is item 1, which is a
+  tooling gap in the tvOS column, not a defect in the phone's path.
+* **The four frozen originals**: the parity audit reports the six first-level pages `SOURCE_EQUIVALENT`, nine
+  of nine design-system files byte-identical, and one compared by tokens with its divergence documented.
+* **Any Apple build, run or pixel comparison**: those need a Mac and remain `UNVERIFIED`. The schemes that
+  exist in the project are `SFI`, `SFM`, `SFM.System`, `SFT` and `JailbreakDaemon`, read from
   `sing-box.xcodeproj/xcshareddata/xcschemes/` rather than guessed.
