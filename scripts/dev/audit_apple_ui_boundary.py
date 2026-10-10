@@ -59,15 +59,15 @@ HAKO_PREFIX = "ApplicationLibrary/Views/HakoStyle/"
 #: Two shared files are here, and both for the same reason: the phone's design cannot be served without
 #: a change that has nowhere else to live.
 #:
-#:   * `EnvironmentValues.swift` - a `Hako`-named environment key can only be declared as a member of
-#:     `EnvironmentValues`, and that extension is upstream's. It declares exactly one member.
 #:   * `Profile/ProfileSheetHelpers.swift` - the modal container all eight of the client's modals are
-#:     built on. The original gives it a close control; without one a sheet can only be dismissed by
-#:     dragging it down. The change is not phone-specific, and forking the container would have meant
-#:     retargeting eight shared call sites to a Hako-only type.
+#:     built on, and the one file whose status is not settled. See the note below.
+#:
+#: `ApplicationLibrary/Views/EnvironmentValues.swift` was on this list for one commit and is not any
+#: more: the `hakoCompactRows` key moved to `HakoStyle/HakoEnvironmentValues.swift`, the shared file went
+#: back to its pinned bytes, and an allow-list entry for a file that no longer differs is a hole - it
+#: would silently absorb the next real edit to it.
 PHONE_ROOT_FILES = (
     "SFI/Application.swift", "SFI/HakoPhoneRootView.swift", "SFI/HakoPageContent.swift",
-    "ApplicationLibrary/Views/EnvironmentValues.swift",
     "ApplicationLibrary/Views/Profile/ProfileSheetHelpers.swift",
 )
 
@@ -515,11 +515,6 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
         "had one, so a sheet could only be dismissed by dragging it down; the change is not "
         "phone-specific, and forking the container would have meant retargeting eight shared call sites "
         "to a Hako-only type",
-    "ApplicationLibrary/Views/EnvironmentValues.swift":
-        "the `hakoCompactRows` environment key, which is the compact row metric the original's "
-        "`HakoScaffold` sets and its `HakoRow` reads. An environment key cannot be declared outside "
-        "`EnvironmentValues` and that extension is upstream's, so the declaration had to go here or "
-        "the phone's own rows would not compile; it adds one member and reads no other Hako symbol",
     "Localizable.xcstrings":
         "one String Catalog entry for the phone's remaining-quota row (`%@ left`)",
     "Library/Database/Database.swift":
