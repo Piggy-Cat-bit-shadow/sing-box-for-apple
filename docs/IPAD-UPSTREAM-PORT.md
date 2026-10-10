@@ -1,9 +1,10 @@
 # iPad / macOS presentation ownership
 
 **Repository:** `Piggy-Cat-bit-shadow/sing-box-for-apple`
-**Branch:** `ipad-upstream-ui`
+**Branch:** `hako-ui` (the split and the `hako-ui` line were rejoined at `0b331ccb9`; this was
+written on `ipad-upstream-ui` when the split was a separate line)
 **Freeze baseline:** `iphone-hako-ui-freeze-v1` → `fc7f77b82a7ca432294addfa001fcacfd5776223`
-**Date:** 2026-10-08
+**Date:** 2026-10-08 (the port itself landed later; §6 and §7 record both states)
 
 ## The rule
 
@@ -211,24 +212,49 @@ records the map rather than a finished port.
 
 ---
 
-## 6. Deliberately not done in this pass
+## 6. What this pass did not do, and what the next one did
 
-* No presentation file was restored or moved. The prerequisite refactor (§4.1) has not been done,
-  and attempting it without a way to prove the iPhone UI is unchanged would risk the one thing that
-  must not change.
+This section records the state at the time of writing. **The port has since been built** — §4's
+router exists in `SFI/Application.swift`, upstream's `SFI/MainView.swift` is restored byte-identical,
+and `ApplicationLibrary/Views/SidebarView.swift` and `Abstract/SidebarLayout.swift` are back. The
+items below are kept because each one was a real reason to stop, and the next reader should be able
+to tell which of them still constrains the work.
+
+* No presentation file was restored or moved **in that pass**. The prerequisite refactor (§4.1) had
+  not been done, and attempting it without a way to prove the iPhone UI is unchanged would have
+  risked the one thing that must not change. The refactor was then done as a whole — the phone root
+  was relocated to `SFI/HakoPhoneRootView.swift` and the router placed above both roots — with the
+  freeze guard written first, so the "no way to prove it" objection was answered before the move
+  rather than after.
 * No upstream merge, rebase or cherry-pick. `3131ed6` is not additive — it also edits
   `NavigationPage`, `DashboardView`, `StartStopButton`, `FormItem`, `SettingView`, `ReportShared`
-  and `SFI/MainView`, all of which Hako has touched.
-* macOS was not restructured. `SFM` cannot be built in this environment at all — see §7.
+  and `SFI/MainView`, all of which Hako has touched. **This still holds, and it is still the reason
+  the iPad root works by restoring upstream's files instead of merging upstream's commits.**
+* macOS was not restructured. That restraint still holds: `SFM` builds, but "it compiles" is not a
+  reason to rewrite a presentation nobody asked to change.
 
-## 7. Environment blocker for macOS
+## 7. The macOS environment blocker, and its current state
 
-`SFM` **cannot be built on this host**:
+This pass recorded that `SFM` could not be built on this host at all:
 
 ```
 Libbox.xcframework:1:1: error: While building for macOS, no library for this platform was found
 ```
 
-`Libbox.xcframework` contains only `ios-arm64` and `ios-arm64_x86_64-simulator`. There is no macOS
-slice, so no macOS verification — and therefore no safe macOS presentation change — is possible
-here. This is a pre-existing environment limitation, not a consequence of any change on this branch.
+It was accurate: the local `Libbox.xcframework` held only `ios-arm64` and
+`ios-arm64_x86_64-simulator`. The cause was not the core and not this branch — it was the build
+helper. `scripts/ci/build-apple-libbox.sh` was asked for `both` (which does compile a macOS slice)
+but it looked for the framework at the repository root, while `cmd/internal/build_libbox` writes it
+to `_libbox_build/Libbox.xcframework`. The build therefore *succeeded*, the helper reported
+"Libbox.xcframework was not produced", and the framework left in the client was an older one built
+for iOS alone. That helper is fixed in the parent repository, and the framework it now installs
+carries both slices:
+
+```
+ios-arm64                        ['arm64']
+macos-arm64_x86_64               ['arm64', 'x86_64']
+```
+
+So the blocker was a build-script path defect misreported as an environment limitation. It is worth
+naming precisely, because "macOS cannot be built here" was recorded as a property of the host for
+long enough to shape the plan around it.

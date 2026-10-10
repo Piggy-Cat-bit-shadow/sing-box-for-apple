@@ -1153,7 +1153,7 @@ private struct ProfilePickerRow: View {
                     Image(systemName: "clock.fill")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                    Text(lastUpdated.relativeFormat(forPickerRow: locale))
+                    Text(lastUpdated.relativeFormat)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

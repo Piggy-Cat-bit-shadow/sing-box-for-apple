@@ -18,7 +18,10 @@ Facts only. Recorded from the working tree and `upstream/dev`.
 SFI/Application.swift            @main struct Application: App
 └── body: some Scene
     └── WindowGroup
-        └── MainView()                       <-- SFI/MainView.swift
+        └── Group
+            └── switch SFIUIFamily.current          <-- the family router
+                ├── .hakoPhone   -> HakoPhoneRootView()
+                └── .upstreamPad -> MainView()
             .tailscaleStatusSubscription(...)
             .environmentObject(environments)         ExtensionEnvironments
             .environmentObject(peerStore)            TailscaleSSHPeerStore
@@ -27,19 +30,39 @@ SFI/Application.swift            @main struct Application: App
             .environmentObject(taildropInbox)        TaildropInboxViewModel
 ```
 
-`SFI/Application.swift` is the **only** place the iOS root view is instantiated, and the only place
-the environment objects are injected. That makes it the seam: a family decision placed here needs no
-change inside any root view.
+`SFI/Application.swift` is the **only** place an iOS root view is instantiated, and the only place
+the environment objects are injected. That makes it the seam: the family decision lives here and
+needs no change inside any root view.
 
-### Current roots
+### Current roots — the split is built
 
 | Surface | Root today | File |
 | --- | --- | --- |
-| iPhone | `MainView` → `HakoPrimaryShell` | `SFI/MainView.swift` (Hako-modified) |
-| iPad | **the same `MainView`** → `HakoPrimaryShell` | `SFI/MainView.swift` |
+| iPhone | `HakoPhoneRootView` → `HakoPrimaryShell` | `SFI/HakoPhoneRootView.swift` |
+| iPad | upstream's `MainView` | `SFI/MainView.swift` — byte-identical to upstream |
 
-There is no separate iPad root. `HakoPrimaryShell` is one SwiftUI shell for the whole iOS target, so
-iPad currently gets the phone design. That is the defect.
+The family is chosen from the device idiom and nothing else:
+
+```swift
+static func resolve(idiom: UIUserInterfaceIdiom) -> SFIUIFamily {
+    switch idiom {
+    case .pad:  return .upstreamPad
+    default:    return .hakoPhone
+    }
+}
+```
+
+`resolve` is pure, so the rule can be stated and checked without a device. Every modifier hangs off
+the `Group` above the switch, so both families receive identical environment wiring and share one set
+of model objects. **Presentation differs; state does not.**
+
+This section previously read "iPad | **the same `MainView`** → `HakoPrimaryShell` … That is the
+defect." Kept as the record of what the defect was — one SwiftUI shell serving the whole iOS target,
+with iPad getting the phone design. The split above replaced it, and two checks keep the replacement
+honest: `scripts/dev/check-iphone-hako-freeze.sh` asserts that `SFI/MainView.swift` is byte-identical
+to the pinned upstream blob in the HEAD tree, the index and the working tree, and
+`SFI/Application.swift` reads only the idiom, so no size class can move an iPad back into the phone
+shell.
 
 ### Upstream iOS root
 
@@ -106,14 +129,19 @@ So restoring `NavigationPage.title` to upstream's strings changes exactly **one*
 navigation-bar title of the selected root page, `Home` → `Dashboard`. That must be held at `Home`
 for the iPhone, which is why a Hako-side title mapping is needed rather than a change to the shell.
 
-## Target conclusion
+## Target conclusion — reached
 
 ```
 SFI/Application.swift
 └── family router                         (device idiom; never size class)
-    ├── .phone  -> HakoPhoneRootView      today's Hako presentation, moved not rewritten
-    └── .pad    -> MainView               upstream's SFI root, restored
+    ├── .hakoPhone -> HakoPhoneRootView   today's Hako presentation, moved not rewritten
+    └── .upstreamPad -> MainView          upstream's SFI root, restored byte-identical
 ```
+
+This is the target as it was written before the work, and it is what the source now does. The one
+naming difference is the case label: `.phone`/`.pad` became `.hakoPhone`/`.upstreamPad`, because the
+question the router answers is which *presentation* owns the surface, not which hardware it is on —
+an iPad is `.upstreamPad` at every width, and that is the whole point of not reading size class here.
 
 macOS keeps `MacApplication` → `MacLibrary/MainView`, with that file's Hako styling reconsidered
 separately from the iOS routing.
