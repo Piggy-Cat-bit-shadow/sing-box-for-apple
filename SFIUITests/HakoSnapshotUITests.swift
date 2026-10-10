@@ -213,7 +213,13 @@ final class HakoSnapshotUITests: XCTestCase {
     /// Clash's three modes. sing-box has no built-in outbound mode: the core derives the list
     /// from `clash_mode` actions in the reader's own rules, so a normal configuration has none.
     /// Asserting on a fixture that invented them was asserting on nothing.
+    ///
+    /// Asking the fixture for a configuration without modes is what makes this case mean
+    /// something: without the state the launch still installs the three, and the assertion would
+    /// be checking the fixture rather than the page. `test14b` needs them present from the same
+    /// launch, which is why the state is a selection and not a change to what the fixture is.
     func test14OutboundModeIsAbsentByDefault() {
+        launch(state: "noClashModes")
         tab("hako.tab.home").tap()
         XCTAssertTrue(
             app.buttons["hako.home.groups"].waitForExistence(timeout: 15),

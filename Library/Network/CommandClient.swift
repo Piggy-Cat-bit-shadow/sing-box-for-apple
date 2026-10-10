@@ -171,8 +171,17 @@ public class CommandClient: ObservableObject {
 
     public func setupMockData() {
         isConnected = true
-        clashModeList = ["rule", "global", "direct"]
-        clashMode = "rule"
+        // The three modes are Clash's, and sing-box has no built-in outbound mode - the core
+        // derives the list from `clash_mode` actions in the reader's own rules, so a normal
+        // configuration has none. They are installed only when the fixture is not being asked for
+        // a configuration without them: `test14bOutboundModeWhenTheConfigurationDefinesIt` needs
+        // them present and `test14OutboundModeIsAbsentByDefault` needs them absent, from the same
+        // launch. Absent means an empty list rather than a sentinel, which is what a real
+        // configuration with no `clash_mode` action reports.
+        if Variant.uiTestFixtureState != "noClashModes" {
+            clashModeList = ["rule", "global", "direct"]
+            clashMode = "rule"
+        }
         trafficSnapshot = TrafficSnapshot(
             uplinkHistory: Array(repeating: CGFloat(1000), count: 30),
             downlinkHistory: Array(repeating: CGFloat(5000), count: 30)
