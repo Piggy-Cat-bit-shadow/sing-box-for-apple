@@ -306,7 +306,7 @@ def mutate_environment_key_removed(root: str) -> str:
     # an escape, and each failure reported "mutation could not be applied" - which reads as a problem
     # with the tree rather than with the test. A bare word, a newline built by `chr`, and an assertion
     # that the line really is a comment have nothing left to mangle.
-    path = os.path.join(root, "ApplicationLibrary/Views/EnvironmentValues.swift")
+    path = os.path.join(root, "ApplicationLibrary/Views/HakoStyle/HakoEnvironmentValues.swift")
     text = read(path)
     found = text.find("compact metric")
     if found < 0:
@@ -315,7 +315,8 @@ def mutate_environment_key_removed(root: str) -> str:
     if not text[line_start:found].lstrip().startswith(chr(47)):
         raise AssertionError("the line above the key is not a doc comment")
     write(path, text[:line_start].rstrip() + chr(10))
-    return "the compact-rows environment key removed while two original files still read it"
+    return ("the compact-rows environment key removed from its Hako-owned file while two original "
+            "files still read it")
 
 
 CASES = (
