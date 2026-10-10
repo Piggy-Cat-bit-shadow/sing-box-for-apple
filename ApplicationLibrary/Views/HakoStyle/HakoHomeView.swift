@@ -110,6 +110,18 @@ public struct HakoHomeView: View {
     @State private var liveConnectionCount = 0
     /// Raised by the one action this page performs itself: sending the outbound mode.
     @State private var alert: AlertState?
+    /// The system-proxy action's own state.
+    ///
+    /// The frozen design holds one `OverviewViewModel` here (`@StateObject private var coordinator`), gives it
+    /// to the system-proxy action, presents `$coordinator.alert`, and folds `coordinator.reasserting` into the
+    /// page's disable gate. The migration dropped the object and called
+    /// `await OverviewViewModel().setSystemProxyEnabled(...)` instead - a **throwaway**, so when the action
+    /// fails, `setSystemProxyEnabled` writes the failure to its own `alert` and nothing ever reads it. The
+    /// system-proxy failure was silent, and `reasserting` could not reach the gate.
+    ///
+    /// Held as `@StateObject` rather than `@State` because `OverviewViewModel` is an `ObservableObject`: a
+    /// `@State` copy would be rebuilt on every body evaluation, which is the same defect one level down.
+    @StateObject private var coordinator = OverviewViewModel()
     /// The system-proxy switch, held locally because the core snapshot is read-only.
     @State private var systemProxyEnabledLocal: Bool
 
@@ -193,13 +205,16 @@ public struct HakoHomeView: View {
         .onChangeCompat(of: systemProxyEnabled) { newValue in
             systemProxyEnabledLocal = newValue
         }
+        .alert($coordinator.alert)
         .alert($alert)
         // The same gate the card grid applies: no control on the page may act while the tunnel is
         // moving. Only while it is *moving*: `isSwitchable` is connected-or-disconnected, so testing
         // it disabled the whole page for a client that has no tunnel at all - which greyed out the
         // install action in the notice above and left the page's action inert. A page whose only job
         // is to offer the next step must not be disabled before the first step is taken.
-        .disabled(profile.status == .connecting || profile.status == .disconnecting)
+        // `coordinator.reasserting` is the frozen design's second term: turning the system proxy
+        // off restarts the service, and the page must not act while that is in flight.
+        .disabled(profile.status == .connecting || profile.status == .disconnecting || coordinator.reasserting)
         // Outside the Form and outside the Section: a presentation attached to a `Section` is
         // dropped, because a Section is the Form's layout container rather than a view in the
         // hierarchy. The configuration centre is presented from the page.
@@ -473,7 +488,7 @@ public struct HakoHomeView: View {
                 set: { systemProxyEnabledLocal = $0 }
             )
         ) { enabled in
-            await OverviewViewModel().setSystemProxyEnabled(enabled, profile: profile)
+            await coordinator.setSystemProxyEnabled(enabled, profile: profile)
         }
     }
 
