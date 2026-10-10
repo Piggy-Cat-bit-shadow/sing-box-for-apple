@@ -209,7 +209,15 @@ struct HakoPhoneRootView: View {
                 }
             }
             .onReceive(environments.selectedProfileUpdate) { _ in
-                Task { await dashboard.updateSelectedProfile() }
+                // The original refreshes the proxy snapshot here too, and only while the tunnel is up
+                // (`up-hako ActiveDashboardView.swift:121-128`): a different configuration can change what
+                // the system proxy is set to, so the Home page's card is stale until something reloads it.
+                Task {
+                    await dashboard.updateSelectedProfile()
+                    if environments.extensionProfile?.status.isConnected == true {
+                        await dashboard.reloadSystemProxy()
+                    }
+                }
             }
             .onChangeCompat(of: scenePhase) { newValue in
                 if newValue == .active {

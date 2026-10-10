@@ -172,8 +172,11 @@ def scan(text: str) -> dict:
 def main() -> int:
     targets = sys.argv[1:]
     if not targets:
+        # Exit 2, not 1: 1 already means "a file has a structural problem", so a caller could not tell a
+        # usage error from a structural failure. Both are non-zero, which is what a gate needs; the
+        # distinction is what a script around it needs.
         print(__doc__)
-        return 1
+        return 2
     bad = 0
     for target in targets:
         if os.path.isdir(target):

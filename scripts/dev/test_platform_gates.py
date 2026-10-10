@@ -68,9 +68,19 @@ def write(path: str, text: str) -> None:
 
 
 def reset(scratch: str) -> None:
-    """Restore the evaluated tree from the pristine copy, and assert the restore worked."""
+    """Restore the evaluated tree from the pristine copy, and assert the restore worked.
+
+    The removal is verified rather than ignored. `rmtree(..., ignore_errors=True)` followed by a
+    `copytree` into the same path turned a failed removal into `FileExistsError` from the *copy* - a crash
+    two frames away from the cause, and one that only happens when two runs share the scratch directory.
+    The default scratch is unique per run for that reason; this makes a shared one fail with the truth.
+    """
     target = os.path.join(scratch, HAKO)
-    shutil.rmtree(target, ignore_errors=True)
+    if os.path.isdir(target):
+        shutil.rmtree(target)
+    if os.path.exists(target):
+        raise AssertionError(f"the evaluated tree could not be removed from the scratch: {target}. Two "
+                             f"runs sharing one scratch directory is the usual cause; pass --scratch")
     shutil.copytree(os.path.join(RESTORE_ME, HAKO), target)
     assert os.path.isdir(target)
 
@@ -589,8 +599,11 @@ def case_nothing_checked_is_a_refusal(scratch: str) -> tuple[bool, list[str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--scratch", default=os.environ.get(
-        "DSH_SCRATCH", os.path.join(tempfile.gettempdir(), "hako-platform-gates")),
-        help="disposable directory the fault injection runs in; nothing outside it is written")
+        "DSH_SCRATCH", os.path.join(tempfile.gettempdir(),
+                                    f"hako-platform-gates-{os.getpid()}")),
+        help="disposable directory the fault injection runs in; nothing outside it is written. "
+             "Unique per process by default, so two concurrent runs cannot share one and crash each "
+             "other; pass a path to reuse one deliberately")
     parser.add_argument("--keep", action="store_true", help="leave the scratch directory in place")
     args = parser.parse_args()
 

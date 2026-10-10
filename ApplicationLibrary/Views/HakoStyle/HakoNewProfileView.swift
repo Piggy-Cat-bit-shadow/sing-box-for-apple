@@ -83,10 +83,15 @@ public struct HakoNewProfileView: View {
     }
 
     private var ownsDismiss: Bool {
-
-
+        // The original's own two-arm condition, restored. Collapsing it to `true` is correct on every
+        // platform the phone builds for, and loses the tvOS answer - `up-hako@c1935cf
+        // ApplicationLibrary/Views/Profile/NewProfileView.swift:69-75` returns `onSuccess == nil` there,
+        // because a television has no dismissal to own when a caller supplied the continuation.
+        #if os(tvOS)
+            onSuccess == nil
+        #else
             true
-
+        #endif
     }
 
     private var formContent: some View {
