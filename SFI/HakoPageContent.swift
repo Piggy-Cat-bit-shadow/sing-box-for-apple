@@ -75,9 +75,9 @@ struct HakoPageContent: View {
             case .logs:
                 HakoLogView()
             case .tools:
-                ToolsView()
+                HakoToolsView()
             case .settings:
-                SettingView()
+                HakoSettingView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)

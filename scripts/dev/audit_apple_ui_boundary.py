@@ -1053,8 +1053,8 @@ HAKO_PAGE_ROUTING = {
     "groups": "HakoGroupListView",
     "connections": "HakoConnectionListView",
     "logs": "HakoLogView",
-    "tools": None,
-    "settings": None,
+    "tools": "HakoToolsView",
+    "settings": "HakoSettingView",
 }
 
 #: The views `HakoPageContent` may name. A routing to anything else is a routing nobody decided.
@@ -1203,6 +1203,8 @@ def check_hako_feature_preservation(root: str) -> Check:
         ("HakoLogView", "the Logs page"),
         ("HakoGroupListView", "the Proxies page"),
         ("HakoConnectionListView", "the Activity page"),
+        ("HakoToolsView", "the Tools page"),
+        ("HakoSettingView", "the More page"),
         ("HakoNavigationRow", "the shortcut rows"),
         ("HakoPageSection", "the painted sections"),
         ("HakoRootScaffold", "the page canvas"),
@@ -1246,6 +1248,13 @@ def check_hako_feature_preservation(root: str) -> Check:
         (r"HakoConnectionListView\s*\(",
          r"HakoConnectionListContentView\s*\(", 
          "the Activity page presents its own content view"),
+        (r"HakoToolsView\s*\(",
+         r"HakoPageSection\s*\(",
+         "the Tools page groups its rows into the design system's sections"),
+        (r"HakoSettingView\s*\(",
+         r"pendingSettingsPage",
+         "the More page carries a requested settings sub-page into the destination it "
+         "belongs to"),
         (r"HakoLogView\s*\(",
          r"LogViewContent\s*\(commandClient:",
          "the Logs page wraps upstream's content rather than copying it"),
