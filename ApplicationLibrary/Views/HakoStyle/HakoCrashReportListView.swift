@@ -52,7 +52,7 @@ public struct HakoCrashReportListView: View {
 
 
                                 FormNavigationLink {
-                                    HakoCrashReportDetailView(report: report)
+                                    CrashReportDetailView(report: report)
                                 } label: {
                                     reportLabel(report)
                                 }

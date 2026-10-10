@@ -59,7 +59,7 @@ public struct HakoPowerReportListView: View {
 
 
                                 FormNavigationLink {
-                                    HakoPowerReportDetailView(report: report)
+                                    PowerReportDetailView(report: report)
                                 } label: {
                                     reportLabel(report)
                                 }
