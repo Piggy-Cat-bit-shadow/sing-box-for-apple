@@ -24,28 +24,24 @@ public struct HakoNewProfileView: View {
     @StateObject private var viewModel: NewProfileViewModel
     private var onSuccess: ((Profile) async -> Void)?
 
-    public struct HakoImportRequest: Codable, Hashable, Identifiable {
-        public var id: String {
-            url
-        }
-
-        public let name: String
-        public let url: String
-    }
-
-    public struct HakoLocalImportRequest: Hashable, Identifiable {
-        public var id: String {
-            fileURL.absoluteString
-        }
-
-        public let name: String
-        public let fileURL: URL
-
-        public init(name: String, fileURL: URL) {
-            self.name = name
-            self.fileURL = fileURL
-        }
-    }
+    /// The two import requests are the shared view's own types, not copies.
+    ///
+    /// They were copies, and that was a **compile error**: `NewProfileViewModel.init` takes
+    /// `NewProfileView.ImportRequest?`, so passing `HakoImportRequest?` does not type-check. The
+    /// migration tool renamed every module-scope type it found, and these two are nested inside the
+    /// view - so they were renamed too, and their only consumer still wants the originals.
+    ///
+    /// Re-declaring them was never necessary. A nested type is scoped to its enclosing type, so
+    /// `NewProfileView.ImportRequest` and a `HakoImportRequest` cannot collide, and this file needs no
+    /// type of its own: both are passed straight through to the view model, and nothing constructs
+    /// either. Using the shared types is therefore the smaller change *and* the one that keeps the two
+    /// sides of the call in agreement.
+    ///
+    /// They stay spelled `HakoImportRequest` / `HakoLocalImportRequest` at the API surface because the
+    /// phone's own call sites already pass those names, and a typealias keeps that working without a
+    /// second declaration anywhere.
+    public typealias HakoImportRequest = NewProfileView.ImportRequest
+    public typealias HakoLocalImportRequest = NewProfileView.LocalImportRequest
 
     public init(
         _ importRequest: HakoImportRequest? = nil,

@@ -96,17 +96,56 @@ def hako_files() -> list[str]:
     return out
 
 
-def rename_map(original: str) -> dict[str, str]:
-    """Every module-scope type the page declares, mapped to its Hako name."""
+def module_scope_types(text: str) -> dict[str, str]:
+    """`{name: kind}` for every type declared at **brace depth 0**.
+
+    # Why depth and not indentation
+
+    An earlier version treated "indented" as "nested". That is not the same thing. `TaildropView.swift`
+    wraps its whole body in `#if !os(tvOS)`, so after the conditional is resolved its `public struct
+    TaildropView` is still indented four spaces - and it is a module-scope type that must be renamed,
+    because upstream's file declares it too. Meanwhile `NewProfileView.ImportRequest` is genuinely nested,
+    and renaming it was a compile error: `NewProfileViewModel.init` takes
+    `NewProfileView.ImportRequest?`, so a copy named `HakoImportRequest` does not type-check.
+
+    A nested type cannot collide with a module-scope name, so it never needs renaming; a module-scope type
+    always does. Indentation cannot tell them apart and brace depth can, so depth decides.
+    """
+    without_comments = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    without_comments = re.sub(r"//[^\n]*", "", without_comments)
+
     out: dict[str, str] = {}
-    for match in TYPE_DECL.finditer(original):
-        if re.search(r"\b(?:private|fileprivate)\b", match.group("mods")):
-            continue  # file-scoped: cannot collide, so renaming it would only churn call sites
-        name = match.group("name")
-        if name.startswith("Hako"):
-            continue
-        out[name] = "Hako" + name
+    depth = 0
+    for line in without_comments.split("\n"):
+        match = TYPE_DECL.match(line)
+        if match and depth == 0 and not re.search(r"\b(?:private|fileprivate)\b", match.group("mods")):
+            out[match.group("name")] = match.group("kind")
+        depth += line.count("{") - line.count("}")
     return out
+
+
+def nested_type_names(text: str) -> set[str]:
+    """Type names declared at brace depth >= 1."""
+    without_comments = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    without_comments = re.sub(r"//[^\n]*", "", without_comments)
+
+    out: set[str] = set()
+    depth = 0
+    for line in without_comments.split("\n"):
+        match = NESTED_TYPE_DECL.match(line)
+        if match and depth >= 1:
+            out.add(match.group("name"))
+        depth += line.count("{") - line.count("}")
+    return out
+
+
+def rename_map(original: str) -> dict[str, str]:
+    """Every module-scope type the page declares, mapped to its Hako name.
+
+    Nested types are deliberately absent: they cannot collide across files, and renaming one breaks any
+    consumer that spells it as a member type.
+    """
+    return {name: "Hako" + name for name in module_scope_types(original) if not name.startswith("Hako")}
 
 
 def apply_renames(text: str, mapping: dict[str, str]) -> tuple[str, dict[str, int]]:
@@ -160,6 +199,45 @@ def members_added_by_extensions(text: str) -> list[tuple[str, str]]:
             if found and not re.search(r"\b(?:private|fileprivate)\b", found.group("mods") or ""):
                 out.append((match.group("type"), found.group("name")))
     return out
+
+
+#: A nested type declaration, with the source line that opens it.
+NESTED_TYPE_DECL = re.compile(
+    r"^[ \t]+(?P<mods>(?:@\w+(?:\([^)]*\))?[ \t]+|public[ \t]+|internal[ \t]+|private[ \t]+|"
+    r"fileprivate[ \t]+|final[ \t]+|indirect[ \t]+)*)"
+    r"(?P<kind>struct|class|enum|protocol|actor)\s+(?P<name>\w+)\s*[:{]", re.M)
+
+
+def nested_types_needing_aliases(text: str, mapping: dict[str, str]) -> list[tuple[str, str]]:
+    """`(HakoName, OriginalName)` for each renamed **nested** type that is itself named as a member type.
+
+    # The defect this exists for
+
+    The migration renamed `NewProfileView`'s two nested request types to `HakoImportRequest` and
+    `HakoLocalImportRequest` and left the initialiser passing them to `NewProfileViewModel`, whose own
+    signature is `init(importRequest: NewProfileView.ImportRequest?, ...)`. `HakoImportRequest` is not
+    that type, so the file did not compile - and the tool reported success, because a rename that matched
+    is exactly what it was checking for.
+
+    A nested type is not the same kind of thing as a module-scope one. Renaming it is only ever needed to
+    avoid a collision with another **module-scope** name, and a nested type cannot collide with one. When
+    a renamed nested type also appears as `Enclosing.Name` anywhere - in a call, a signature, a type
+    annotation - something outside the declaration is spelling it that way, and the rename breaks it.
+
+    The fix restores the original spelling as a `typealias` member of the same enclosing type, so both
+    names resolve to one type: the file's own Hako-named API stays, and every member reference the
+    consumer expects keeps working.
+    """
+    aliases: list[tuple[str, str]] = []
+    for match in NESTED_TYPE_DECL.finditer(text):
+        original = match.group("name")
+        renamed = mapping.get(original)
+        if renamed is None:
+            continue
+        if not re.search(rf"\.{re.escape(original)}\b", text):
+            continue
+        aliases.append((renamed, original))
+    return aliases
 
 
 def shared_extension_members() -> dict[str, set[str]]:
@@ -245,6 +323,34 @@ def migrate(source: str, write: bool) -> int:
         return 0
 
     text, counts = apply_renames(resolved, mapping)
+
+    # A renamed **nested** type whose original spelling is still used as a member type needs the
+    # original spelling restored as a typealias, or the consumer of that member type stops compiling.
+    # See `nested_types_needing_aliases` for the defect this exists for.
+    aliases = nested_types_needing_aliases(text, mapping)
+    if aliases:
+        lines = text.split("\n")
+        # Insert each alias immediately after the enclosing type's opening brace is impractical without
+        # tracking nesting, so they go at the end of the file as members of nothing: a typealias at file
+        # scope would be a different declaration. Instead they are appended inside the enclosing struct's
+        # body, found by scanning for the Hako type that matched the rename.
+        for renamed, original in aliases:
+            opener = [i for i, line in enumerate(lines)
+                      if TYPE_DECL.match(line) and TYPE_DECL.match(line).group("name") == renamed]
+            if len(opener) != 1:
+                raise SystemExit(f"FAILED: cannot place a typealias for {renamed!r} "
+                                 f"({len(opener)} declarations)")
+            start = opener[0]
+            depth = 0
+            for index in range(start, len(lines)):
+                depth += lines[index].count("{") - lines[index].count("}")
+                if depth == 0 and index > start:
+                    lines.insert(index, f"    public typealias {original} = {renamed}")
+                    break
+            else:
+                raise SystemExit(f"FAILED: unbalanced declaration {renamed!r}")
+        text = "\n".join(lines)
+        print("  nested typealiases: " + ", ".join(f"{o} = {r}" for r, o in aliases))
 
     # A module-scope extension member the ported copy adds that upstream's file also adds is a duplicate
     # declaration just as a duplicated type is, and renaming the types inside it does not help.

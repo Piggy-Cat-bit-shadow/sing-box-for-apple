@@ -146,3 +146,28 @@ public struct HakoConnectionsSheetContent: View {
         }
     }
 }
+
+/// Add Configuration, presented as a sheet on the phone.
+///
+/// Mirrors `ProfileCard.NewProfileNavigationView`, which the picker used to present: a single
+/// `NavigationStackCompat` and `.presentationDetentsIfAvailable()` around the menu. That shared view
+/// builds `NewProfileMenuView()`, which is upstream's, so the phone's Add-Configuration tiles were
+/// upstream's menu under upstream's chrome.
+///
+/// `HakoNewProfileMenuView` supplies the original's chrome - `HakoModalScaffold(title: "Add
+/// Configuration")` - and needs a navigation container above it for its title and `.close` to attach to,
+/// which is what this provides. The container is deliberately not `HakoModalScaffold` itself: one owner
+/// for the title, and the menu already owns it.
+@MainActor
+public struct HakoNewProfileSheetContent: View {
+    @EnvironmentObject private var environments: ExtensionEnvironments
+
+    public init() {}
+
+    public var body: some View {
+        HakoSheetContainer {
+            HakoNewProfileMenuView()
+                .environmentObject(environments)
+        }
+    }
+}

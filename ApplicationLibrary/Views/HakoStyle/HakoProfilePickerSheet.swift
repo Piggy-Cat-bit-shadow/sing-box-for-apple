@@ -115,7 +115,7 @@ struct HakoProfilePickerSheet: View {
                 .sheet(isPresented: $showNewProfile, onDismiss: {
                     environments.profileUpdate.send()
                 }, content: {
-                    ProfileCard.NewProfileNavigationView()
+                    HakoNewProfileSheetContent()
                         .environmentObject(environments)
                 })
                 .sheet(item: $profileToEdit) { profile in
