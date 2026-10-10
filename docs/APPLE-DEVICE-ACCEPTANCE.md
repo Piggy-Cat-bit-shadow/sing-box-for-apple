@@ -1,8 +1,37 @@
 # Apple device acceptance checklist
 
-**Nothing in this file has been executed.** It is the list to run on a Mac with Xcode and the
-`Libbox.xcframework` in place, and on real devices. Every item below is `DEFERRED` or `UNVERIFIED`
-until someone runs it and records the result.
+## Read this first — the iPad and Mac clients cannot be tested here, and that is permanent
+
+**This is an iron rule of this project, not a temporary limitation** (铁律 · iron law):
+
+* **The iPad and Mac clients are never tested on this machine — not on a device, and not in a
+  simulator.** The environment does not permit it; they do not run. Do not try, do not "just verify
+  the build launched", and do not record a UI result for them.
+* **iPad and Mac are code-review-only surfaces.** The evidence for them is reading the code and the
+  static audits below — `upstream-files-untouched`, `tablet-and-mac-entry`, `phone-entry`. Nothing
+  else. A green compile is a compile, not acceptance.
+* **Only the iPhone surface is testable**, and only the iPhone surface may carry a UI-test result.
+  `SFI` builds, the iPhone simulator runs, and `HakoNavigationUITests` / `HakoSnapshotUITests` are
+  real evidence for it.
+* **A build command is not a test.** `xcodebuild build` for `SFM` (the Mac app) is a static check and
+  is allowed and wanted. `xcodebuild test` against a Mac or iPad destination is what this rule
+  forbids — it will fail or, worse, appear to pass for reasons unrelated to the product.
+
+If you are an agent reading this: **do not spend a turn trying to run the iPad or Mac client.**
+Report the code review, say the surface is not testable here, and move on. This section exists
+because that mistake was made repeatedly, and each attempt cost a full test cycle and produced
+nothing that could be believed.
+
+Everything below this line is `DEFERRED` or `UNVERIFIED` and is kept as the list to run **on
+hardware where those clients actually start** — not as a list to attempt here.
+
+---
+
+**Nothing in the rest of this file has been executed**, with one exception recorded in
+`APPLE-UI-MAC-VERIFICATION-REPORT.md`: the **iPhone** simulator gates have now been run there
+(`SFI` builds, 18/18 navigation, 24/28 snapshot, 33/33 screen-state), and the audit row above is
+current. Every other item below is `DEFERRED` or `UNVERIFIED` until someone runs it and records the
+result — and the iPad and Mac items cannot be run here at all, per the rule above.
 
 Read `docs/APPLE-ARCHITECTURE-AUDIT.md` §7 first: it states exactly what *was* verified here
 (source-level boundaries, on Windows) and what was not (everything on Apple platforms).

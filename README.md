@@ -214,7 +214,7 @@ docs/
   APPLE-REFACTOR-BASELINES.md          不可变引用与固定上游基线
   APPLE-ARCHITECTURE-AUDIT.md          ★ 架构审计报告（FACT / INFERENCE / UNKNOWN）
   UPSTREAM-SYNC-PLAYBOOK.md            ★ 上游同步的逐步操作手册
-  APPLE-DEVICE-ACCEPTANCE.md           ★ 待执行的 Apple 平台验收清单
+  APPLE-DEVICE-ACCEPTANCE.md           ★ 待执行验收清单；**开头的铁律先读**：iPad/Mac 只做代码审核，禁止实测
   APPLE-REFACTOR-FINAL-REPORT.md       本轮施工的最终报告
   SNAPSHOT-FIXTURE-CONTRACT.md         ★ 截图 fixture 读哪些变量、如何加状态、哪些状态测不到
   pending/                             未能原样取用的 fork 资产（含原因）

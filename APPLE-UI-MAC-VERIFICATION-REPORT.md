@@ -23,7 +23,7 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | iPhone simulator build | **PASS** |
 | iPad simulator build | **PASS** |
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
-| Swift tests — `HakoScreenState` | **PASS on the policy suite (9/9); 8 observer cases fail** — the policy disagreement was resolved by decision, the 8 are the fixtures' display axis |
+| Swift tests — `HakoScreenState` | **PASS — 33/33** (was 25/33). The policy question was decided and implemented; the 8 observer failures were fixture defects, all corrected — §6h |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
 | Snapshot UI tests (`HakoSnapshotUITests`) | **24 of 28 pass; 4 fail** — measured on a full run. Four of the original five were fixed this round; `test15` is a product defect, `test43` needs a seeding path the bindings do not allow, and `test34`/`test36` are simulator state drift proved not to be this round's work. See §6c, §6d |
 | Family routing | **PASS by construction, not by test** (see §5.3) |
@@ -50,7 +50,7 @@ defects broke it, and neither was visible from the branch that reported it ready
 | --- | --- |
 | Client repository | `Piggy-Cat-bit-shadow/sing-box-for-apple` |
 | Branch | `jiejiebox/integrated` |
-| **Revision verified** | **`d6f5d99e2dcd0563b0fc8f76f230f2c39b65c4fe`** |
+| **Revision verified** | **`ee428f729b2900ab99535691d9c5db0881d267ea`** |
 | Revision this was built on (parent's pin) | `2a189686ae382d860f643ec53b64cbdb6cca562e` |
 | Kernel revision used for libbox | `Piggy-Cat-bit-shadow/sing-box` @ `315c34e44` (+ local script fixes) |
 | Xcode | 27.0 (27A266a) |
@@ -64,7 +64,7 @@ defects broke it, and neither was visible from the branch that reported it ready
 
 **Parent gitlink vs tested SHA.** The parent's `clients/apple` gitlink still records
 `2a18968`. This round verified `2a18968` **plus six commits**, which is what
-`jiejiebox/integrated` now points at. The parent pin must be moved to `d6f5d99` for a clean clone
+`jiejiebox/integrated` now points at. The parent pin must be moved to `ee428f7` for a clean clone
 to get a compiling client — that is the user's call and was deliberately not taken (see §10).
 
 ---
@@ -86,7 +86,7 @@ to get a compiling client — that is the user's call and was deliberately not t
 | Test | Result | Count / Notes |
 | --- | --- | --- |
 | `HakoSubscriptionUsage` (SwiftPM) | **PASS** | 24 tests, 0 failures |
-| `HakoScreenState` (SwiftPM) | **9 cases FAIL of 33** | now compiles. 1 `ScreenStatePolicyTests` + 8 `ScreenStateObserverTests` cases; all fold into one rule in `ScreenStatePolicy.decide` — see §6.8 |
+| `HakoScreenState` (SwiftPM) | **PASS — 33 tests, 0 failures** | `ScreenStatePolicyTests` 9/9, `ScreenStateObserverTests` 24/24. Was 25/33 — see §6h |
 | `HakoNavigationUITests` | **PASS** | 18 tests, 0 failures, 513 s |
 | `HakoSnapshotUITests` | **24 PASS / 4 FAIL** | Fixed and re-verified individually: `test10Home`, `test14`, `test17`, `test18`. Remaining: `test15` (product defect), `test43` (no seeding path), and `test34`/`test36` (see §6e) |
 | Freeze guards (`check-iphone-hako-freeze.sh`, `test-iphone-hako-freeze.sh`) | **N/A** | **these scripts do not exist in this tree** — they belong to the `hako-ui`/`ipad-upstream-ui` line, not to `jiejiebox/integrated`. Not "skipped"; absent. |
@@ -818,6 +818,69 @@ truth the whole time, in the one line nobody reads.
 
 ---
 
+## 6h. The Screen-State Suite Is 33 Of 33
+
+`HakoScreenState` went from **not compiling** (§6.8) to **25 of 33** once it did, and to **33 of 33**
+here. The route was: decide the one rule the policy and the tests disagreed about (the user decided
+it - an unlock requires the lock to have been observed `1` first, implemented as rule 5 of
+`ScreenStatePolicy.decide`), and then correct the eight observer cases, which turned out to be
+fixture defects rather than a second disagreement.
+
+### The fixtures contradicted the product, each other, and themselves
+
+The product's display axis is `1 -> .displayOn`, `0 -> .displayOff`. `docs/SCREEN-STATE-FACTS.md`
+quotes upstream doing the same: `commandServer.recordScreenState(state == 1)`. There was a settled
+answer available and the fixtures were not using it:
+
+* **Five cases wrote `.value(1)` and commented it "display off"** (lines 289, 484, and three
+  uncommented). One wrote `.value(0)` and commented it "display on" (line 342). Both cannot hold.
+* Every fixture now follows the product.
+* Where a case is *about* a display going on, it now starts dark and delivers the change. A source
+  read twice at the same value is a repeat and publishes nothing, so a case that starts with the
+  display already on and then delivers "on" was asserting on a non-event that could never happen.
+
+### Two cases keyed on token numbers that are not stable
+
+The fake hands out a fresh token per registration and never reuses one:
+
+* **`testAFailedStartCanBeRetried`** - the first start fails on the display name, and a *failed
+  registration consumes no token*, so on the retry the display takes 100 only if it registers
+  first. The hard `stateResult[100]`/`[101]` were answering for the wrong sources.
+* **`testStartAfterCancelWorks`** - after a `cancel()` the second start gets tokens past 100, so
+  `stateResult[100]` was a dead key and the display's read fell through to `.failed`.
+
+Both now ask `registeredTokens` for the token each source was actually given, which is the only
+answer that survives a partial registration.
+
+### Two cases were not testing what they named
+
+* **`testAFailedEventReadPublishesNothingAndKeepsTheLastValue`** called `deliver(lockName)` *before*
+  `start()`, under the comment *"not registered yet: harmless"*. It is not harmless: `deliver` fails
+  the case outright when nothing is registered for the name, and it did - which is why the case
+  reported `no registration for com.apple.springboard.lockstate` rather than anything about failed
+  reads. The delivery is gone, and both sources now have a value before `start()` so that the
+  observer is actually running.
+* **`testResyncCanNeverPublishAWake`** left both reads failing, so `lastObserved` stayed empty and
+  its resync found no previous value - meaning a sleep fact would have been a fresh edge. The
+  fixture now sets both axes to a non-sleep reading before `start()`, which is the state the case
+  names and the only one in which "a snapshot may publish neither" is under test at all.
+
+### The assertions were strengthened, not relaxed
+
+Worth stating plainly, because "fixed the tests" is normally how a suite gets made green:
+**no `XCTAssert` was deleted and no tolerance was widened.** Every changed assertion *adds*
+expectations - the array comparisons gained the sleep fact that `start()` correctly publishes.
+Product code is untouched: `git diff --stat -- Library/ SFI/` is empty, which was checked before
+committing.
+
+```
+Executed 33 tests, with 0 failures (0 unexpected)
+ScreenStatePolicyTests    9 of 9
+ScreenStateObserverTests 24 of 24
+```
+
+---
+
 ## 7. Environment-only Blockers
 
 Every one of these was worked around; none remains a blocker.
@@ -916,19 +979,10 @@ configuration — verified, so it stays out of the repository) and
 
 ## 9. Remaining Risks
 
-1. **`HakoScreenState`: the policy question is settled; 8 observer cases remain, and they are the
-   fixtures' fault.** `ScreenStatePolicyTests` is now **9 of 9** — the unlock rule was decided (an
-   unlock requires the lock to have been observed `1` first) and implemented as rule 5 in
-   `ScreenStatePolicy.decide`. The 8 remaining failures are all in `ScreenStateObserverTests`, and
-   their cause is one inverted axis: five set the display fixture to `1` and comment it "display
-   off" (lines 289, 484), while one sets `0` and comments it "display on" (line 342). Both cannot be
-   right. The product maps `1 -> .displayOn`, and upstream does too — `docs/SCREEN-STATE-FACTS.md`
-   quotes it: `commandServer.recordScreenState(state == 1)`. The fixtures contradict the product
-   **and each other**, so correcting them is a change to 8 cases' setup, not to a rule.
-2. **`test15ProfileLoadFailure` is a real product defect waiting on a wording decision.** A failed
+1. **`test15ProfileLoadFailure` is a real product defect waiting on a wording decision.** A failed
    `ExtensionProfile.load()` is discarded by `try?` and rendered as "no tunnel installed"; the
    `profileLoadFailure` message the page was built to show is never supplied (§6d).
-3. **Systemic guard loss, quantified.** 30 of the 54 `Hako*.swift` files carry **fewer platform
+2. **Systemic guard loss, quantified.** 30 of the 54 `Hako*.swift` files carry **fewer platform
    directives than the originals they were copied from** — measured by comparing each file's
    own provenance header against that original. This round fixed the ten that broke the macOS
    build. The other twenty compile today because nothing reachable on macOS passes through the
@@ -937,28 +991,28 @@ configuration — verified, so it stays out of the repository) and
    re-apply the copy's bodies); a text-level directive insertion produces files that compile in
    no configuration, which I verified by attempting it. `scripts/dev/restore_*.py` are written
    for this and carry Windows paths in their defaults.
-4. **The family router has no automated test.** `SFIUIFamily.resolve` is pure and trivially
+3. **The family router has no automated test.** `SFIUIFamily.resolve` is pure and trivially
    testable, and the compact-width claim in §5.3 rests on reading it. The project has no unit
    test target; a `#if os(iOS)`-guarded SwiftPM test could not compile the file either.
-5. **The parent pin is stale.** A clean clone of the parent still gets `2a18968`, which does not
-   compile. Until the pin moves to `d6f5d99`, "the parent's pin is the source of truth" and "the
+4. **The parent pin is stale.** A clean clone of the parent still gets `2a18968`, which does not
+   compile. Until the pin moves to `ee428f7`, "the parent's pin is the source of truth" and "the
    client compiles" cannot both hold.
-6. **`check_hako_macos_parse.py` reports PASS on a tree that fails to compile.** It is the
+5. **`check_hako_macos_parse.py` reports PASS on a tree that fails to compile.** It is the
    project's own macOS gate and it is currently not load-bearing.
-7. **The two Hako lines have diverged.** `hako-ui` (with `check-iphone-hako-freeze.sh` and its
+6. **The two Hako lines have diverged.** `hako-ui` (with `check-iphone-hako-freeze.sh` and its
    byte-identical-upstream assertion for `SFI/MainView.swift`) is a *different* branch from
    `jiejiebox/integrated` (which has `SFIUIFamily` and the generated pages). The freeze guard
    that protects the frozen iPhone UI exists on the branch the parent no longer pins.
-8. **The snapshot suite stands at 24 of 28, and no remaining failure is this round's work.**
+7. **The snapshot suite stands at 24 of 28, and no remaining failure is this round's work.**
    Four were fixed and re-verified individually (`test10Home`, `test14`, `test17`, `test18` —
    §6d). Of the four left: `test15` is a product defect, `test43` needs a seeding path the Go
    bindings do not expose, and `test34`/`test36` are simulator report state — proved not to be
    this round's change by reverting it and watching them fail identically (§6e).
-9. **The fixture had no single owner, and that was the actual defect behind four failures.**
+8. **The fixture had no single owner, and that was the actual defect behind four failures.**
    Modes, groups and the tunnel profile were each written at the point of use, so the fixture could
    not vary and two views counting the same thing were given two different numbers. §6d gave that
    state one gate and, for the groups, one source. Any future fixture state belongs there.
-10. **iPad and macOS UI cannot be accepted here, and that is settled rather than pending.** By
+9. **iPad and macOS UI cannot be accepted here, and that is settled rather than pending.** By
    explicit instruction the iPad and Mac clients **do not run** in this environment, so no
    simulator or device acceptance of those two surfaces is possible and none was attempted. What is
    verified for them is that they **build** (`SFM` generic macOS: BUILD SUCCEEDED) and that the
@@ -972,17 +1026,19 @@ configuration — verified, so it stays out of the repository) and
 
 # READY WITH NON-BLOCKING NOTES
 
-**Why not READY:** two things are true, and neither is a build defect.
+**Why not READY:** one thing is true, and it is not a build defect.
 
-* `HakoScreenState` is **8 cases of 33**, all in `ScreenStateObserverTests`, and their cause is a
-  fixture that inverts the display axis and contradicts both the product and itself (§9.1).
+* `HakoScreenState` is **33 of 33** (§6h). The rule it disagreed about was decided by the user and
+  implemented as rule 5 of `ScreenStatePolicy.decide`; the eight observer failures that remained
+  were fixture defects and are fixed. This is no longer a reason to withhold a verdict.
 * The parent's gitlink still points at a revision that does not build. This report verified
   `2a18968` + the work on `jiejiebox/integrated`; `READY` would require the pin to name that.
 
 **Why not NOT READY:** every build gate the iOS product depends on passes at a single, pushed,
 recorded revision — `SFI` device, `SFM` macOS, iPhone simulator, iPad simulator, **18/18 navigation
-UI tests**, **24/28 snapshot cases** with every remaining failure traced to a product defect, a
-binding limitation, or simulator state rather than to this round's work, **9/9 on the screen-state policy suite**, 24/24
+UI tests**, **33/33 screen-state cases**, **24/28 snapshot cases** with every remaining failure
+traced to a product defect, a binding limitation, or simulator state rather than to this round's
+work, **9/9 on the screen-state policy suite**, 24/24
 `HakoSubscriptionUsage` tests, and the Apple layers of the ABI gate with 667 Swift sources swept.
 The defects that made the pinned revision unbuildable are fixed with evidence and on the remote.
 
@@ -997,18 +1053,21 @@ belongs in the same place.
 ### What the user owns
 
 * **The client pin.** The parent still records `2a189686…`; the verified client revision is
-  `d6f5d99e…` on `jiejiebox/integrated`. A clean clone therefore still gets a client that does not
+  `ee428f7…` on `jiejiebox/integrated`. A clean clone therefore still gets a client that does not
   compile, until the pin moves. Per instruction, only the client repository was touched.
 * **`test15`'s wording.** Wiring `profileLoadFailure` means deciding what the page says when a
   configuration cannot be read — a product surface decision, not a test fix.
-* **The 8 observer cases' display axis**, which are wrong in the fixtures rather than in the rule.
 * **The kernel repository**, which was not modified.
 
 ### Suggested next round
 
-1. Move the parent pin to `d6f5d99` and re-run `check-libbox-abi.sh`.
-2. Fix `HakoScreenState`'s three errors.
+1. Move the parent pin to `ee428f7` and re-run `check-libbox-abi.sh`.
+2. Decide `test15`'s wording and thread the load failure through to `HakoHomeView`, which is the one
+   remaining product defect this report found and did not fix (§6d).
 3. Fix the `restore_*.py` path defaults and do the structural guard repair for the remaining
    twenty files, then re-run `check_hako_macos_parse.py` **and** a real `SFM` build — the
-   checker alone has been shown insufficient.
-4. Add a compact-width case to `SFIUITests` so §5.3 becomes evidence rather than inference.
+   checker alone has been shown insufficient (§9.5).
+4. Add a compact-width case to `SFIUITests` so §5.3 becomes evidence rather than inference. Note
+   that an iPhone simulator cannot answer it: `SFIUIFamily` keys on the idiom, so the case needs an
+   iPad destination, which by the rule at the top of `docs/APPLE-DEVICE-ACCEPTANCE.md` is not
+   testable here — so this stays a code-review claim until it runs on hardware.
