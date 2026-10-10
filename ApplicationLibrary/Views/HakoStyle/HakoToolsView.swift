@@ -84,7 +84,7 @@ public struct HakoToolsView: View {
                 }
             )) {
                 if let taildropEndpointTag {
-                    TaildropView(endpointTag: taildropEndpointTag)
+                    HakoTaildropView(endpointTag: taildropEndpointTag)
                 }
             }
         }
@@ -103,7 +103,7 @@ public struct HakoToolsView: View {
                 sshPresentedSession = session
             }
         }) { peer in
-            TailscaleSSHPromptView(peer: peer, endpointTag: sshPromptEndpointTag, onConnect: { session in pendingSSHSession = session })
+            HakoTailscaleSSHPromptView(peer: peer, endpointTag: sshPromptEndpointTag, onConnect: { session in pendingSSHSession = session })
         }
 
         .sheet(item: $sshPresentedSession) { presented in
@@ -230,7 +230,7 @@ public struct HakoToolsView: View {
                     FormNavigationLink {
 
 
-                            USBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
+                            HakoUSBIPServerView(viewModel: usbipViewModel, serverTag: server.serverTag)
 
                     } label: {
                         HakoNavigationRow(
@@ -251,7 +251,7 @@ public struct HakoToolsView: View {
             String(localized: "Network Tools")
         ) {
             FormNavigationLink {
-                NetworkQualityView()
+                HakoNetworkQualityView()
             } label: {
                 HakoNavigationRow(
                     title: String(localized: "Network Quality"),
@@ -263,7 +263,7 @@ public struct HakoToolsView: View {
             .accessibilityIdentifier("hako.tools.networkQuality")
             HakoRowDivider()
             FormNavigationLink {
-                STUNTestView()
+                HakoSTUNTestView()
             } label: {
                 HakoNavigationRow(
                     title: String(localized: "STUN & NAT"),
@@ -288,7 +288,7 @@ public struct HakoToolsView: View {
             ) {
 
                     NavigationLink(isActive: $showCrashReportList) {
-                        CrashReportListView()
+                        HakoCrashReportListView()
                     } label: {
                         reportRow(
                             title: String(localized: "Crash Report"),
@@ -317,7 +317,7 @@ public struct HakoToolsView: View {
                     }
                     HakoRowDivider()
                     NavigationLink(isActive: $showOOMReportList) {
-                        OOMReportListView()
+                        HakoOOMReportListView()
                     } label: {
                         reportRow(
                             title: String(localized: "Out of Memory Report"),
@@ -331,7 +331,7 @@ public struct HakoToolsView: View {
                     .accessibilityIdentifier("hako.tools.oomReports")
                     HakoRowDivider()
                     NavigationLink(isActive: $showPowerReportList) {
-                        PowerReportListView()
+                        HakoPowerReportListView()
                     } label: {
                         reportRow(
                             title: String(localized: "Power Report"),

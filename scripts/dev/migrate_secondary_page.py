@@ -53,8 +53,15 @@ HAKO_DIR = "ApplicationLibrary/Views/HakoStyle/"
 
 #: A file-level type declaration, with its access modifiers so a `private` type can be left alone - a
 #: `private` type cannot collide across files and renaming it would only churn call sites.
+#:
+#: The leading `[ \t]*` is load-bearing and was missing at first. A declaration's modifiers must sit at
+#: the start of its line, but the *line* need not start at column 0: `TaildropView.swift` wraps its whole
+#: body in `#if !os(tvOS)` and indents everything inside, so `    public struct TaildropView` never
+#: matched a pattern anchored on `^` followed directly by the modifiers. The tool reported "no
+#: module-scope type" for a file with one, which is the failure mode a `rename_map` that returns `{}` is
+#: least likely to be questioned.
 TYPE_DECL = re.compile(
-    r"^(?P<mods>(?:@\w+(?:\([^)]*\))?[ \t]+|public[ \t]+|internal[ \t]+|private[ \t]+|"
+    r"^[ \t]*(?P<mods>(?:@\w+(?:\([^)]*\))?[ \t]+|public[ \t]+|internal[ \t]+|private[ \t]+|"
     r"fileprivate[ \t]+|final[ \t]+|indirect[ \t]+)*)"
     r"(?P<kind>struct|class|enum|protocol|actor)\s+(?P<name>\w+)", re.M)
 
@@ -112,9 +119,10 @@ def apply_renames(text: str, mapping: dict[str, str]) -> tuple[str, dict[str, in
     return text, counts
 
 
-#: A module-scope `extension SomeType { ... }`, with its access modifiers.
+#: A module-scope `extension SomeType { ... }`, with its access modifiers. Same leading-whitespace rule
+#: as `TYPE_DECL`, and for the same reason: an indented declaration is still a declaration.
 EXTENSION_DECL = re.compile(
-    r"^(?P<mods>(?:public[ \t]+|internal[ \t]+|private[ \t]+|fileprivate[ \t]+)*)"
+    r"^[ \t]*(?P<mods>(?:public[ \t]+|internal[ \t]+|private[ \t]+|fileprivate[ \t]+)*)"
     r"extension\s+(?P<type>[\w.]+)\s*\{", re.M)
 
 #: A member declared at the top level of an extension body.
