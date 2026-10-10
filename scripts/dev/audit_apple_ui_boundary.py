@@ -32,6 +32,13 @@ Exit status is 0 when every check passes, 1 when any check fails, 2 when the aud
 not run (a file it needs is missing, or the repository cannot be read). A check that cannot be
 evaluated is reported `UNKNOWN` and does **not** by itself fail the run; `--strict` turns any
 `UNKNOWN` into a failure, which is what a release gate wants.
+
+`UNDECIDABLE` is the third state and it **always** fails the run, on the text path and on `--json`
+alike: the check is in the enforced set, its inputs were present, and the tree did not let the
+predicate be evaluated - a condition table with no entry for a framework the tree imports, a file
+whose `#if`/`#endif` directives do not balance. Reporting those as "0 broken" and exiting 0 is the
+false green this status exists to stop. The difference from `UNKNOWN` is whose fault it is: `UNKNOWN`
+means this invocation did not supply what the check needs, `UNDECIDABLE` means the tree did not.
 """
 
 from __future__ import annotations
@@ -40,6 +47,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -302,16 +310,42 @@ NOT_A_TARGET_TREE = ("docs/", ".build/", ".swiftpm/", "Tests/", "scripts/")
 OUTSIDE_THE_APP = ("scripts/dev/check-hako-primary-route.swift",)
 
 
+def is_reparse_point(path: str) -> bool:
+    """Whether this directory is a junction or a symlink rather than a directory of this checkout.
+
+    `os.path.islink` returns **False** for a Windows directory junction, which is why this asks the
+    `lstat` attributes instead: a junction carries `FILE_ATTRIBUTE_REPARSE_POINT` even though Python does
+    not call it a link. `os.walk` descends into one regardless, and that is not a theoretical concern
+    here - `_work/r8/w-b/sing-box-for-apple` is a junction onto the parent checkout, and reading through
+    it made every guarded type look like it was declared twice, from two different trees at two
+    different commits. A boundary audit that reads outside the tree it was pointed at is not auditing
+    that tree.
+
+    Falls back to `False` off Windows and for a directory that cannot be stat'ed, so the scan behaves
+    exactly as before on a tree with no links in it.
+    """
+    try:
+        attributes = os.lstat(path).st_file_attributes
+    except (OSError, AttributeError):
+        return False
+    return bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
 def swift_files(root: str, under: str | None = None) -> list[str]:
     """Swift files under `root`, or under `root/<under>` when a subtree is wanted.
 
     `under` exists so a check can count what is in a subtree - the boundary check needs to know the
     Hako namespace is not empty before it can report that nothing outside it names a Hako symbol.
+
+    Directories that are junctions or symlinks are skipped: they point at another checkout (or at the
+    same one), and every file behind one is either somebody else's source or a second copy of this
+    one's.
     """
     scan = os.path.join(root, under) if under else root
     out = []
     for base, dirs, files in os.walk(scan):
-        dirs[:] = [d for d in dirs if d not in (".git", ".build", ".swiftpm", "build")]
+        dirs[:] = [d for d in dirs if d not in (".git", ".build", ".swiftpm", "build")
+                   and not is_reparse_point(os.path.join(base, d))]
         for name in files:
             if not name.endswith(".swift"):
                 continue
@@ -531,6 +565,904 @@ def check_no_reverse_dependency(root: str) -> Check:
         f"all {checked} Swift files outside the Hako namespace and the phone root are free of Hako "
         f"symbols, with {len(hako_files)} file(s) in the namespace to be divided from",
     )
+
+
+# --------------------------------------------------------------------------------------
+# Reverse routing: what the phone's own pages must construct
+# --------------------------------------------------------------------------------------
+#
+# `no-reverse-dependency` catches a *shared* page that names a Hako symbol. It is structurally blind to
+# the opposite error, and that is the one that shipped: a page **inside** the phone's namespace naming
+# an *upstream* type at the site where the original fork draws its own version of that page. Both
+# spellings compile; the user gets upstream's page on the phone. The three report detail pages were
+# rewritten back that way and had to be repaired by hand in `e1cefe6`.
+#
+# The table below is a contract, not a search for arbitrary type names. Each row is one construction on
+# one user path, taken from the fork's own iPhone changes: where the original restyled a view, the
+# fork's copy of the page that shows it must construct the fork's view. `why` names the original's own
+# file and line the row is derived from. Every row also names the upstream type that must not appear in
+# its place, because the defect is not "an upstream name exists somewhere" - a phone page may
+# legitimately build `MetadataFormView`, `ConnectionDetailsView` or `OpenConnectEndpointView`, which the
+# original never touched - it is "this construction resolves to upstream".
+#
+# Three properties keep this from being a grep for type names:
+#
+#   * the required name must be *declared* in the file the row says declares it, so a row cannot be
+#     satisfied by a rename that leaves no page behind;
+#   * the forbidden name must be a type this tree declares, so a row cannot be vacuous - if the
+#     alternative it forbids does not exist, the row is reported `UNDECIDABLE` rather than `PASS`;
+#   * a row is a link in a chain that starts at the user's route, so a failure reports the file and the
+#     line that broke the chain.
+
+
+@dataclass(frozen=True)
+class RouteLink:
+    """One construction on one user path that must resolve to the fork's type."""
+
+    contract: str
+    path: str
+    required: str
+    upstream: str | None
+    declared_in: str
+    why: str
+    enclosure: str = ""
+
+
+def _hako(name: str) -> str:
+    return f"{HAKO_PREFIX}{name}.swift"
+
+
+#: The six user links this contract is about. Each row is a `file -> required type` edge; the
+#: `contract` field groups the edges into the chain a user actually walks.
+ROUTE_LINKS: tuple[RouteLink, ...] = (
+    # 1. Tools -> the three report lists -> the report detail page.
+    #
+    # The regression that shipped: the three detail constructors were rewritten back to upstream's
+    # while every file stayed in the tree. The original restyled all three detail pages - each one
+    # differs from upstream - so the fork's list must build the fork's page.
+    RouteLink("tools-reports", _hako("HakoToolsView"), "HakoCrashReportListView", "CrashReportListView",
+              _hako("HakoCrashReportListView"),
+              "the Tools page links to the fork's own report list; upstream's list is what an iPad "
+              "draws", "HakoToolsView"),
+    RouteLink("tools-reports", _hako("HakoCrashReportListView"), "HakoCrashReportDetailView",
+              "CrashReportDetailView", _hako("HakoCrashReportDetailView"),
+              "`hako-ui` `Tools/CrashReportListView.swift:49` builds `CrashReportDetailView`, whose "
+              "file the original restyled; the fork's list must build the fork's page", "HakoCrashReportListView"),
+    RouteLink("tools-reports", _hako("HakoToolsView"), "HakoOOMReportListView", "OOMReportListView",
+              _hako("HakoOOMReportListView"),
+              "the Tools page links to the fork's own OOM list; upstream's list is what an iPad draws",
+              "HakoToolsView"),
+    RouteLink("tools-reports", _hako("HakoOOMReportListView"), "HakoOOMReportDetailView",
+              "OOMReportDetailView", _hako("HakoOOMReportDetailView"),
+              "`hako-ui` `Tools/OOMReportListView.swift:46` builds `OOMReportDetailView`, whose file "
+              "the original restyled", "HakoOOMReportListView"),
+    RouteLink("tools-reports", _hako("HakoToolsView"), "HakoPowerReportListView", "PowerReportListView",
+              _hako("HakoPowerReportListView"),
+              "the Tools page links to the fork's own Power list; upstream's list is what an iPad draws",
+              "HakoToolsView"),
+    RouteLink("tools-reports", _hako("HakoPowerReportListView"), "HakoPowerReportDetailView",
+              "PowerReportDetailView", _hako("HakoPowerReportDetailView"),
+              "`hako-ui` `Tools/PowerReportListView.swift:55` builds `PowerReportDetailView`, whose "
+              "file the original restyled", "HakoPowerReportListView"),
+
+    # 2. Proxies -> the group content -> the member row.
+    #
+    # The row is the one place a member's latency and selection are drawn. It is required only on the
+    # phone's own path: `Groups/GroupItemView.swift` stays upstream's, and `Groups/GroupView.swift:113`
+    # - the iPad's and the Mac's - must keep naming it.
+    RouteLink("proxies-member-row", "SFI/HakoPageContent.swift", "HakoGroupListView", "GroupListView",
+              _hako("HakoGroupListView"),
+              "the Proxies route must reach the fork's list before the row below it can be the fork's",
+              "HakoPageContent"),
+    RouteLink("proxies-member-row", _hako("HakoGroupListView"), "HakoGroupContentView", "GroupContentView",
+              _hako("HakoGroupView"),
+              "`hako-ui` `Groups/GroupView.swift` was restyled in place, so the fork's list must build "
+              "the fork's group content", "HakoGroupListView"),
+    RouteLink("proxies-member-row", _hako("HakoGroupView"), "HakoGroupItemView", "GroupItemView",
+              _hako("HakoGroupItemView"),
+              "`hako-ui` `Groups/GroupItemView.swift` differs from upstream; the member row is the one "
+              "control the Proxies page exists for", "HakoGroupContentView"),
+
+    # 3. Tools -> Network Quality / STUN -> the outbound picker.
+    #
+    # The original restyled `NetworkQualityView.swift` and `STUNTestView.swift` and both of the
+    # outbound sections they present, and added `OutboundPickerView`'s search and selection mark.
+    RouteLink("tools-network-section", _hako("HakoToolsView"), "HakoNetworkQualityView", "NetworkQualityView",
+              _hako("HakoNetworkQualityView"),
+              "`hako-ui` `Tools/NetworkQualityView.swift` differs from upstream; upstream's page is "
+              "what an iPad draws", "HakoToolsView"),
+    RouteLink("tools-network-section", _hako("HakoNetworkQualityView"), "HakoRemoteToolOutboundSection",
+              "RemoteToolOutboundSection", _hako("HakoOutboundPickerView"),
+              "`hako-ui` `Tools/NetworkQualityView.swift:96` builds `RemoteToolOutboundSection`, whose "
+              "file the original restyled", "HakoNetworkQualityView"),
+    RouteLink("tools-network-section", _hako("HakoNetworkQualityView"), "HakoToolOutboundSection",
+              "ToolOutboundSection", _hako("HakoOutboundPickerView"),
+              "`hako-ui` `Tools/NetworkQualityView.swift:98` builds `ToolOutboundSection`, whose file "
+              "the original restyled", "HakoNetworkQualityView"),
+    RouteLink("tools-network-section", _hako("HakoToolsView"), "HakoSTUNTestView", "STUNTestView",
+              _hako("HakoSTUNTestView"),
+              "`hako-ui` `Tools/STUNTestView.swift` differs from upstream; upstream's page is what an "
+              "iPad draws", "HakoToolsView"),
+    RouteLink("tools-network-section", _hako("HakoSTUNTestView"), "HakoRemoteToolOutboundSection",
+              "RemoteToolOutboundSection", _hako("HakoOutboundPickerView"),
+              "`hako-ui` `Tools/STUNTestView.swift:67` builds `RemoteToolOutboundSection`", "HakoSTUNTestView"),
+    RouteLink("tools-network-section", _hako("HakoSTUNTestView"), "HakoToolOutboundSection",
+              "ToolOutboundSection", _hako("HakoOutboundPickerView"),
+              "`hako-ui` `Tools/STUNTestView.swift:69` builds `ToolOutboundSection`", "HakoSTUNTestView"),
+    RouteLink("tools-network-section", _hako("HakoOutboundPickerView"), "HakoOutboundPickerView",
+              "OutboundPickerView", _hako("HakoOutboundPickerView"),
+              "the section's own link must open the fork's picker, whose search field and selection "
+              "mark the original added", "HakoToolOutboundSection"),
+
+    # 5. Profile / Add -> the picker -> edit, import (new profile) and QR share.
+    #
+    # The original restyled `NewProfileMenuView.swift`, `NewProfileView.swift`, `EditProfileView.swift`
+    # and `QRSDisplayView.swift`; upstream's copies stay in the tree for the iPad's own picker, which is
+    # what makes the swap possible and what `NewProfileNavigationView` would produce.
+    RouteLink("profile-add", _hako("HakoHomeView"), "HakoProfilePickerSheet", "ProfilePickerSheet",
+              _hako("HakoProfilePickerSheet"),
+              "the configuration centre is the fork's; upstream's is what an iPad's dashboard card "
+              "presents", "HakoHomeView"),
+    RouteLink("profile-add", _hako("HakoProfilePickerSheet"), "HakoNewProfileSheetContent",
+              "NewProfileNavigationView", _hako("HakoSheetContent"),
+              "`HakoSheetContent.swift:152` records it: the picker used to present the shared "
+              "`ProfileCard.NewProfileNavigationView`, which builds upstream's `NewProfileMenuView`",
+              "ProfilePickerSheetContent"),
+    RouteLink("profile-add", _hako("HakoSheetContent"), "HakoNewProfileMenuView", "NewProfileMenuView",
+              _hako("HakoNewProfileMenuView"),
+              "`hako-ui` `Profile/NewProfileMenuView.swift` differs from upstream - it carries the "
+              "original's Add-Configuration tiles", "HakoNewProfileSheetContent"),
+    RouteLink("profile-add", _hako("HakoNewProfileMenuView"), "HakoNewProfileView", "NewProfileView",
+              _hako("HakoNewProfileView"),
+              "`hako-ui` `Profile/NewProfileMenuView.swift` presents the restyled "
+              "`NewProfileView.swift`; the view model both sides share is upstream's, the page is not",
+              "HakoNewProfileMenuView"),
+    RouteLink("profile-add", _hako("HakoProfilePickerSheet"), "HakoEditProfileView", "EditProfileView",
+              _hako("HakoEditProfileView"),
+              "`hako-ui` `Profile/EditProfileView.swift` differs from upstream; the editor is the "
+              "page the row opens", "ProfilePickerSheetContent"),
+    RouteLink("profile-add", _hako("HakoProfilePickerSheet"), "HakoQRSSheet", "QRSSheet",
+              _hako("HakoQRSDisplayView"),
+              "`hako-ui` `Profile/QRSDisplayView.swift:207` declares `QRSSheet`, which the original "
+              "restyled along with the QRS page", "ProfilePickerSheetContent"),
+    RouteLink("profile-add", _hako("HakoQRSDisplayView"), "HakoQRSDisplayView", "QRSDisplayView",
+              _hako("HakoQRSDisplayView"),
+              "the sheet's own body must draw the fork's QRS page, not upstream's",
+              "HakoQRSSheet"),
+
+    # 6. Terminal / Tools -> the terminal session.
+    #
+    # Both halves of the pair are required, and the platform-guard check below is what keeps the caller
+    # and the declaration under conditions that agree.
+    RouteLink("terminal-session", _hako("HakoToolsView"), "HakoTerminalSessionContainerView",
+              "TerminalSessionContainerView", _hako("HakoTerminalSessionContainerView"),
+              "`hako-ui` `Tools/ToolsView.swift:93` builds `TerminalSessionContainerView` behind "
+              "`#if os(iOS)`; upstream's container is what the iPad and the Mac reach",
+              "HakoToolsView"),
+    RouteLink("terminal-session", _hako("HakoTerminalSessionContainerView"),
+              "HakoTerminalSessionContentView", "TerminalSessionContentView",
+              _hako("HakoTerminalSessionContentView"),
+              "`hako-ui` `Terminal/TerminalSessionContainerView.swift` builds the restyled "
+              "`TerminalSessionContentView.swift`", "HakoTerminalSessionContainerView"),
+)
+
+#: The text editor toolbar contract. It is not a chain of constructions but a parameter, so it is
+#: written out rather than forced into the table above.
+#:
+#: The frozen design restyled four things in the toolbar. `SFI` is the iPhone target and **both of its
+#: roots build the one wrapper** - `HakoPhoneRootView` for the phone, `MainView` for an iPad - so the
+#: choice is a `restyled:` parameter defaulting to `false`. Linking the toolbar instead of
+#: parametrising it, or defaulting the parameter to `true`, or having the iPad ask for the restyle,
+#: each puts the phone's design on an iPad. `SFI/MainView.swift` is byte-identical to upstream, so
+#: nothing else in the audit would see a `restyled: true` added to it.
+EDITOR_WRAPPER = "SFI/ProfileEditorWrapperView.swift"
+EDITOR_TOOLBAR = HAKO_PREFIX + "HakoEditorToolbarView.swift"
+EDITOR_UPSTREAM_TOOLBAR = "ApplicationLibrary/Views/Profile/EditorToolbarView.swift"
+PHONE_EDITOR_CALLER = "SFI/HakoPhoneRootView.swift"
+TABLET_EDITOR_CALLERS = ("SFI/MainView.swift", "MacLibrary/MainView.swift")
+
+
+def strip_comments_keeping_lines(text: str) -> str:
+    """Every comment removed and every line number kept.
+
+    `strip_comments` deletes a block comment whole, newlines included, which is right when the result is
+    only searched - and wrong the moment a line number is reported from what it returns. Every finding
+    this audit prints is a line number, so a block comment's newlines have to survive it.
+
+    Like `strip_comment`, it cannot tell a `//` inside a string literal from a comment. A Swift lexer is
+    out of scope; the strings in these files do not contain comment markers.
+    """
+    out: list[str] = []
+    in_block = False
+    for line in text.split("\n"):
+        pieces: list[str] = []
+        index = 0
+        while index < len(line):
+            if in_block:
+                end = line.find("*/", index)
+                if end < 0:
+                    index = len(line)
+                    break
+                in_block = False
+                index = end + 2
+                continue
+            block = line.find("/*", index)
+            comment = line.find("//", index)
+            if comment >= 0 and (block < 0 or comment < block):
+                pieces.append(line[index:comment])
+                index = len(line)
+                break
+            if block < 0:
+                pieces.append(line[index:])
+                index = len(line)
+                break
+            pieces.append(line[index:block])
+            in_block = True
+            index = block + 2
+        out.append("".join(pieces))
+    return "\n".join(out)
+
+
+def line_of(pattern: str, text: str) -> int:
+    """The 1-based line a regex first matches, or 0 when it does not.
+
+    Compiled with `re.M`: several callers anchor on `^` to find a declaration line, and without the flag
+    the anchor only matches at the start of the file - which reported a finding at line 0 and looked like
+    a file-level note rather than the line it belongs to.
+    """
+    found = re.search(pattern, text, re.M)
+    return 0 if not found else text.count("\n", 0, found.start()) + 1
+
+
+def calls_of(text: str, name: str) -> list[tuple[int, str]]:
+    """Every `name(...)` with the text of its argument list and the line it starts on.
+
+    A declaration has no parenthesis after the type name, so it is not a call. The argument list is
+    balanced over parentheses, which is what makes `ProfileEditorWrapperView(text:isEditable:)` and a
+    nested closure inside it distinguishable at all.
+    """
+    out: list[tuple[int, str]] = []
+    for match in re.finditer(rf"\b{re.escape(name)}\s*\(", text):
+        depth = 1
+        index = match.end()
+        while index < len(text) and depth:
+            if text[index] == "(":
+                depth += 1
+            elif text[index] == ")":
+                depth -= 1
+            index += 1
+        out.append((text.count("\n", 0, match.start()) + 1, text[match.end():index - 1]))
+    return out
+
+
+TYPE_DECLARATION = (r"^[ \t]*(?:(?:public|internal|private|fileprivate|final|indirect|@\w+)[ \t]+)*"
+                    r"(?:struct|class|enum|actor|protocol)[ \t]+")
+
+
+def check_reverse_routing_contract(root: str) -> Check:
+    """Every construction on a user path must resolve to the fork's own view.
+
+    See `ROUTE_LINKS` for the evidence behind each row. The check reports the *chain*: the route the
+    user takes, the page it reaches, the construction that must be the fork's and the file that declares
+    what is constructed. A row that cannot be decided - because the alternative it forbids is not a type
+    in this tree, or because the file it names is missing - is reported as such instead of passing.
+    """
+    namespace = os.path.join(root, HAKO_PREFIX)
+    if not os.path.isdir(namespace):
+        return Check("reverse-routing-contract", "UNDECIDABLE",
+                     f"{HAKO_PREFIX} does not exist, so there is nothing the contract can be about. "
+                     f"This is a failure, not an unknown: the contracts it enforces cannot be reported "
+                     f"as held over a tree whose phone presentation is gone")
+
+    for path in ("SFI/HakoPageContent.swift",):
+        if not os.path.exists(os.path.join(root, path)):
+            return Check("reverse-routing-contract", "UNDECIDABLE",
+                         f"{path} is missing, so the user paths the contract starts from cannot be read")
+
+    # The names this contract forbids have to exist as types, or the row they appear in cannot fail and
+    # is worth nothing. Collected once, from every Swift file outside the namespace.
+    outside_declarations: dict[str, str] = {}
+    for path in swift_files(root):
+        if path.startswith(HAKO_PREFIX) or path in OUTSIDE_THE_APP:
+            continue
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        for match in re.finditer(TYPE_DECLARATION + r"(\w+)", strip_comments(text), re.M):
+            outside_declarations.setdefault(match.group(1), path)
+
+    missing_alternatives = sorted(
+        {link.upstream for link in ROUTE_LINKS if link.upstream and link.upstream not in outside_declarations}
+    )
+    if missing_alternatives:
+        return Check(
+            "reverse-routing-contract", "UNDECIDABLE",
+            "the contract cannot be decided: the type(s) it forbids are declared nowhere outside "
+            f"{HAKO_PREFIX}, so the row(s) that name them cannot go red: {missing_alternatives}",
+        )
+
+    problems: list[Blame] = []
+    chains: dict[str, list[str]] = {}
+    checked = 0
+    for link in sorted(ROUTE_LINKS, key=lambda item: item.contract):
+        text = read_text(os.path.join(root, link.path))
+        if text is None:
+            problems.append(Blame(link.path, 0,
+                                  f"`{link.required}` cannot be checked here: the file is missing"))
+            continue
+        body = strip_comments_keeping_lines(text)
+        required_line = line_of(rf"\b{re.escape(link.required)}\b", body)
+        forbidden_line = 0
+        if link.upstream:
+            # `\b` on both sides is what keeps `HakoCrashReportDetailView` from matching
+            # `CrashReportDetailView`: the character before `C` is a word character, so there is no
+            # boundary there.
+            forbidden_line = line_of(rf"\b{re.escape(link.upstream)}\b", body)
+
+        declaration = read_text(os.path.join(root, link.declared_in))
+        declared = declaration is not None and re.search(
+            TYPE_DECLARATION + rf"{re.escape(link.required)}\b", strip_comments(declaration), re.M)
+
+        if not declared:
+            problems.append(Blame(link.declared_in, 0,
+                                  f"`{link.required}` is not declared in the file the contract says "
+                                  f"declares it, so the row cannot be satisfied by construction"))
+            continue
+
+        checked += 1
+        chains.setdefault(link.contract, []).append(
+            f"{link.path}:{required_line or 1} {link.required}" if required_line
+            else f"{link.path}:?? {link.required} (absent)"
+        )
+
+        if forbidden_line:
+            problems.append(Blame(
+                link.path, forbidden_line,
+                f"`{link.upstream}` is constructed here; this line is on the phone's own path and must "
+                f"resolve to `{link.required}` instead - {link.why}"))
+        if not required_line:
+            anchor = line_of(TYPE_DECLARATION + rf"{re.escape(link.enclosure)}\b", body) if link.enclosure else 0
+            problems.append(Blame(
+                link.path, anchor,
+                f"`{link.required}` is named nowhere in this file, so nothing on the phone's path "
+                f"constructs it - {link.why}"))
+
+    # The editor toolbar, whose contract is a parameter rather than a construction.
+    problems.extend(_editor_toolbar_problems(root, chains))
+
+    if problems:
+        return Check(
+            "reverse-routing-contract", "FAIL",
+            f"{len(problems)} construction(s) on the phone's own paths do not resolve to the fork's "
+            f"view(s); each finding names the file and line",
+            [str(problem) for problem in problems],
+        )
+    return Check(
+        "reverse-routing-contract", "PASS",
+        f"{checked} construction(s) across {len(chains)} user path(s) resolve to the fork's own view, "
+        f"and the phone's editor toolbar is the parametrised one",
+        [f"{contract}: " + " -> ".join(chain) for contract, chain in sorted(chains.items())],
+    )
+
+
+def _editor_toolbar_problems(root: str, chains: dict[str, list[str]]) -> list[Blame]:
+    """The `restyled:` contract: phone root yes, iPad and Mac no, default no."""
+    problems: list[Blame] = []
+    wrapper = read_text(os.path.join(root, EDITOR_WRAPPER))
+    if wrapper is None:
+        return [Blame(EDITOR_WRAPPER, 0, "the wrapper that chooses the toolbar is missing")]
+
+    body = strip_comments_keeping_lines(wrapper)
+    default = re.search(r"\bvar\s+restyled\s*:\s*Bool\s*=\s*(true|false)", body)
+    if not default:
+        problems.append(Blame(EDITOR_WRAPPER, line_of(r"\brestyled\b", body),
+                              "the wrapper no longer declares `var restyled: Bool = false`; without the "
+                              "parameter the choice cannot be the caller's"))
+    elif default.group(1) != "false":
+        problems.append(Blame(EDITOR_WRAPPER, line_of(r"\bvar\s+restyled\b", body),
+                              "`restyled` defaults to `true`, so every caller that says nothing gets the "
+                              "phone's toolbar - including `SFI/MainView.swift`, which builds this same "
+                              "wrapper for an iPad"))
+
+    if not calls_of(body, "HakoEditorToolbarView"):
+        problems.append(Blame(EDITOR_WRAPPER, line_of(r"\brestyled\b", body),
+                              "the restyled branch no longer builds `HakoEditorToolbarView`, so the "
+                              "parameter selects nothing"))
+    if not calls_of(body, "EditorToolbarView"):
+        problems.append(Blame(EDITOR_WRAPPER, line_of(r"\brestyled\b", body),
+                              "the other branch no longer builds upstream's `EditorToolbarView`, so "
+                              "`restyled: false` no longer means upstream's toolbar"))
+
+    phone = read_text(os.path.join(root, PHONE_EDITOR_CALLER))
+    phone_calls = [] if phone is None else calls_of(strip_comments_keeping_lines(phone),
+                                                    "ProfileEditorWrapperView")
+    if not phone_calls:
+        problems.append(Blame(PHONE_EDITOR_CALLER, 0,
+                              "the phone root no longer builds `ProfileEditorWrapperView`, so the "
+                              "editor toolbar is not the fork's anywhere"))
+    else:
+        for line, args in phone_calls:
+            if not re.search(r"\brestyled\s*:\s*true\b", args):
+                problems.append(Blame(
+                    PHONE_EDITOR_CALLER, line,
+                    "the phone's editor is built without `restyled: true`, so the phone draws "
+                    "upstream's toolbar instead of the frozen design's"))
+        if phone_calls:
+            chains.setdefault("editor-toolbar", []).append(
+                f"{PHONE_EDITOR_CALLER}:{phone_calls[0][0]} ProfileEditorWrapperView(restyled: true)")
+
+    for path in TABLET_EDITOR_CALLERS:
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            problems.append(Blame(path, 0,
+                                  "this root cannot be read, so whether it asks for the restyle is "
+                                  "undecided"))
+            continue
+        for line, args in calls_of(strip_comments_keeping_lines(text), "ProfileEditorWrapperView"):
+            if not re.search(r"\brestyled\s*:\s*(?:true|false)\b", args):
+                continue
+            if re.search(r"\brestyled\s*:\s*true\b", args):
+                problems.append(Blame(
+                    path, line,
+                    "this root asks for `restyled: true`, which puts the phone's editor toolbar on an "
+                    "iPad or a Mac; the restyle is the phone's alone"))
+    return problems
+
+
+#: Swift types a migrated page may not name when the namespace declares a Hako copy of them: the twin
+#: exists, so naming the upstream type means the port is bypassed. Restricted to `View` declarations,
+#: which is the class the shipped regression was in, because the alternative rule - any type with a
+#: twin - reports two things that are not defects:
+#:
+#:   * `HakoReportShareAction`, an enum the generator copied, is unused while the three report detail
+#:     pages hold upstream's `ReportShareAction`. The popup the pages present takes `() -> Void`, so the
+#:     enum is internal to the page's own switch and the user cannot see the difference;
+#:   * `HakoNewProfileView.ImportRequest`, an alias whose *point* is the nested type of the shared view:
+#:     `NewProfileView.ImportRequest` is what `NewProfileViewModel`'s initialiser takes. A nested type
+#:     cannot collide, and the repo says so in the file.
+#:
+#: Both are excluded by construction and both are reported as notes in `B-REPORT.md` rather than being
+#: turned into failures that would get the check switched off.
+def check_reverse_routing_derived(root: str) -> Check:
+    """No phone page may name an upstream view that the namespace has already ported.
+
+    The contract check above is a table, so it only covers the paths someone wrote down. This is the
+    general form of the same error, derived from the tree instead of from a list: if the namespace
+    declares `HakoX` and an upstream `X` is a `View` this tree declares, then a page inside the
+    namespace naming `X` is drawing upstream's view while the ported one sits unused beside it.
+
+    It is deliberately not "no upstream type may be named". A phone page names upstream types all the
+    time and should: `MetadataFormView`, `OpenConnectEndpointView`, `TailscaleEndpointView` and their
+    neighbours were never restyled by the original, have no twin, and are the correct thing to build.
+    """
+    namespace = os.path.join(root, HAKO_PREFIX)
+    if not os.path.isdir(namespace):
+        return Check("reverse-routing-derived", "UNDECIDABLE",
+                     f"{HAKO_PREFIX} does not exist, so there is no port to compare against")
+
+    inherited_view = re.compile(TYPE_DECLARATION + r"(\w+)(?:<[^>]*>)?[ \t]*:[ \t]*([^\n{]*)", re.M)
+    hako_views: dict[str, str] = {}
+    upstream_views: dict[str, str] = {}
+    for path in swift_files(root):
+        if path in OUTSIDE_THE_APP:
+            continue
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        for match in inherited_view.finditer(strip_comments(text)):
+            name, inherited = match.group(1), match.group(2)
+            if not re.search(r"\bView\b", inherited):
+                continue
+            if path.startswith(HAKO_PREFIX):
+                hako_views.setdefault(name, path)
+            else:
+                upstream_views.setdefault(name, path)
+
+    twins = {name[4:]: name for name in hako_views
+             if name.startswith("Hako") and name[4:] in upstream_views}
+    if not twins:
+        return Check("reverse-routing-derived", "UNDECIDABLE",
+                     f"{HAKO_PREFIX} declares no `Hako…` copy of a `View` this tree also declares, so "
+                     f"the scan has no pair to compare and cannot report a port that was bypassed")
+
+    problems: list[Blame] = []
+    for path in swift_files(root, HAKO_PREFIX.rstrip("/")):
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        for number, line in enumerate(strip_comments_keeping_lines(text).split("\n"), 1):
+            for upstream, twin in twins.items():
+                # `(?!\s*\.)` keeps a nested type out of it: `NewProfileView.ImportRequest` is the
+                # shared view's own request type, deliberately aliased, and cannot collide.
+                if re.search(rf"\b{re.escape(upstream)}\b(?!\s*\.)", line):
+                    problems.append(Blame(
+                        path, number,
+                        f"`{upstream}` is named in the phone's namespace while `{twin}` is declared in "
+                        f"{hako_views[twin]}; this page draws upstream's view, not the ported one"))
+                    break
+
+    if problems:
+        return Check("reverse-routing-derived", "FAIL",
+                     f"{len(problems)} line(s) inside {HAKO_PREFIX} name an upstream view whose ported "
+                     f"copy exists, out of {len(twins)} ported view(s)",
+                     [str(problem) for problem in problems])
+    return Check("reverse-routing-derived", "PASS",
+                 f"none of the {len(twins)} ported view(s) is bypassed: every `Hako…` copy of a `View` "
+                 f"outside the namespace is used instead of the upstream original")
+
+
+# --------------------------------------------------------------------------------------
+# Platform guards: a conditional import is not a declaration or usage guard
+# --------------------------------------------------------------------------------------
+#
+# `hako-platform-imports` checks that a platform framework is *imported* under a condition. That is only
+# half of the rule, and the half that matters least: a file can import `UIKit` under `canImport(UIKit)`
+# and then use `UIApplication` in an unguarded body, which fails to compile exactly where the import was
+# guarded for. The migration's platform-resolution step removed guards while keeping imports, so this is
+# the shape the damage takes - and the tree has a live instance of it, reported below.
+#
+# Two rules, both computed from the directives that are actually in the file:
+#
+#   (a) a use of a type this repository declares **inside** a platform `#if` must itself be inside a
+#       platform condition, and the two conditions must share a platform atom (or the use's condition
+#       must imply the declaration's). This is the general form of "the terminal container exists only
+#       under `canImport(GhosttyTerminal)` and the page that presents it is guarded by `os(iOS)` alone".
+#   (b) a use of a symbol that belongs to a framework the file imports *conditionally* must be inside a
+#       condition that can make that framework importable.
+#
+# When the analysis cannot decide - a file whose directives do not balance, or a framework with no entry
+# in the symbol table - the run says `UNDECIDABLE` and exits non-zero. A check that cannot be evaluated
+# must not be reported as a pass.
+
+#: Per framework: the atoms of a condition that can make it importable, and the symbols the ported
+#: files use from it. Both live in one table because both are needed to decide one question - "is this
+#: use inside a condition that makes the symbol exist" - and a framework the table does not know is
+#: reported `UNDECIDABLE` rather than assumed harmless.
+@dataclass(frozen=True)
+class FrameworkConditions:
+    #: OS atoms that make the framework importable. `os(iOS)` is a condition a `UIKit` or `QuickLook`
+    #: use may sit in even though it does not spell `canImport(…)`, and `QuickLook` is deliberately
+    #: absent from the tvOS list.
+    os_atoms: tuple[str, ...] = ()
+    #: SDK symbols the ported files use from it. Kept short and specific on purpose: a name that also
+    #: exists in SwiftUI or the standard library would turn this check into noise.
+    symbols: tuple[str, ...] = ()
+
+
+FRAMEWORK_CONDITIONS: dict[str, FrameworkConditions] = {
+    "UIKit": FrameworkConditions(
+        os_atoms=("os(iOS)", "os(tvOS)", "os(watchOS)", "os(visionOS)"),
+        symbols=("UIApplication", "UIWindowScene", "UIWindow", "UIViewController", "UINavigationController",
+                 "UIColor", "UIImage", "UIFont", "UIScreen", "UIDevice", "UIPasteboard", "UIView",
+                 "UIActivityViewController", "UIAlertController", "UIImpactFeedbackGenerator",
+                 "UISelectionFeedbackGenerator", "UINotificationFeedbackGenerator", "UIViewRepresentable",
+                 "UIViewControllerRepresentable", "UIEdgeInsets", "UIScrollView", "UITraitCollection",
+                 "UIBarButtonItem", "UIRefreshControl", "UISplitViewController", "UITabBarController",
+                 "UIPopoverPresentationController", "UISheetPresentationController")),
+    "AppKit": FrameworkConditions(
+        os_atoms=("os(macOS)",),
+        symbols=("NSApplication", "NSWindow", "NSViewController", "NSView", "NSColor", "NSFont", "NSImage",
+                 "NSPasteboard", "NSScreen", "NSWorkspace", "NSViewRepresentable",
+                 "NSViewControllerRepresentable", "NSHostingView", "NSHostingController")),
+    # QuickLook ships on iOS, macOS and visionOS and not on tvOS, which is the whole reason the ported
+    # files import it conditionally.
+    "QuickLook": FrameworkConditions(
+        os_atoms=("os(iOS)", "os(macOS)", "os(visionOS)"),
+        symbols=("QLPreviewController", "QLPreviewItem", "QLPreviewControllerDataSource")),
+    "Cocoa": FrameworkConditions(os_atoms=("os(macOS)",), symbols=("NSPasteboard", "NSApplication")),
+    "AVKit": FrameworkConditions(os_atoms=("os(iOS)", "os(tvOS)", "os(macOS)"),
+                                 symbols=("AVPlayerViewController", "AVRoutePickerView")),
+    "ServiceManagement": FrameworkConditions(os_atoms=("os(macOS)",), symbols=("SMAppService",)),
+    "DeviceDiscoveryUI": FrameworkConditions(os_atoms=("os(iOS)", "os(tvOS)"),
+                                             symbols=("DDDevicePickerViewController",)),
+    # The types this package vends are declared in this repository under the same condition, so rule (a)
+    # decides them; there is no SDK symbol list to keep here.
+    "GhosttyTerminal": FrameworkConditions(os_atoms=("os(iOS)", "os(macOS)"), symbols=()),
+}
+
+#: What one atom implies about the others, polarity included. Two directions matter and both are
+#: evidence about the Apple platform matrix, not about this repository:
+#:
+#:   * an OS atom implies the frameworks that always ship on it. `#if os(iOS)` is a condition a `UIKit`
+#:     symbol may live in even though it does not spell `canImport(UIKit)`, and `QuickLook` is absent
+#:     from tvOS, which is why `os(tvOS)` does not imply it;
+#:   * an OS atom implies the *negations* of the others, which is what makes a type declared inside
+#:     `#if !os(tvOS)` legal to use inside `#if os(iOS)`.
+#:
+#: `canImport(GhosttyTerminal)` is implied by `os(iOS)` and `os(macOS)` because the project links that
+#: product for exactly those two platforms - `sing-box.xcodeproj/project.pbxproj:52`,
+#: `platformFilters = (ios, macos, )`. Without that line the check would report the original's own
+#: design as a defect: `hako-ui` `Tools/ToolsView.swift:90` presents the terminal behind `#if os(iOS)`
+#: while the container it presents is declared behind `canImport(GhosttyTerminal) && os(iOS)`.
+ATOM_IMPLICATIONS: dict[str, set[str]] = {
+    "os(iOS)": {"!os(macOS)", "!os(tvOS)", "!os(watchOS)", "!os(visionOS)",
+                "canImport(UIKit)", "canImport(QuickLook)", "canImport(AVKit)",
+                "canImport(DeviceDiscoveryUI)", "canImport(GhosttyTerminal)"},
+    "os(tvOS)": {"!os(iOS)", "!os(macOS)", "!os(watchOS)", "!os(visionOS)",
+                 "canImport(UIKit)", "canImport(AVKit)", "canImport(DeviceDiscoveryUI)"},
+    "os(watchOS)": {"!os(iOS)", "!os(macOS)", "!os(tvOS)", "!os(visionOS)", "canImport(UIKit)"},
+    "os(visionOS)": {"!os(iOS)", "!os(macOS)", "!os(tvOS)", "!os(watchOS)",
+                     "canImport(UIKit)", "canImport(QuickLook)", "canImport(AVKit)"},
+    "os(macOS)": {"!os(iOS)", "!os(tvOS)", "!os(watchOS)", "!os(visionOS)",
+                  "canImport(AppKit)", "canImport(Cocoa)", "canImport(QuickLook)", "canImport(AVKit)",
+                  "canImport(ServiceManagement)", "canImport(GhosttyTerminal)"},
+    "canImport(UIKit)": {"!os(macOS)"},
+    "canImport(AppKit)": {"os(macOS)", "!os(iOS)", "!os(tvOS)", "!os(watchOS)", "!os(visionOS)"},
+    "canImport(Cocoa)": {"os(macOS)", "!os(iOS)", "!os(tvOS)", "!os(watchOS)", "!os(visionOS)"},
+    "canImport(QuickLook)": {"!os(tvOS)"},
+    "canImport(ServiceManagement)": {"os(macOS)"},
+    "canImport(DeviceDiscoveryUI)": {"!os(macOS)"},
+}
+
+
+#: Frameworks that are importable on every platform `ApplicationLibrary` builds for. An `import` of one
+#: of these can sit inside a `#if` for other reasons - `r8/main` wraps the whole of
+#: `HakoTerminalSessionContentView.swift` in the original's `canImport(GhosttyTerminal)`, imports
+#: included - and being inside a condition says nothing about whether the framework is available. Rule
+#: (b) therefore has nothing to check for them, and saying so is not the same as saying nothing.
+#:
+#: A framework that is neither here nor in the table below is `UNDECIDABLE`: the audit would have no way
+#: to tell a guarded use from an unguarded one, and guessing is what this round is removing.
+ALWAYS_AVAILABLE_FRAMEWORKS = frozenset({
+    "SwiftUI", "Foundation", "Combine", "Library", "Libbox", "UniformTypeIdentifiers",
+})
+
+
+def implies(atoms: set[str], wanted: set[str]) -> bool:
+    """Whether a condition built from `atoms` can only be true where `wanted` also holds.
+
+    Asked one way round on purpose. A `UIKit` use inside `#if os(iOS)` is fine because iOS always has
+    UIKit; a declaration guarded by `#if os(iOS)` and used inside `#if canImport(UIKit)` is not, because
+    UIKit is also importable on tvOS. Only the use side is expanded.
+    """
+    for atom in atoms:
+        if atom in wanted:
+            return True
+        if ATOM_IMPLICATIONS.get(atom, set()) & wanted:
+            return True
+    return False
+
+#: Atoms named by a `#if` line, with the polarity they are written under. Polarity is kept because
+#: `#if !os(tvOS)` is the shape two of the ported files lost: a type declared inside it does not exist on
+#: tvOS, so a use inside `#if os(iOS)` is legal and a use with no condition at all is not.
+CONDITION_ATOM = re.compile(r"(!?)\s*\b(os|canImport|targetEnvironment)\s*\(\s*([^)\s]+)\s*\)")
+
+
+def condition_atoms(directive: str) -> set[str]:
+    """The platform atoms in one `#if` / `#elseif` expression, each with its polarity."""
+    return {f"!{kind}({argument})" if negated else f"{kind}({argument})"
+            for negated, kind, argument in CONDITION_ATOM.findall(directive)}
+
+
+def condition_map(text: str) -> tuple[list[set[str]], bool]:
+    """Per line, the platform atoms of every enclosing `#if` branch, plus whether the file balances.
+
+    A line's own directive does not apply to the line's own content: `#if os(iOS)` is not itself inside
+    the iOS branch. An unbalanced file returns `False` for the balance flag, and its callers report
+    `UNDECIDABLE` rather than guessing a nesting.
+    """
+    stack: list[set[str]] = []
+    per_line: list[set[str]] = []
+    balanced = True
+    for line in text.split("\n"):
+        stripped = line.strip()
+        per_line.append(set().union(*stack) if stack else set())
+        directive = re.match(r"#(if|elseif|else|endif)\b(.*)", stripped)
+        if not directive:
+            continue
+        kind, rest = directive.group(1), directive.group(2)
+        if kind == "if":
+            stack.append(condition_atoms(rest))
+        elif kind in ("elseif", "else"):
+            if not stack:
+                balanced = False
+            else:
+                stack[-1] = stack[-1] | condition_atoms(rest)
+        else:
+            if not stack:
+                balanced = False
+            else:
+                stack.pop()
+    if stack:
+        balanced = False
+    return per_line, balanced
+
+
+#: Type names the Swift standard library and the imported frameworks also declare. A text audit that
+#: resolves `Result` to a repository type, because one file in the tree happens to declare one inside a
+#: `#if`, is reporting a name rather than a type. Names here are skipped and the skip is reported in the
+#: check's own detail - "not covered", never a silent pass.
+AMBIGUOUS_TYPE_NAMES = frozenset({"Result", "Task", "State", "Error", "Data", "Date", "URL"})
+
+
+def guarded_declarations(root: str) -> tuple[dict[str, tuple[str, int, set[str]]], set[str]]:
+    """Every type this repository declares inside a platform `#if`, keyed by name.
+
+    A name declared more than once is dropped **unless every declaration agrees about its condition**,
+    which is the case when the tree under audit contains a second copy of itself - a test that copies
+    the checkout materialises a junction into real directories, and dropping every duplicated name would
+    make the check go quiet exactly there. Two genuinely different declarations under different
+    conditions cannot be resolved by a text audit, and guessing which one a bare use means is how a
+    check starts reporting things that are not there.
+
+    Also returns the names skipped as ambiguous, so the caller can say what it did not cover instead of
+    reporting a pass over it.
+    """
+    seen: dict[str, list[tuple[str, int, set[str]]]] = {}
+    for path in swift_files(root):
+        if path in OUTSIDE_THE_APP:
+            continue
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        body = strip_comments_keeping_lines(text)
+        conditions, balanced = condition_map(body)
+        if not balanced:
+            continue
+        for match in re.finditer(TYPE_DECLARATION + r"(\w+)", body, re.M):
+            line = body.count("\n", 0, match.start()) + 1
+            atoms = conditions[line - 1]
+            if not atoms:
+                continue
+            seen.setdefault(match.group(1), []).append((path, line, atoms))
+
+    ambiguous = {name for name in seen if name in AMBIGUOUS_TYPE_NAMES}
+    resolved: dict[str, tuple[str, int, set[str]]] = {}
+    for name, entries in seen.items():
+        if name in ambiguous:
+            continue
+        if len(entries) == 1 or all(entry[2] == entries[0][2] for entry in entries):
+            resolved[name] = entries[0]
+    return resolved, ambiguous
+
+
+def check_platform_guard_agreement(root: str) -> Check:
+    """A condition on an import, a declaration or a use is not a condition on the others."""
+    namespace = os.path.join(root, HAKO_PREFIX)
+    if not os.path.isdir(namespace):
+        return Check("platform-guard-agreement", "UNDECIDABLE",
+                     f"{HAKO_PREFIX} does not exist, so there is nothing to inspect")
+    files = swift_files(root, HAKO_PREFIX.rstrip("/"))
+    if not files:
+        return Check("platform-guard-agreement", "UNDECIDABLE",
+                     f"{HAKO_PREFIX} holds no Swift file, so nothing was inspected")
+
+    guarded, ambiguous_guarded = guarded_declarations(root)
+    if not guarded:
+        return Check("platform-guard-agreement", "UNDECIDABLE",
+                     "no type in this tree is declared inside a platform condition, so the audit cannot "
+                     "decide whether the platform-guarded declarations in the ported files agree with "
+                     "their uses")
+
+    problems: list[Blame] = []
+    undecided: list[str] = []
+    checked_uses = 0
+    conditional_imports = 0
+    ambiguous_used: set[str] = set()
+
+    for path in files:
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            undecided.append(f"{path}: unreadable")
+            continue
+        body = strip_comments_keeping_lines(text)
+        conditions, balanced = condition_map(body)
+        if not balanced:
+            undecided.append(f"{path}: its `#if`/`#endif` directives do not balance, so no line's "
+                             f"condition can be computed")
+            continue
+        for name in ambiguous_guarded:
+            if re.search(rf"\b{re.escape(name)}\b", body):
+                ambiguous_used.add(name)
+
+        # (b) frameworks this file imports behind a condition.
+        lines = body.split("\n")
+        identifiers = [set(re.findall(r"\w+", line)) for line in lines]
+        frameworks: dict[str, int] = {}
+        for number, line in enumerate(lines, 1):
+            match = re.match(r"\s*import\s+(\w+)\s*$", line)
+            if match and conditions[number - 1]:
+                frameworks[match.group(1)] = number
+                conditional_imports += 1
+        for framework, number in frameworks.items():
+            if framework in ALWAYS_AVAILABLE_FRAMEWORKS:
+                continue
+            table = FRAMEWORK_CONDITIONS.get(framework)
+            if table is None:
+                undecided.append(
+                    f"{path}:{number}: `import {framework}` is conditional and there is no condition "
+                    f"table for {framework}, so whether its use sites are guarded cannot be decided")
+                continue
+            allowed = {"canImport(%s)" % framework, *table.os_atoms}
+            for number, line in enumerate(lines, 1):
+                # Sorted, because a set's iteration order varies between runs: an audit whose findings
+                # come out in a different order on every invocation cannot be compared run to run, and
+                # the negative suite does exactly that.
+                for symbol in sorted(identifiers[number - 1] & set(table.symbols)):
+                    atoms = conditions[number - 1]
+                    if not implies(atoms, allowed):
+                        problems.append(Blame(
+                            path, number,
+                            f"`{symbol}` comes from {framework}, which this file imports behind a "
+                            f"condition, but this line is not inside a condition that makes "
+                            f"{framework} importable ({' or '.join(sorted(allowed))}); a conditional "
+                            f"import is not a usage guard"))
+                    checked_uses += 1
+
+        # (a) repository types declared behind a platform condition, used by the ported files.
+        #
+        # A name this same file declares is resolved to that declaration first, not skipped:
+        # `HakoCrashReportListView` declares its own unconditional `CrashReportToolbarMenu` and the
+        # `CrashReportToolbarMenu` upstream declares behind `#if os(tvOS)` is a different type the file
+        # never reaches - while `HakoLogView` declares its own `HakoLogMenuButton` *inside*
+        # `#if canImport(UIKit)` at line 177 and then builds it at line 150, which is the defect.
+        local: dict[str, tuple[int, set[str]]] = {}
+        for match in re.finditer(TYPE_DECLARATION + r"(\w+)", body, re.M):
+            line = body.count("\n", 0, match.start()) + 1
+            local.setdefault(match.group(1), (line, conditions[line - 1]))
+        guarded_names = set(guarded)
+        for number, line in enumerate(lines, 1):
+            for name in sorted(identifiers[number - 1] & guarded_names):
+                home, home_line, home_atoms = guarded[name]
+                if name in local:
+                    home_line, home_atoms = local[name]
+                    home = path
+                    if not home_atoms:
+                        continue  # the file's own declaration is unconditional
+                if home == path and home_line == number:
+                    continue
+                atoms = conditions[number - 1]
+                if not atoms:
+                    problems.append(Blame(
+                        path, number,
+                        f"`{name}` is declared inside a platform condition at {home}:{home_line} "
+                        f"({' && '.join(sorted(home_atoms))}) and used here with no condition at all, so "
+                        f"this file does not compile wherever that condition is false"))
+                elif not implies(atoms, home_atoms):
+                    problems.append(Blame(
+                        path, number,
+                        f"`{name}` is declared under {' && '.join(sorted(home_atoms))} at "
+                        f"{home}:{home_line} and used here under {' && '.join(sorted(atoms))}; the use's "
+                        f"condition does not imply the declaration's"))
+                checked_uses += 1
+
+    skipped = sorted(ambiguous_used)
+    # Ordered, so two runs over the same tree produce the same report. The findings are collected by
+    # walking rules that use sets; sorting here is what makes the output reproducible.
+    problems.sort(key=lambda problem: (problem.path, problem.line, problem.text))
+
+    if undecided:
+        return Check(
+            "platform-guard-agreement", "UNDECIDABLE",
+            "the audit cannot decide this check: " + "; ".join(sorted(undecided)[:4]),
+            [str(problem) for problem in problems],
+        )
+    if problems:
+        per_file: dict[str, int] = {}
+        for problem in problems:
+            per_file[problem.path] = per_file.get(problem.path, 0) + 1
+        summary = ", ".join(f"{os.path.basename(path)} x{count}"
+                            for path, count in sorted(per_file.items(), key=lambda item: -item[1]))
+        # Each finding is one use; a whole-file guard that was dropped shows up as many, which is why the
+        # count per file is part of the detail rather than left to be counted by hand.
+        return Check(
+            "platform-guard-agreement", "FAIL",
+            f"{len(problems)} use(s) across {len(per_file)} ported file(s) sit outside the condition "
+            f"their declaration or import needs, so those files do not compile where the condition is "
+            f"false ({summary})",
+            [str(problem) for problem in problems],
+        )
+
+    detail = (f"{len(files)} ported file(s): {conditional_imports} conditional import(s) and "
+              f"{checked_uses} use(s) each sit inside a condition that matches where the symbol exists")
+    if skipped:
+        detail += (f"; NOT COVERED: {', '.join(skipped)} - a standard-library name this tree also "
+                   f"declares, which a text audit cannot resolve")
+    if skipped:
+        return Check("platform-guard-agreement", "PASS", detail,
+                     [f"not covered: `{name}` is both a standard-library type and a type this tree "
+                      f"declares" for name in skipped])
+    return Check("platform-guard-agreement", "PASS", detail)
 
 
 #: Files this fork is allowed to have modified, each with the reason it had to be. A file that is
@@ -2178,9 +3110,12 @@ CHECKS = (
     check_tablet_and_mac_entry,
     check_shared_pages_are_clean,
     check_no_reverse_dependency,
+    check_reverse_routing_contract,
+    check_reverse_routing_derived,
     check_shared_declaration_duplicates,
     check_hako_symbol_completeness,
     check_hako_platform_imports,
+    check_platform_guard_agreement,
     check_hako_page_coverage,
     check_hako_feature_preservation,
     check_ipad_mac_ui_gate,
@@ -2214,6 +3149,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-partial", action="store_true",
                         help="report an incomplete Hako page migration as UNKNOWN instead of FAIL")
     args = parser.parse_args(argv)
+
+    # A file this audit reads may not be valid UTF-8 - it reads with `errors="replace"` - so a detail
+    # string can carry U+FFFD, and a console whose code page cannot encode it would turn a finding into a
+    # traceback. The output is reconfigured rather than the text being sanitised: the finding has to be
+    # printed, whatever it contains.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass
 
     root = args.root
     if root is None:
@@ -2267,10 +3212,17 @@ def main(argv: list[str] | None = None) -> int:
             if len(result.evidence) > 6:
                 print(f"          - ... {len(result.evidence) - 6} more")
             print()
-        counts = {status: sum(1 for r in results if r.status == status) for status in ("PASS", "FAIL", "UNKNOWN")}
-        print(f"PASS {counts['PASS']}  FAIL {counts['FAIL']}  UNKNOWN {counts['UNKNOWN']}")
+        counts = {status: sum(1 for r in results if r.status == status)
+                  for status in ("PASS", "FAIL", "UNKNOWN", "UNDECIDABLE")}
+        print(f"PASS {counts['PASS']}  FAIL {counts['FAIL']}  UNKNOWN {counts['UNKNOWN']}  "
+              f"UNDECIDABLE {counts['UNDECIDABLE']}")
 
-    failed = any(r.status == "FAIL" for r in results)
+    # `UNDECIDABLE` is a failure on **both** output paths. It means a check in the enforced set could not
+    # be evaluated - a condition table missing, a file whose directives do not balance - and reporting
+    # "0 broken" with exit 0 for a check that never ran is the false green this status exists to stop.
+    # `UNKNOWN` keeps its older meaning: the invocation did not supply what the check needs (no
+    # `--upstream-ref`, for instance), which is not the tree's fault and is promoted by `--strict`.
+    failed = any(r.status in ("FAIL", "UNDECIDABLE") for r in results)
     if args.strict:
         failed = failed or any(r.status == "UNKNOWN" for r in results)
     return 1 if failed else 0
