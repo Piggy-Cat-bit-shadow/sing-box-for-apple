@@ -109,6 +109,11 @@ struct HakoPageContent: View {
                 selectedProfileID: $dashboard.selectedProfileID,
                 systemProxyAvailable: $dashboard.systemProxyAvailable,
                 systemProxyEnabled: $dashboard.systemProxyEnabled,
+                // Why the configuration list could not be read, if it could not be. This is the
+                // only place the page's own line is supplied, and supplying it is the difference
+                // between "a configuration failed to load" and "no tunnel is installed" looking
+                // like the same screen.
+                profileLoadFailure: environments.profileLoadFailure,
                 cardConfiguration: cardConfiguration
             )
             .environmentObject(profile)

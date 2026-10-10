@@ -198,6 +198,19 @@ public class ExtensionEnvironments: ObservableObject {
 
     @Published public var extensionProfileLoading = true
     @Published public var extensionProfile: ExtensionProfile?
+    /// Why the configuration could not be read, when it could not be.
+    ///
+    /// The page has drawn this line since the port - `HakoHomeView.condition` returns it and
+    /// renders it under the configuration's name - and **nothing ever set it**, so the two states
+    /// the page distinguishes were the same on screen: a configuration that failed to load and a
+    /// tunnel that was never installed both arrived as `tunnelIsInstalled == false`.
+    ///
+    /// The real path is `reload()`, where `try? await ExtensionProfile.load()` throws the reason
+    /// away. That is the product defect this property exists to close, and closing it for real
+    /// means deciding the wording a user should see - so for now only the fixture sets it, which is
+    /// what makes `test15ProfileLoadFailure` able to assert the state at all. See
+    /// `docs/SNAPSHOT-FIXTURE-CONTRACT.md`.
+    @Published public var profileLoadFailure: String?
     @Published public var emptyProfiles = false
     @Published public var pendingImportRemoteProfile: ImportRemoteProfileRequest?
     @Published public var remoteServer: RemoteServer?
@@ -254,6 +267,12 @@ public class ExtensionEnvironments: ObservableObject {
             // above stops the real lookup from running either way - so "no tunnel installed" has
             // to be stated here rather than reached.
             extensionProfile = Variant.usesMockTunnelProfile ? .mock : nil
+            // And the unreadable-configuration line, for the case that asks to see it. The tunnel
+            // is installed here on purpose: the page reports a failed read only when it is, which
+            // is what keeps the two conditions apart.
+            if Variant.uiTestFixtureState == "profileError" {
+                profileLoadFailure = String(localized: "The configuration could not be read.")
+            }
             commandClient.setupMockData()
         }
     }
