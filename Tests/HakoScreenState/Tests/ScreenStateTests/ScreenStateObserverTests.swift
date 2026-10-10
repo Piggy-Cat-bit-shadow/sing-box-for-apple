@@ -286,7 +286,7 @@ final class ScreenStateObserverTests: XCTestCase {
     /// reports it.
     func testStartRegistersBothNamesAndReadsBothOnce() {
         let (observer, notify, publisher) = makeObserver()
-        notify.stateResult[100] = .value(1) // display off
+        notify.stateResult[100] = .value(0) // display off
         notify.stateResult[101] = .value(1) // locked
 
         XCTAssertEqual(observer.start(), .started)
@@ -298,7 +298,7 @@ final class ScreenStateObserverTests: XCTestCase {
     /// cannot interleave with the snapshot.
     func testRegistrationPrecedesTheSnapshot() {
         let (observer, notify, publisher) = makeObserver()
-        notify.stateResult[100] = .value(1)
+        notify.stateResult[100] = .value(0)
         notify.stateResult[101] = .value(0)
 
         XCTAssertEqual(observer.start(), .started)
@@ -339,13 +339,17 @@ final class ScreenStateObserverTests: XCTestCase {
     /// locked -> display on -> still locked -> unlocked. Only the lock axis may move the level.
     func testNotificationLightsTheScreenAndTheDeviceStaysLocked() {
         let (observer, notify, publisher) = makeObserver()
-        notify.stateResult[100] = .value(0) // display on
+        // The display is DARK at start, because this case is about it being lit: a source read
+        // twice at the same value is a repeat and publishes nothing, so a start that already reads
+        // the display as on makes the delivery below a non-event and the assertion unreachable.
+        notify.stateResult[100] = .value(0) // display off: the sleep fact `start` may publish
         notify.stateResult[101] = .value(1) // locked
         XCTAssertEqual(observer.start(), .started)
-        XCTAssertEqual(publisher.calls, [.lock(true)])
+        XCTAssertEqual(publisher.calls, [.screen(false), .lock(true)])
 
+        notify.stateResult[100] = .value(1) // display on
         notify.deliver(displayName)
-        XCTAssertEqual(publisher.calls, [.lock(true), .screen(true)],
+        XCTAssertEqual(publisher.calls, [.screen(false), .lock(true), .screen(true)],
                        "a display-on publishes the resume edge and nothing else")
 
         // The user locks again, then unlocks for real.
@@ -358,13 +362,20 @@ final class ScreenStateObserverTests: XCTestCase {
     /// `wakeNow`, so this is also a statement about the type: there is no path to a false wake.
     func testDisplayOnNeverReachesAWakeEntryPoint() {
         let (observer, notify, publisher) = makeObserver()
-        notify.stateResult[100] = .value(1)
+        notify.stateResult[100] = .value(1) // display on
         XCTAssertEqual(observer.start(), .started)
         publisher.resetCalls()
 
-        notify.stateResult[100] = .value(0)
+        // The display goes off and comes back on. The first half is a sleep fact and the second is
+        // the resume edge, and the case is that the second is a `recordScreenState` and not a wake.
+        notify.stateResult[100] = .value(0) // display off
         notify.deliver(displayName)
-        XCTAssertEqual(publisher.calls, [.screen(true)])
+        XCTAssertEqual(publisher.calls, [.screen(false)], "a display-off pauses")
+
+        notify.stateResult[100] = .value(1) // display on
+        notify.deliver(displayName)
+        XCTAssertEqual(publisher.calls, [.screen(false), .screen(true)],
+                       "a display-on publishes the resume edge and nothing else")
         // The only two calls the publisher can make are the two record methods; neither is a wake.
         XCTAssertFalse(publisher.calls.contains { call in
             if case .lock(false) = call { return true }
@@ -406,9 +417,19 @@ final class ScreenStateObserverTests: XCTestCase {
         XCTAssertEqual(publisher.calls, [])
 
         notify.registrationResult.removeValue(forKey: displayName)
-        notify.stateResult[100] = .value(1)
-        notify.stateResult[101] = .value(1)
         XCTAssertEqual(observer.start(), .started)
+        // Read the tokens the fake actually handed out rather than assuming 100 and 101. The first
+        // start failed on the display name, and a failed registration consumes no token - so on the
+        // retry the display takes 100 only if it is registered first, and the lock otherwise. Hard
+        // numbers here were reading the lock's value for the display source.
+        guard let displayToken = notify.registeredTokens[displayName],
+              let lockToken = notify.registeredTokens[lockName]
+        else {
+            return XCTFail("both names must be registered after a successful start")
+        }
+        notify.stateResult[displayToken] = .value(0) // display off
+        notify.stateResult[lockToken] = .value(1) // locked
+        observer.resync()
         XCTAssertEqual(publisher.calls, [.screen(false), .lock(true)])
     }
 
@@ -481,8 +502,16 @@ final class ScreenStateObserverTests: XCTestCase {
         XCTAssertEqual(observer.start(), .started)
         observer.cancel()
 
-        notify.stateResult[100] = .value(1) // display off, a publishable snapshot fact
         XCTAssertEqual(observer.start(), .started)
+        publisher.resetCalls()
+        // The fake hands out a fresh token per registration and never reuses one, so on this second
+        // start the display is not token 100. Asking for the token it was actually given is the only
+        // way to answer for the display source; a hard number answers for whatever else got it.
+        guard let displayToken = notify.registeredTokens[displayName] else {
+            return XCTFail("the display name must be registered after a restart")
+        }
+        notify.stateResult[displayToken] = .value(0) // display off, a publishable snapshot fact
+        observer.resync()
         XCTAssertEqual(publisher.calls, [.screen(false)])
     }
 
@@ -506,12 +535,20 @@ final class ScreenStateObserverTests: XCTestCase {
     /// NetworkExtension resume.
     func testResyncCanNeverPublishAWake() {
         let (observer, notify, publisher) = makeObserver()
+        // Both axes start in a NON-sleep reading, and the fixture is set before `start()` on
+        // purpose. Left at their defaults both reads fail, `lastObserved` stays empty, and the
+        // resync below would find no previous value - so a sleep fact would be a fresh edge and
+        // would publish, and the case would pass or fail for a reason other than the one it names.
+        notify.stateResult[100] = .value(1) // display on: not a sleep fact
+        notify.stateResult[101] = .value(0) // unlocked: not a sleep fact
         XCTAssertEqual(observer.start(), .started)
+        publisher.resetCalls()
 
-        // The extension resumed, the device was locked the whole time, and both sources now read
-        // "in use" - which is what a lit lock screen looks like.
-        notify.stateResult[100] = .value(0)
-        notify.stateResult[101] = .value(0)
+        // The extension resumed to a lit, unlocked device: the display is on and the lock source
+        // reports unlocked. Neither is a sleep fact, so a snapshot may publish neither - which is
+        // the property under test, and it is only under test while both really are non-sleep.
+        notify.stateResult[100] = .value(1) // display on
+        notify.stateResult[101] = .value(0) // unlocked
         observer.resync()
 
         XCTAssertFalse(publisher.calls.contains(.lock(false)), "resync published an unlock")
@@ -537,10 +574,15 @@ final class ScreenStateObserverTests: XCTestCase {
     /// the next successful read of the same value is still a repeat.
     func testAFailedEventReadPublishesNothingAndKeepsTheLastValue() {
         let (observer, notify, publisher) = makeObserver()
-        notify.stateResult[101] = .value(1)
-        notify.deliver(lockName) // not registered yet: harmless
+        // Both sources need a value before `start()`. A source whose read fails is not registered,
+        // and `deliver` needs a handler to find - so a fixture that answers for the lock alone
+        // leaves the observer half-started and the delivery below cannot happen at all.
+        notify.stateResult[100] = .value(0) // display off: a sleep fact, so start publishes it
+        notify.stateResult[101] = .value(1) // locked
+        // No delivery before `start()`: `deliver` fails the case outright when nothing is
+        // registered for the name, which is what "not registered yet: harmless" assumed away.
         XCTAssertEqual(observer.start(), .started)
-        XCTAssertEqual(publisher.calls, [.lock(true)])
+        XCTAssertEqual(publisher.calls, [.screen(false), .lock(true)])
         publisher.resetCalls()
 
         notify.stateResult[101] = .failed(status: 1)
