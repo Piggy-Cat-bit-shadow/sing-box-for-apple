@@ -54,6 +54,33 @@ public enum OOMReportArchive {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
+    /// Writes one out-of-memory report, through the same writer a real one uses.
+    ///
+    /// Ported from `hako-ui`. The archive had no writer in this branch at all, which is why the
+    /// report pages built, ran, and had never been seen.
+    @discardableResult
+    public static func writeArchivedReport(
+        metadata: OOMReportMetadata,
+        date: Date,
+        configContent: String? = nil,
+        goLog: String? = nil,
+        profileFiles: [String: Data] = [:]
+    ) throws -> URL {
+        let directory = reportsDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let artifactURL = ReportArchive.nextAvailableArtifactURL(in: directory, for: date)
+        try ReportArchive.writeArtifact(
+            at: artifactURL,
+            metadataData: try JSONEncoder().encode(metadata),
+            textFiles: [
+                ReportArchive.configFileName: configContent ?? "",
+                ReportArchive.goLogFileName: goLog ?? "",
+            ],
+            extraFiles: profileFiles
+        )
+        return artifactURL
+    }
+
     static func removeArtifact(at artifactURL: URL) {
         ReportArchive.removeArtifact(at: artifactURL)
     }

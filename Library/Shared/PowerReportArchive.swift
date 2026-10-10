@@ -62,6 +62,34 @@ public enum PowerReportArchive {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
+    /// Writes one power report, through the same writer a real one uses. Ported from `hako-ui`.
+    @discardableResult
+    public static func writeArchivedReport(
+        metadata: PowerReportMetadata,
+        date: Date,
+        configContent: String? = nil,
+        goLog: String? = nil,
+        timeline: String? = nil,
+        events: String? = nil,
+        extraFiles: [String: Data] = [:]
+    ) throws -> URL {
+        let directory = reportsDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let artifactURL = ReportArchive.nextAvailableArtifactURL(in: directory, for: date)
+        try ReportArchive.writeArtifact(
+            at: artifactURL,
+            metadataData: try JSONEncoder().encode(metadata),
+            textFiles: [
+                ReportArchive.configFileName: configContent ?? "",
+                ReportArchive.goLogFileName: goLog ?? "",
+                timelineFileName: timeline ?? "",
+                eventsFileName: events ?? "",
+            ],
+            extraFiles: extraFiles
+        )
+        return artifactURL
+    }
+
     static func removeArtifact(at artifactURL: URL) {
         ReportArchive.removeArtifact(at: artifactURL)
     }

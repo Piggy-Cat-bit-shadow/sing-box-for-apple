@@ -33,7 +33,58 @@ public class OOMReportManager: ObservableObject {
 
     public init() {}
 
+    // Ported from `hako-ui`, where the integration left it behind. The fixture writes through the
+    // archive's own writer rather than stubbing the manager, so the list, the file list and the
+    // readers all run their real code over real files. It is what makes the report pages assertable
+    // without a device: nothing else in this branch could put a report on disk.
+    private nonisolated static func seedScreenshotFixtureIfNeeded() {
+        guard Variant.screenshotMode else { return }
+        let directory = OOMReportArchive.reportsDirectory
+        let alreadySeeded = ((try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []).contains {
+            FileManager.default.fileExists(
+                atPath: $0.appendingPathComponent(ReportArchive.fixtureMarkerFileName).path
+            )
+        }
+        guard !alreadySeeded else { return }
+        let metadata = OOMReportMetadata(
+            source: "NetworkExtension",
+            bundleIdentifier: AppConfiguration.packetTunnelBundleIDs.first ?? "io.nekohasekai.sfa.packet-tunnel",
+            processName: "sing-box",
+            appVersion: "1.12.0",
+            appMarketingVersion: "1.12.0",
+            coreVersion: "1.12.0",
+            goVersion: "go1.26.6",
+            recordedAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-7200)),
+            memoryUsage: "48.2 MiB",
+            availableMemory: "12.6 MiB",
+            deviceOrigin: "This Device"
+        )
+        guard let url = try? OOMReportArchive.writeArchivedReport(
+            metadata: metadata,
+            date: Date().addingTimeInterval(-7200),
+            configContent: """
+            {
+              "log": { "level": "info" },
+              "inbounds": [{ "type": "tun", "tag": "tun-in", "auto_route": true }],
+              "outbounds": [{ "type": "direct", "tag": "direct" }]
+            }
+            """,
+            goLog: """
+            memory limit reached: 48.2 MiB in use, 12.6 MiB available
+            runtime: GOGC=100 GOMEMLIMIT=50331648
+            """
+        ) else { return }
+        try? FileManager.default.createFile(
+            atPath: url.appendingPathComponent(ReportArchive.fixtureMarkerFileName).path,
+            contents: nil
+        )
+    }
+
     public nonisolated func refresh() async {
+        Self.seedScreenshotFixtureIfNeeded()
         let reports = await BlockingIO.run {
             #if os(macOS)
                 if Variant.useSystemExtension {
@@ -60,6 +111,11 @@ public class OOMReportManager: ObservableObject {
         return files
             .filter {
                 (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            }
+            .filter { url in
+                // A report the fixture wrote is only a report while the fixture is running.
+                let marker = url.appendingPathComponent(ReportArchive.fixtureMarkerFileName)
+                return Variant.screenshotMode || !FileManager.default.fileExists(atPath: marker.path)
             }
             .compactMap { url -> OOMReport? in
                 let date = OOMReportArchive.reportDate(for: url)

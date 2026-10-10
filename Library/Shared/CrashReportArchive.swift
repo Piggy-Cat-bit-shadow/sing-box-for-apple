@@ -108,6 +108,13 @@ public struct CrashReportArtifactContents {
 }
 
 public enum ReportArchive {
+    /// Marks an artifact the screenshot fixture wrote.
+    ///
+    /// Only the fixture sets it, and a reader that is *not* running the fixture hides anything
+    /// carrying it - so a fixture's report can never be mistaken for a real one afterwards. Ported
+    /// from `hako-ui`, which had this and the screenshot fixtures built on it; the integration kept
+    /// neither, which is why no report page in this branch had ever been looked at.
+    public static let fixtureMarkerFileName = ".hako-fixture"
     public static let readMarkerFileName = ".read"
     public static let metadataFileName = "metadata.json"
     public static let configFileName = "configuration.json"
@@ -146,6 +153,35 @@ public enum ReportArchive {
             }
             index += 1
         }
+    }
+
+    /// Writes one artifact from its parts.
+    ///
+    /// The single writer every archive builds its own `writeArchivedReport` on, so a fixture that
+    /// writes "a report" goes through exactly the code a real one does - the list, the file list
+    /// and the readers then all run over real files rather than over a stubbed manager. Ported from
+    /// `hako-ui`. An empty text file is removed rather than written, which is what keeps a report's
+    /// file list honest.
+    public static func writeArtifact(
+        at artifactURL: URL,
+        metadataData: Data,
+        textFiles: [String: String],
+        extraFiles: [String: Data] = [:]
+    ) throws {
+        try FileManager.default.createDirectory(at: artifactURL, withIntermediateDirectories: true)
+        for (name, body) in textFiles {
+            let url = artifactURL.appendingPathComponent(name)
+            let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                try? FileManager.default.removeItem(at: url)
+            } else {
+                try trimmed.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+        for (name, data) in extraFiles {
+            try data.write(to: artifactURL.appendingPathComponent(name), options: .atomic)
+        }
+        try metadataData.write(to: artifactURL.appendingPathComponent(metadataFileName), options: .atomic)
     }
 
     static func removeArtifact(at artifactURL: URL) {
