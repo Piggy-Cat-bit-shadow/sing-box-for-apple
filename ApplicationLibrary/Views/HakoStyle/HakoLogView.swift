@@ -174,6 +174,7 @@ private struct HakoLogViewContent: View {
 }
 
 
+        #if canImport(UIKit)
         private struct HakoLogMenuButton: UIViewRepresentable {
             let viewModel: LogViewModel
             let remoteServers: [RemoteServer]
@@ -291,6 +292,7 @@ private struct HakoLogViewContent: View {
                 return UIMenu(children: children)
             }
         }
+        #endif
 
 
     private struct HakoLogMenuView: View {
@@ -554,6 +556,7 @@ private struct HakoLogContentInnerView: View {
     }
 
 
+        #if canImport(UIKit)
         private struct HakoShareViewController: UIViewControllerRepresentable {
             let activityItems: [Any]
 
@@ -563,4 +566,5 @@ private struct HakoLogContentInnerView: View {
 
             func updateUIViewController(_: UIActivityViewController, context _: Context) {}
         }
+        #endif
 

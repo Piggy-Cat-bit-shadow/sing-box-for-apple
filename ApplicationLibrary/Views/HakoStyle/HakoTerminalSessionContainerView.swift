@@ -25,6 +25,7 @@
 
 
     @MainActor
+    #if canImport(GhosttyTerminal) && os(iOS)
     struct HakoTerminalSessionContainerView: View {
         @StateObject private var sessionManager = TerminalSessionManager()
         private let initialSession: TailscaleSSHPresentedSession
@@ -147,4 +148,5 @@
             }
 
     }
+    #endif
 

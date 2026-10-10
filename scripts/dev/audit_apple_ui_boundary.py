@@ -44,6 +44,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from typing import Iterable
+from original_type_names import ORIGINAL_TYPE_NAMES
 
 # --------------------------------------------------------------------------------------
 # Paths and constants
@@ -264,6 +265,18 @@ def strip_comment(line: str) -> str:
     """
     index = line.find("//")
     return line if index < 0 else line[:index]
+
+
+def strip_comments(text: str) -> str:
+    """Every comment removed from a whole file, block comments first.
+
+    The block pass has to run before the line pass: `/* ... */` can span lines, and a `//` inside one would
+    be removed by the line pass first, leaving the block's remainder exposed. A page that names a Hako type
+    only in a doc comment must not read as a caller - the audit's own `grep` includes comments on purpose,
+    and this is the check where that would produce a false pass.
+    """
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"//[^\n]*", "", text)
 
 
 #: Directories no build target reads. A `.swift` file here is documentation or a standalone
@@ -937,6 +950,83 @@ def check_hako_annotation_agreement(root: str) -> Check:
                  f"every stored property in {HAKO_PREFIX} is assigned the type it declares, out of "
                  f"{len(declared_types)} known type names")
 
+
+
+def check_hako_type_has_caller(root: str) -> Check:
+    """Every type the phone's namespace declares is named somewhere outside its own declaration.
+
+    The four Hako types this was written after - `HakoGroupItemView`, `HakoToolOutboundSection`,
+    `HakoRemoteToolOutboundSection`, `HakoOutboundPickerView` and `HakoEditorToolbarView` - were all
+    declared, all faithful to the frozen original, and all unused, so the phone built upstream's view while
+    every other check reported PASS. `no-reverse-dependency` looks for a Hako name *inside a shared file*;
+    a phone page naming an *upstream* type is the opposite direction and nothing looked at it.
+
+    Deliberately weaker than reachability and honest about it: an occurrence is not a call path. It proves
+    the type was not left behind, not that the phone reaches it. Reachability needs the call graph, which
+    this audit does not build.
+    """
+    namespace = os.path.join(root, HAKO_PREFIX)
+    if not os.path.isdir(namespace):
+        return Check("hako-type-has-caller", "UNKNOWN",
+                     f"{HAKO_PREFIX} does not exist, so there is nothing to look for callers of")
+
+    #: Types that are only ever used as a protocol conformance, a generic argument or an `@State` type are
+    #: still used; the question is whether the name appears at all beyond where it is declared.
+    #:
+    #: The scan covers the **whole tree**, not just the namespace, and the first version got that wrong: it
+    #: searched `HAKO_PREFIX` only and reported `HakoEditorToolbarView`, `HakoGroupsSheetContent` and
+    #: `HakoConnectionsSheetContent` as dead when all three have callers in `SFI/`. A check that reports a
+    #: live type as dead is not conservative, it is wrong in the direction that gets checks switched off.
+    #:
+    #: Only types whose name is `Hako` plus a name that exists in the frozen original are considered. This
+    #: namespace also holds helpers this fork wrote - `HakoEntryRow`, `HakoInlineNotice`, `HakoMetricText` -
+    #: and an unused helper is untidy rather than a lost design, so failing on one would be a false alarm of
+    #: the kind that gets a check switched off. A `HakoFoo` whose original `Foo` exists is by construction a
+    #: migrated type, and if nothing constructs it then something else is being shown in its place.
+    declared: dict[str, str] = {}
+    sources: dict[str, str] = {}
+    for path in swift_files(root):
+        if path in OUTSIDE_THE_APP:
+            continue
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        sources[path] = strip_comments(text)
+
+    original_names = ORIGINAL_TYPE_NAMES
+    for path in swift_files(root, HAKO_PREFIX.rstrip("/")):
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        for match in re.finditer(
+                r"^[ \t]*(?:(?:public|internal|private|fileprivate|final|indirect|@\w+)[ \t]+)*"
+                r"(?:struct|class|enum|actor)\s+(Hako\w+)", text, re.M):
+            name = match.group(1)
+            if name[4:] not in original_names:
+                continue  # a helper this fork wrote, not a migrated page
+            declared.setdefault(name, path)
+
+    if not declared:
+        return Check("hako-type-has-caller", "UNKNOWN",
+                     f"{HAKO_PREFIX} declares no Hako-prefixed type, so a scan for callers means nothing")
+
+    dead = []
+    for name, home in sorted(declared.items()):
+        # The declaration itself is one occurrence; anything more means something names it.
+        occurrences = 0
+        for text in sources.values():
+            occurrences += len(re.findall(rf"\b{re.escape(name)}\b", text))
+        if occurrences <= 1:
+            dead.append(Blame(home, 0,
+                              f"`{name}` is declared here and named nowhere else in the namespace; "
+                              f"the phone is building something else"))
+
+    if dead:
+        return Check("hako-type-has-caller", "FAIL",
+                     f"{len(dead)} Hako type(s) have no caller anywhere in the namespace, so whatever "
+                     f"the phone builds in their place is not the frozen design", [str(item) for item in dead])
+    return Check("hako-type-has-caller", "PASS",
+                 f"all {len(declared)} Hako type(s) in {HAKO_PREFIX} are named beyond their own declaration")
 
 def check_hako_platform_imports(root: str) -> Check:
     """No ported file imports a platform framework outside a conditional.

@@ -106,11 +106,18 @@ public struct HakoToolsView: View {
             HakoTailscaleSSHPromptView(peer: peer, endpointTag: sshPromptEndpointTag, onConnect: { session in pendingSSHSession = session })
         }
 
+        // The original guards this construction with `#if os(iOS)` (its `ToolsView.swift:90-96`, with a
+        // macOS branch that opens a window instead). `HakoTerminalSessionContainerView` is now behind
+        // `#if canImport(GhosttyTerminal) && os(iOS)`, as its original is, so an unguarded call here would
+        // reference a type that does not exist wherever that condition is false - the definition and the
+        // call site have to share one condition, which is the failure this pairing exists to prevent.
+        #if os(iOS)
         .sheet(item: $sshPresentedSession) { presented in
             NavigationStackCompat {
                 HakoTerminalSessionContainerView(presented)
             }
         }
+        #endif
 
 
     }
