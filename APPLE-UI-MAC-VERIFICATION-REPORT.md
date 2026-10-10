@@ -25,7 +25,7 @@ revision. One SwiftPM suite in the tree does not compile, and it is not one this
 | Swift tests — `HakoSubscriptionUsage` | **PASS** (24/24) |
 | Swift tests — `HakoScreenState` | **PASS — 33/33** (was 25/33). The policy question was decided and implemented; the 8 observer failures were fixture defects, all corrected — §6h |
 | Navigation UI tests (`HakoNavigationUITests`) | **PASS** (18/18) |
-| Snapshot UI tests (`HakoSnapshotUITests`) | **24 of 28 pass; 4 fail** — measured on a full run. Four of the original five were fixed this round; `test15` is a product defect, `test43` needs a seeding path the bindings do not allow, and `test34`/`test36` are simulator state drift proved not to be this round's work. See §6c, §6d |
+| Snapshot UI tests (`HakoSnapshotUITests`) | **24 of 28 pass; 4 fail** — measured on a full run. Four of the original five were fixed this round; `test15` is a product defect, `test43` needs a seeding path the bindings do not allow, and `test34`/`test36` fail because this install has no app-group container (§6e). See §6c, §6d |
 | Family routing | **PASS by construction, not by test** (see §5.3) |
 | ABI gate, Apple layers | **PASS** (21 violations → 0) |
 
@@ -88,7 +88,7 @@ to get a compiling client — that is the user's call and was deliberately not t
 | `HakoSubscriptionUsage` (SwiftPM) | **PASS** | 24 tests, 0 failures |
 | `HakoScreenState` (SwiftPM) | **PASS — 33 tests, 0 failures** | `ScreenStatePolicyTests` 9/9, `ScreenStateObserverTests` 24/24. Was 25/33 — see §6h |
 | `HakoNavigationUITests` | **PASS** | 18 tests, 0 failures, 513 s |
-| `HakoSnapshotUITests` | **24 PASS / 4 FAIL** | Fixed and re-verified individually: `test10Home`, `test14`, `test17`, `test18`. Remaining: `test15` (product defect), `test43` (no seeding path), and `test34`/`test36` (see §6e) |
+| `HakoSnapshotUITests` | **24 PASS / 4 FAIL** | Fixed and re-verified individually: `test10Home`, `test14`, `test17`, `test18`. Remaining: `test15` (product defect), `test43` (no seeding path), `test34`/`test36` (no app-group container — §6e) |
 | Freeze guards (`check-iphone-hako-freeze.sh`, `test-iphone-hako-freeze.sh`) | **N/A** | **these scripts do not exist in this tree** — they belong to the `hako-ui`/`ipad-upstream-ui` line, not to `jiejiebox/integrated`. Not "skipped"; absent. |
 | Route guard (`check-hako-primary-route.sh`) | **NOT RUN** | present; needs a prior `SFM` build plus a simulator runtime, and was not exercised in this round |
 | `check_hako_macos_parse.py` | **PASS — and misleading** | reports `macos: checked=54 errors=0` while the compiler reported 21 errors in the same tree. It models a symbol table and cannot see `EditMode`, member accesses or `@available`. Recorded as a tool limitation, not evidence. |
@@ -601,40 +601,72 @@ Commits: `891c6cb`, `d331977`, `26ff51a`, `d6f5d99`.
 
 ---
 
-## 6e. `test34`/`test36`: Simulator State, Not A Regression
+## 6e. `test34`/`test36`: The App Group Is Missing, Not The State
 
-A full-suite run at the end of this round reported **24 pass / 4 fail**, and two of the four -
+A full-suite run reported **24 pass / 4 fail**, and two of the four -
 `test34OutOfMemoryReportListAndDetail` and `test36PowerReportListAndDetail` - had **passed** in the
-first full run of the same suite. That is the shape of a regression, so it was treated as one and
-tested rather than assumed.
+first full run of the same suite. That is the shape of a regression, so it was treated as one.
 
-**The experiment.** The only change this round that could plausibly reach a Tools-tab assertion is
-the one that publishes the fixture's groups into `CommandClient`, since it alters what the app has
-loaded when a case runs. That single line was removed, the two cases were re-run in isolation, and
-both **failed identically**:
+**They are not a regression, and the reason first given here was wrong.** The report said the cause
+was simulator state drift. It is not, and the way that was settled is worth recording because the
+wrong answer had been written down as fact:
+
+* no `oom_reports` or `power_reports` directory exists anywhere in the device - not in the app's
+  data container (504 KB, empty of them), not in the group containers, nowhere;
+* the app group container is **not registered at all**: `xcrun simctl get_app_container <sim>
+  group.io.nekohasekai.sfamt data` fails with `No such file or directory`, and the simulator's
+  `GroupContainers` map contains only Apple's own groups;
+* the installed build carries **no entitlements**, so that is consistent and not a coincidence:
+
+  ```
+  $ codesign -d --entitlements :- <installed app>
+  <plist version="1.0"><dict></dict></plist>
+  ```
+
+* and the code that needs it is force-unwrapped:
+
+  ```swift
+  private static let defaultSharedDirectory: URL! =
+      FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupName)
+  #if os(iOS)
+      public static let sharedDirectory = defaultSharedDirectory!      // traps if nil
+  ```
+
+So on this install `FilePath.workingDirectory` - the path `oom_reports` hangs off - has no basis.
+The two cases fail because the report store cannot exist, not because a fixture drifted.
+
+**What the app does instead of crashing is not established.** `HakoOOMReportListView` renders its
+empty state ("No memory reports") rather than trapping, which means `refresh()` returned no reports
+rather than that the force unwrap fired - so either the container URL is non-nil through some path
+this report did not trace, or the read is caught before it reaches `FilePath`. That gap is named
+rather than explained away.
+
+**The one experiment that was run.** The only change this round that could plausibly reach a
+Tools-tab assertion was the line publishing the fixture's groups into `CommandClient`, so it was
+removed and the two cases re-run:
 
 ```
 with the groups line:     Executed 2 tests, with 2 failures
 without the groups line:  Executed 2 tests, with 2 failures
 ```
 
-So the line is not the cause, and it was restored.
+Not the cause, and the line was restored. That part of the earlier finding stands.
 
-**What it is.** Both cases assert that the fixture's report "must appear in the list", and neither
-has a fixture: nothing seeds report files under `Variant.screenshotMode` - the managers write real
-files into the working directory's `oom_reports` and `power_reports`. Their state lives in the
-simulator, and this simulator has been driven through five full snapshot runs and dozens of
-targeted ones during this work.
+**What this means for the numbers.** The suite is **24 of 28**, not the 26 of 28 an earlier draft
+claimed on the strength of individual re-runs. An individual re-run proves a case passes; it does
+not prove the suite does, and the suite is what a reviewer will run. `test34`/`test36` are counted
+as failures and named as environment-caused.
 
-**What this means for the numbers.** The suite is **24 of 28**, not the 26 of 28 an earlier draft of
-this report claimed on the strength of individual re-runs. An individual re-run proves a case
-passes; it does not prove the suite does, and the suite is what a reviewer will run. The count here
-is the full-suite count, with the two drift cases named rather than quietly counted as green.
+**How to settle it.** Either of these, on a machine where it can be done:
 
-**How to settle it, if it matters.** Erase the simulator and re-run the suite from clean. That was
-not done because erasing the device would also discard the report state the rest of this report's
-snapshot results were measured against, and the wrong answer would then be indistinguishable from
-the right one.
+1. Sign the app so the group entitlement is actually embedded, then re-run the two cases. If they
+   pass, the cause is signing and the report's earlier "state drift" line was doubly wrong.
+2. Or give the report store a fixture, so the cases do not depend on a shared container at all -
+   which is the same remedy the other four snapshot failures needed, and would make them run
+   anywhere.
+
+Neither was done here: (1) needs a signing identity this environment does not have, and (2) is a
+product-side fixture change that the instruction limited to `test14`/`test15`/`test18`/`test43`.
 
 ---
 
@@ -1006,8 +1038,10 @@ configuration — verified, so it stays out of the repository) and
 7. **The snapshot suite stands at 24 of 28, and no remaining failure is this round's work.**
    Four were fixed and re-verified individually (`test10Home`, `test14`, `test17`, `test18` —
    §6d). Of the four left: `test15` is a product defect, `test43` needs a seeding path the Go
-   bindings do not expose, and `test34`/`test36` are simulator report state — proved not to be
-   this round's change by reverting it and watching them fail identically (§6e).
+   bindings do not expose, and `test34`/`test36` fail because **this install has no app-group
+   container** — the build carries no entitlements, and `FilePath.sharedDirectory` is
+   force-unwrapped off that container (§6e). Proved not to be this round's change by reverting it
+   and watching them fail identically.
 8. **The fixture had no single owner, and that was the actual defect behind four failures.**
    Modes, groups and the tunnel profile were each written at the point of use, so the fixture could
    not vary and two views counting the same thing were given two different numbers. §6d gave that
