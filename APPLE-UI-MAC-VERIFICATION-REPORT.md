@@ -93,6 +93,7 @@ to get a compiling client — that is the user's call and was deliberately not t
 | Route guard (`check-hako-primary-route.sh`) | **NOT RUN** | present; needs a prior `SFM` build plus a simulator runtime, and was not exercised in this round |
 | `check_hako_macos_parse.py` | **PASS — and misleading** | reports `macos: checked=54 errors=0` while the compiler reported 21 errors in the same tree. It models a symbol table and cannot see `EditMode`, member accesses or `@available`. Recorded as a tool limitation, not evidence. |
 | `check_swift_structure.py` | **PASS — and incomplete** | reported all 54 files "structurally balanced" while `HakoTerminalSessionContainerView.swift` had a stray brace and an `@MainActor` outside its `#if`. Brace *depth*, not brace *count*, is what finds that. |
+| `scripts/dev/audit_apple_ui_boundary.py` | **PASS — after being fixed twice** | **`PASS 19 FAIL 0 UNKNOWN 0` with `--upstream-ref upstream/dev`.** Without the ref it reports `UNKNOWN` for the one check that matters, and `PASS 18 FAIL 0` — which reads as green. With the ref it was `FAIL`: ten upstream-owned files modified with no reason on its reviewed list, and a symlink comparison that reported an unchanged file as changed. Both fixed; see §6g |
 | `scripts/ci/check-libbox-abi.sh` (Apple layers) | **PASS** | 21 violations → 0; 667 Swift sources swept |
 
 ---
@@ -733,6 +734,87 @@ made explicitly.
 behind" and "do not look to upstream" cannot both hold the first time upstream ships. The choice to
 make then is whether the iPad and Mac keep tracking upstream (this architecture) or stop
 (this architecture inverted).
+
+---
+
+## 6g. The Boundary Audit Was Failing, And Its Default Run Said Otherwise
+
+`scripts/dev/audit_apple_ui_boundary.py` is this project's own guard for the rule the README states
+in one line: *modify a shared file and you must add it to `REVIEWED_UPSTREAM_MODIFICATIONS` with a
+reason.* The report's earlier rounds recorded it as passing. It was not, and the way it was not is
+worth more than the fix.
+
+### Two defects, one of which hid the other
+
+**It skips its own most important check by default.** Run the way it is normally run, and the way
+it was run when it was recorded as green:
+
+```
+$ python3 scripts/dev/audit_apple_ui_boundary.py
+[UNKNOWN] upstream-files-untouched
+          no --upstream-ref was given, so the upstream-owned files were not compared
+PASS 18  FAIL 0  UNKNOWN 1
+```
+
+`PASS 18 FAIL 0` reads as a clean bill of health. The check that enforces the rule is the one
+reported `UNKNOWN`, and its subject — *were upstream-owned files modified* — is exactly what a
+reviewer wants from this script. Run with the ref it points at:
+
+```
+$ python3 scripts/dev/audit_apple_ui_boundary.py --upstream-ref upstream/dev
+[FAIL   ] upstream-files-untouched
+          N upstream-owned file(s) were modified without being on the reviewed list
+```
+
+(Ten by this report's own recount of the pre-fix whitelist; the tool printed a slightly different
+number because the symlink defect below was still shortening the list as it went. The exact count
+is not the point — the check was red, and its default run said green.)
+
+**It could not compare a symlink.** Once the eleven files were registered the check still failed,
+on `SFM.System/Resources/LICENSE`. That file is identical to upstream — same mode `120000`, same
+blob `30cff740`, and `git diff upstream/dev HEAD -- <path>` is empty. The comparison hashed the
+worktree path instead of the tree entry:
+
+```python
+rc, head, _ = run([git, "-C", root, "hash-object", local])   # follows the symlink
+```
+
+`hash-object <path>` reads *through* a symlink and hashes the target's contents, while upstream's
+blob for that path is the *link target string*. Three ways of asking gave three answers for one
+unchanged file:
+
+```
+git rev-parse upstream/dev:SFM.System/Resources/LICENSE   30cff740   (the link target string)
+git hash-object SFM.System/Resources/LICENSE              3e3e29e3   (LICENSE's contents)
+```
+
+The fix compares `git ls-tree` entries for both sides, which is correct for symlinks and picks up
+the executable bit for free. There are eleven symlinks in this tree, so the check would have
+misfired on any of them.
+
+### What was actually unregistered
+
+Ten upstream-owned files, in two groups, **none of them a reason to change the code**:
+
+* **The libbox `*Box` ABI migration** — `GlobalChecksModifier`, `RootHelperService`,
+  `IOSRootHelperService`, `BridgeTunTracker`, `ExtensionPlatformInterface`, and `CommandClient`.
+  Two call sites each at most, `.value` on the new boxed accessors. The pinned revision does not
+  compile without them.
+* **This fork's own work** — `SFI/Application.swift` (the family router), `README.md`,
+  `SFI/ProfileEditorWrapperView.swift` (the `restyled` parameter that keeps the Hako toolbar off
+  the iPad), and the three fixture files from §6d.
+
+All ten are now on the list with a reason (and `README.md`, which is fork-owned by the audit's own reckoning and so was never reported), and the audit is **`PASS 19 FAIL 0 UNKNOWN 0`** when
+given the ref.
+
+### The lesson, which is the reason this section exists
+
+This is the third tool in this report to report success on a tree it had not really examined —
+alongside `check_hako_macos_parse.py` (§9.6) and `check_swift_structure.py`. All three share a
+shape: **a check that cannot fail is being read as a check that passed.** `UNKNOWN` is not `PASS`,
+and a green summary line that folds one into the other is worse than no check, because it is
+trusted. Recording it as a passing gate in this report was the mistake; the gate was telling the
+truth the whole time, in the one line nobody reads.
 
 ---
 

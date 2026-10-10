@@ -1925,6 +1925,50 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
         "the remaining-quota item, the two layout properties and the locale-sized relative time",
     "sing-box.xcodeproj/project.pbxproj":
         "`CFBundleDisplayName` for the SFI and SFM app targets",
+
+    # --- The libbox `*Box` ABI migration. ------------------------------------------------
+    #
+    # The kernel's generated bindings changed the accessors these files call: `message()`,
+    # `name()`, `address()` and `mask()` return a bound box type instead of a Swift `String`, so
+    # each call site reads `.value`. The pinned revision does not compile without them.
+    #
+    # Listed per file rather than covered by one rule, because the audit matches names - a name it
+    # cannot see is a file it will not review, which is how these eleven went unregistered while
+    # the check was being run without `--upstream-ref`.
+    "ApplicationLibrary/Views/Abstract/GlobalChecksModifier.swift":
+        "ABI MIGRATION: `report.message()` returns a `*StringBox`; `.value` on three call sites. The "
+        "deprecated-configuration alert does not compile against the pinned kernel without it",
+    "HelperService/RootHelperService.swift":
+        "ABI MIGRATION: `session.name()` returns a `*StringBox`; `.value` at the log and the reply",
+    "JailbreakDaemon/IOSRootHelperService.swift":
+        "ABI MIGRATION: `session.name()` returns a `*StringBox`; `.value` at the log and the reply",
+    "Library/Network/BridgeTunTracker.swift":
+        "ABI MIGRATION: `session.name()` returns a `*StringBox`; `.value` in the close log",
+    "Library/Network/ExtensionPlatformInterface.swift":
+        "ABI MIGRATION: `prefix.address()` and `prefix.mask()` return `*StringBox`; `.value` on the "
+        "IPv4 address, the mask and the route construction",
+    "Library/Network/CommandClient.swift":
+        "ABI MIGRATION plus fixture: `.value` on the boxed accessors, then `setupMockData()` honouring "
+        "the `noClashModes` UI-test state and publishing `ScreenshotFixtureGroups` so Home and the "
+        "proxy sheet count the same groups. The fixture half is inert unless `Variant.screenshotMode`",
+    "Library/Network/ExtensionEnvironments.swift":
+        "FIXTURE ONLY: the mock tunnel profile goes through `Variant.usesMockTunnelProfile`, so a UI "
+        "test can ask for `notInstalled`. Production takes the branch it always took; see "
+        "docs/SNAPSHOT-FIXTURE-CONTRACT.md",
+    "Library/Shared/Variant.swift":
+        "FIXTURE ONLY: `uiTestFixtureState` and `usesMockTunnelProfile`, each requiring `-ui_testing` "
+        "**and** `SCREENSHOT_STATE` together. A production launch carries neither and reads `nil`; "
+        "see docs/SNAPSHOT-FIXTURE-CONTRACT.md",
+    "SFI/Application.swift":
+        "the `SFIUIFamily` router and its two roots - the only file the iPhone shell had to change. "
+        "`SFI/MainView.swift`, which the iPad runs, stays byte-identical to upstream",
+    "SFI/ProfileEditorWrapperView.swift":
+        "a `restyled` parameter defaulting to `false`, because this wrapper compiles into `SFI` and "
+        "**both** of that target's roots build it, so the Hako toolbar must not reach the iPad. "
+        "`MacLibrary` has its own copy and is unaffected",
+    "README.md":
+        "this fork's own front page: what the branch is, the two UI families, the layer rules and the "
+        "test commands. It documents this fork, not upstream",
 }
 
 
@@ -2618,14 +2662,23 @@ def check_upstream_files_untouched(root: str, upstream_ref: str | None) -> Check
         local = os.path.join(root, path)
         if not os.path.exists(local):
             continue
-        rc, blob, _ = run([git, "-C", root, "rev-parse", f"{upstream_commit}:{path}"])
-        if rc != 0:
+        # Compare tree entries, not worktree files.
+        #
+        # `hash-object <path>` reads through a symlink and hashes the *target's contents*, while
+        # upstream's blob for that path is the *link target string* - so every symlink this fork
+        # had not touched was reported as modified. `SFM.System/Resources/LICENSE` is the case that
+        # exposed it: identical mode and identical blob (`30cff740`) on both sides, three different
+        # hashes from three ways of asking. Reading the index also picks up the executable bit for
+        # free, and it does not depend on the worktree being clean.
+        rc, upstream_entry, _ = run([git, "-C", root, "ls-tree", upstream_commit, "--", path])
+        if rc != 0 or not upstream_entry.strip():
             continue
-        rc, head, _ = run([git, "-C", root, "hash-object", local])
-        if rc != 0:
+        rc, head_entry, _ = run([git, "-C", root, "ls-tree", "HEAD", "--", path])
+        if rc != 0 or not head_entry.strip():
             continue
         compared += 1
-        if blob.strip() != head.strip():
+        # "<mode> <type> <object>\t<path>"; the path is the loop variable, so compare the prefix.
+        if upstream_entry.split("\t")[0] != head_entry.split("\t")[0]:
             changed.append(path)
 
     # The audit asserts rather than reports: a file that differs from upstream and is not on the
