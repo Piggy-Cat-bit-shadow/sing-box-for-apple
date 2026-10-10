@@ -1955,6 +1955,25 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
         "ABI MIGRATION plus fixture: `.value` on the boxed accessors, then `setupMockData()` honouring "
         "the `noClashModes` UI-test state and publishing `ScreenshotFixtureGroups` so Home and the "
         "proxy sheet count the same groups. The fixture half is inert unless `Variant.screenshotMode`",
+    # --- The report-store screenshot fixture, ported from `hako-ui` in round 10. -----------
+    #
+    # Five files, every change purely additive (zero lines that existed here were removed). A
+    # fixture writes one artifact per report store through the archives' own writers, and a marker
+    # file keeps it from ever being mistaken for a real report. Reachable only under
+    # `Variant.screenshotMode`; a production launch seeds nothing and hides nothing.
+    "Library/Shared/CrashReportArchive.swift":
+        "FIXTURE ONLY: `ReportArchive.fixtureMarkerFileName` and the shared `ReportArchive."
+        "writeArtifact(...)` every archive's writer is built on. With no writer in this branch "
+        "nothing could put a report on disk, which is why the report pages had never been seen",
+    "Library/Shared/OOMReportArchive.swift":
+        "FIXTURE ONLY: `writeArchivedReport(...)`, through the shared writer",
+    "Library/Shared/PowerReportArchive.swift":
+        "FIXTURE ONLY: `writeArchivedReport(...)`, through the shared writer",
+    "Library/Shared/OOMReportManager.swift":
+        "FIXTURE ONLY: `seedScreenshotFixtureIfNeeded()` at the top of `refresh()`, and the marker "
+        "filter in `scanReports()` that hides a fixture artifact whenever the fixture is not running",
+    "Library/Shared/PowerReportManager.swift":
+        "FIXTURE ONLY: the same seed and marker filter as the out-of-memory manager",
     "Library/Network/ExtensionEnvironments.swift":
         "FIXTURE ONLY, two additions. The mock tunnel profile goes through "
         "`Variant.usesMockTunnelProfile`, so a UI test can ask for `notInstalled`; and the new "
