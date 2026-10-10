@@ -51,6 +51,18 @@ CAN_IMPORT = {
 #: the platform, and a reader checking one should not have to read the other.
 OPTIONAL_MODULES = {"GhosttyTerminal": True}
 
+#: Environment conditions the evaluator can decide, with the answer for each platform.
+#:
+#: `targetEnvironment(macCatalyst)` is False for both: this project ships native iOS and native macOS
+#: targets and no Catalyst target - `TerminalSessionContainerView.swift` guards its own Catalyst branch
+#: with `#if !targetEnvironment(macCatalyst)`, and `SFI`/`SFM` are separate app targets rather than one
+#: Catalyst binary. The resolver refused it before this entry existed, which is the behaviour it is
+#: supposed to have: an undecidable condition stops the run rather than picking a branch.
+TARGET_ENVIRONMENT = {
+    "ios": {"macCatalyst": False, "simulator": False},
+    "macos": {"macCatalyst": False, "simulator": False},
+}
+
 for _platform in CAN_IMPORT:
     CAN_IMPORT[_platform].update(OPTIONAL_MODULES)
 
@@ -104,6 +116,15 @@ def evaluate(condition: str, platform: str) -> bool:
 
     if re.fullmatch(r"(swift|compiler)\(>=([\d.]+)\)", text):
         return True  # The project's tools version is 5.7 and every declaration here is older.
+
+    match = re.fullmatch(r"targetEnvironment\((\w+)\)", text)
+    if match:
+        table = TARGET_ENVIRONMENT.get(platform)
+        if table is None or match.group(1) not in table:
+            raise DirectiveError(
+                f"targetEnvironment({match.group(1)}) is not in the table for {platform}; "
+                f"add it deliberately rather than defaulting")
+        return table[match.group(1)]
 
     raise DirectiveError(f"cannot decide condition: {text!r}")
 

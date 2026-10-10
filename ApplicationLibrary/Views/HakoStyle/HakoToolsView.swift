@@ -108,7 +108,7 @@ public struct HakoToolsView: View {
 
         .sheet(item: $sshPresentedSession) { presented in
             NavigationStackCompat {
-                TerminalSessionContainerView(presented)
+                HakoTerminalSessionContainerView(presented)
             }
         }
 
