@@ -503,9 +503,6 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
     "ApplicationLibrary/Views/Groups/GroupListViewModel.swift":
         "`testingItems`, the per-member half of a group latency sweep, which the phone's "
         "Proxies page reads to put a spinner on each row being measured; additive only",
-    "ApplicationLibrary/Views/Log/LogView.swift":
-        "`LogViewContent` made public so the phone's Logs page can put the fork's chrome on "
-        "upstream's content instead of copying it; no behaviour changed inside the file",
     "ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift":
         "the remaining-quota item, the two layout properties and the locale-sized relative time",
     "sing-box.xcodeproj/project.pbxproj":
@@ -1476,8 +1473,9 @@ def check_hako_feature_preservation(root: str) -> Check:
          "the More page carries a requested settings sub-page into the destination it "
          "belongs to"),
         (r"HakoLogView\s*\(",
-         r"LogViewContent\s*\(commandClient:",
-         "the Logs page wraps upstream's content rather than copying it"),
+         r"HakoEmptyState\s*\(\s*symbol:",
+         "the Logs page presents the original empty states rather than upstream's plain "
+         "text, which is what a wrapper could not do"),
     )
     for opener, consumer, why in wiring:
         openers = [p for p, t in texts.items() if re.search(opener, t)]

@@ -84,6 +84,30 @@ HEADER = '''//
 
 PAGES = (
     {
+        "label": "Logs",
+        "page": "Logs",
+        "source": "ApplicationLibrary/Views/Log/LogView.swift",
+        "destination": "ApplicationLibrary/Views/HakoStyle/HakoLogView.swift",
+        # The whole page, not a wrapper. The first attempt wrapped upstream's `LogViewContent` and could
+        # only reach the navigation chrome: the fork's four empty states and its `HakoCardSurface` around
+        # the log surface are private members of a private inner view, so a wrapper could not present
+        # them. Copying the page is what the correction order calls for when a wrapper cannot show the
+        # original structure - and the cost is a second implementation of the subscription and the
+        # filter, which is the price of not changing the design.
+        "renames": (
+            ("LogView", "HakoLogView"),
+            ("LogContentInnerView", "HakoLogContentInnerView"),
+            ("LogViewContent", "HakoLogViewContent"),
+            ("LogMenuButton", "HakoLogMenuButton"),
+            ("LogMenuView", "HakoLogMenuView"),
+            ("LogExportView", "HakoLogExportView"),
+            ("LogTextDocument", "HakoLogTextDocument"),
+            ("ShareViewController", "HakoShareViewController"),
+        ),
+        "upstream_name": "LogView",
+        "drop_declarations": (),
+    },
+    {
         "label": "Tools",
         "page": "Tools",
         "source": "ApplicationLibrary/Views/Tools/ToolsView.swift",

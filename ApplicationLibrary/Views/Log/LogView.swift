@@ -19,17 +19,7 @@ public struct LogView: View {
     }
 }
 
-/// The log page's content, without the toolbar or the page chrome.
-///
-/// `public` so the phone's Logs page can put the fork's navigation chrome on it. The alternative was
-/// to copy this file's ~600 lines into the Hako namespace, which would be a second implementation of
-/// a subscription, a filter, a search field, an export and a scroll-following rule - and the next
-/// upstream change to any of them would have to be made twice.
-///
-/// Only the declaration and the initialiser are public. `viewModel` stays private, because the type
-/// it holds is internal and a public property cannot expose one; the memberwise initialiser that
-/// would have leaked it is replaced by an explicit initialiser below.
-public struct LogViewContent: View {
+private struct LogViewContent: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
     @StateObject private var viewModel: LogViewModel
     #if os(iOS)
@@ -37,7 +27,7 @@ public struct LogViewContent: View {
         @Environment(\.remoteControlInToolbar) private var remoteControlInToolbar
     #endif
 
-    public init(commandClient: CommandClient, initialSearchText: String = "") {
+    init(commandClient: CommandClient, initialSearchText: String = "") {
         _viewModel = StateObject(wrappedValue: LogViewModel(commandClient: commandClient, searchText: initialSearchText))
     }
 
