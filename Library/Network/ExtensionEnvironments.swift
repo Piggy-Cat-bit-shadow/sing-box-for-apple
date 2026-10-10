@@ -249,7 +249,11 @@ public class ExtensionEnvironments: ObservableObject {
             .store(in: &cancellables)
         if Variant.screenshotMode {
             extensionProfileLoading = false
-            extensionProfile = .mock
+            // The fixture's tunnel profile, unless the case is about there being none.
+            // `test18HomeWithoutATunnel` drives the page a new reader sees, and the early return
+            // above stops the real lookup from running either way - so "no tunnel installed" has
+            // to be stated here rather than reached.
+            extensionProfile = Variant.usesMockTunnelProfile ? .mock : nil
             commandClient.setupMockData()
         }
     }

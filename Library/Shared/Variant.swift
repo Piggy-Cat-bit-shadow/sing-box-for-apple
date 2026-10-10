@@ -71,4 +71,15 @@ public enum Variant {
     public static var hasUITestFixtureState: Bool {
         uiTestFixtureState != nil
     }
+
+    /// Whether the fixture should present a registered, connected tunnel profile.
+    ///
+    /// True for every UI-test launch except one that asked for `notInstalled`, which needs the
+    /// page a new reader sees. This is separate from `screenshotMode` on purpose: that bit gates
+    /// *whether* fixture data is used, and `ExtensionEnvironments.reload()` returns early on it -
+    /// so keying the profile on the same bit would make "the tunnel is not installed" unreachable,
+    /// because the early return is what stops the real profile from being looked up either way.
+    public static var usesMockTunnelProfile: Bool {
+        uiTestFixtureState != "notInstalled"
+    }
 }
