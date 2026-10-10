@@ -194,14 +194,27 @@ def mutate_variant_application_name(root: str) -> str:
 
 
 def mutate_quota_row(root: str) -> str:
-    # The row is declared and never constructed. This is the "written but not shown" failure, which a
-    # check that looked for the declaration would miss.
+    # The row exists, is bound, and draws nothing: the `Text` that carries the quota is commented out,
+    # so the view builder returns an empty view. This is the failure a check that looked for the item's
+    # *name* could not see, and it is what the current check is written against - the item has to
+    # return a `Text`.
     path = os.path.join(root, "ApplicationLibrary/Views/HakoStyle/HakoProfilePickerSheet.swift")
-    replace_exact(
-        path,
-        "if let remainingBytes = profile.subscriptionInfo?.remainingBytes {",
-        "if let _: Int64 = nil, let remainingBytes = profile.subscriptionInfo?.remainingBytes {")
-    return "the remaining-quota row declared but never shown"
+    text = read(path)
+    start = text.find("private var remainingTrafficInfo: some View {")
+    if start < 0:
+        raise AssertionError("remainingTrafficInfo not found in the phone's picker")
+    end = text.find("\n    }", start)
+    if end < 0:
+        raise AssertionError("the end of remainingTrafficInfo could not be found")
+    body = text[start:end]
+    commented = "\n".join(
+        ("// " + line) if line.strip().startswith("Text(") else line
+        for line in body.split("\n")
+    )
+    if commented == body:
+        raise AssertionError("no `Text(` line inside remainingTrafficInfo to comment out")
+    write(path, text[:start] + commented + text[end:])
+    return "the remaining-quota item declared, bound, and drawing nothing"
 
 
 def mutate_quota_model(root: str) -> str:
@@ -223,8 +236,12 @@ def mutate_quota_presenter_removed(root: str) -> str:
 def mutate_page_reverted_to_upstream(root: str) -> str:
     # The first-level page goes back to upstream's view while the Hako file stays in the tree. This is
     # the failure the coverage check exists for: a check that looked for the file would still pass.
+    #
+    # The anchor is the switch's arm, not the property's name - both read `dashboardPage`, and only the
+    # arm is the routing.
     path = os.path.join(root, "SFI/HakoPageContent.swift")
-    replace_line_containing(path, "dashboardPage", "DashboardView()")
+    replace_line_containing(path, "case .dashboard:", "case .dashboard:\n                DashboardView()")
+    replace_line_containing(path, "                dashboardPage", "                EmptyView()")
     return "the Home page reverted to upstream's DashboardView while the Hako file remains"
 
 
@@ -232,15 +249,28 @@ def mutate_official_picker_gains_quota(root: str) -> str:
     # The exact hole the phase-1 audit had: this file is on the reviewed-modification list, so a
     # whitelist absorbs the change - and the row is visible on an iPad.
     path = os.path.join(root, "ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift")
-    replace_exact(
-        path,
-        "    private var profileInfo: some View {",
-        "    private var remainingTrafficInfo: some View {\n"
-        "        Text(verbatim: String(format: String(localized: \"%@ left\"), \"0 B\"))\n"
-        "    }\n\n"
-        "    private var profileInfo: some View {\n"
-        "        remainingTrafficInfo",
+    # The file declares `profileInfo` twice - once in the current row and once in the pre-iOS-26 one -
+    # so the anchor is the whole line including its indentation, which is unique to neither and
+    # therefore has to be qualified by the type it belongs to. `ProfilePickerRow` comes first.
+    text = read(path)
+    anchor = "private struct ProfilePickerRow: View {"
+    start = text.find(anchor)
+    if start < 0:
+        raise AssertionError("ProfilePickerRow not found")
+    target = "    private var profileInfo: some View {"
+    index = text.find(target, start)
+    if index < 0:
+        raise AssertionError("profileInfo not found inside ProfilePickerRow")
+    text = (
+        text[:index]
+        + "    private var remainingTrafficInfo: some View {\n"
+        + "        Text(verbatim: String(format: String(localized: \"%@ left\"), \"0 B\"))\n"
+        + "    }\n\n"
+        + target
+        + "\n        remainingTrafficInfo"
+        + text[index + len(target):]
     )
+    write(path, text)
     return "the official picker given the phone's remaining-quota row (it is on the review list)"
 
 

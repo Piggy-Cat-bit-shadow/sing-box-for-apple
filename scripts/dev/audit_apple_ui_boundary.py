@@ -892,26 +892,48 @@ def check_subscription_feature(root: str) -> Check:
         problems.append(f"{hako_picker} is missing, so the phone has no configuration centre")
     else:
         for needle, why in (
-            ("remainingTrafficInfo", "the quota item"),
             ("profile.subscriptionInfo?.remainingBytes", "reading the remainder from the snapshot"),
             ("remainingTrafficText", "the quota formatter"),
         ):
             if needle not in hako_picker_text:
                 problems.append(f"{hako_picker} does not contain {needle} ({why})")
+        # Declared is not the same as drawable. The item has to be *returned* by its view builder:
+        # searching for its name alone was satisfied by a declaration and an `if false` guard, which
+        # is exactly the "present in the source, absent on the device" failure this check exists for.
+        item = re.search(
+            r"private var remainingTrafficInfo: some View \{(.*?)\n    \}", hako_picker_text, re.S)
+        if item is None:
+            problems.append(f"{hako_picker} declares no `remainingTrafficInfo` view")
+        elif not re.search(r"^\s*Text\(", item.group(1), re.M):
+            problems.append(
+                "`remainingTrafficInfo` is declared but returns no Text, so the quota is never drawn"
+            )
+        else:
+            evidence.append(f"{hako_picker}: the quota item draws a Text")
         evidence.append(hako_picker)
 
-    presenters = [
-        path for path in swift_files(root)
-        if not path.endswith("HakoProfilePickerSheet.swift")
-        and re.search(r"\bHakoProfilePickerSheet\b", read_text(os.path.join(root, path)) or "")
-    ]
+    # The presentation, not the name: the picker has to be reachable through a sheet, or the phone
+    # has no way to open it. Requiring only that some file *names* the type was satisfied by the file
+    # that declares it, so removing the presenter still passed.
+    #
+    # The window is generous because the presentation is usually wrapped in a `NavigationSheet`, which
+    # puts a few hundred characters of title and closure between the `.sheet` and the picker. A window
+    # that is too small reports a page as not presenting something it does present, which is a worse
+    # failure than a wide one.
+    presenters = []
+    for path in swift_files(root):
+        if path.endswith("HakoProfilePickerSheet.swift"):
+            continue
+        text = read_text(os.path.join(root, path)) or ""
+        if re.search(r"\.sheet\s*[({][\s\S]{0,2000}?HakoProfilePickerSheet\s*\(", text):
+            presenters.append(path)
     if not presenters:
         problems.append(
-            "nothing presents `HakoProfilePickerSheet`, so the remaining-quota row is declared and "
-            "never shown"
+            "no page presents `HakoProfilePickerSheet` in a sheet, so the remaining-quota row is "
+            "declared and unreachable"
         )
     else:
-        evidence.append(f"presented by {', '.join(presenters)}")
+        evidence.append(f"presented in a sheet by {', '.join(presenters)}")
 
     # A feature is not reachable merely because a helper exists. Every symbol on the chain that the
     # row depends on must be *used* somewhere the phone reaches as well as declared, and the reading
