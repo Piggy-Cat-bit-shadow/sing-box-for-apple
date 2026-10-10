@@ -24,20 +24,11 @@ public class GroupListViewModel: BaseViewModel {
 
     public func connect() {
         if Variant.screenshotMode {
-            let selectorItems: [OutboundGroupItem] = [
-                OutboundGroupItem(tag: "server", type: "Shadowsocks", urlTestTime: .now, urlTestDelay: 10),
-                OutboundGroupItem(tag: "server2", type: "WireGuard", urlTestTime: .now, urlTestDelay: 20),
-                OutboundGroupItem(tag: "auto", type: "URLTest", urlTestTime: .now, urlTestDelay: 30),
-            ]
-            let urlTestItems: [OutboundGroupItem] = (0 ..< 137).map { index in
-                let tag = index == 0 ? "Tokyo" : "node-\(index)"
-                let delay = UInt16(100 + index * 13)
-                return OutboundGroupItem(tag: tag, type: "Shadowsocks", urlTestTime: .now, urlTestDelay: delay)
-            }
-            groups = [
-                OutboundGroup(tag: "my_group", type: "selector", selected: "server", selectable: true, isExpand: true, items: selectorItems),
-                OutboundGroup(tag: "Auto", type: "urltest", selected: "Tokyo", selectable: true, isExpand: false, items: urlTestItems),
-            ]
+            // The fixture's groups, from the one place that defines them. They used to be written
+            // out here, and only here - so this sheet had two groups while Home, reading
+            // `CommandClient.groups`, had none, and the two views disagreed about one number under
+            // the very fixture that exists to make them comparable.
+            groups = ScreenshotFixtureGroups.make()
             isLoading = false
         }
     }

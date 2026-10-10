@@ -186,6 +186,11 @@ public class CommandClient: ObservableObject {
             uplinkHistory: Array(repeating: CGFloat(1000), count: 30),
             downlinkHistory: Array(repeating: CGFloat(5000), count: 30)
         )
+        // The groups the fixture shows, published here so that every view counting them counts the
+        // same ones. Home reads this property; the proxy sheet seeds its own view model from the
+        // same call. Before this, only the sheet had them, so under the fixture it reported two
+        // groups while Home - reading a property nothing ever wrote - reported none.
+        groups = ScreenshotFixtureGroups.make()
         hasAnyConnection = true
     }
 
