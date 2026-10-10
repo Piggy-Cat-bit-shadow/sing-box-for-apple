@@ -13,31 +13,44 @@ boundary suite's known-open list is empty again.
 
 ## 1. `gate_hako_platform_imports.py --check` and `check_hako_macos_parse.py --platform tvos` — red, and not because of a Swift defect
 
-They report `NOT VERIFIED` for symbols used inside `#if canImport(AppKit)` blocks:
+They report 61 `NOT VERIFIED` entries, all of one shape: a symbol used **inside a region the tvOS slice
+never compiles**, which the tools cannot prove is excluded.
 
 ```
 [NOT VERIFIED] HakoGroupItemView.swift:101  whether nsColor is compiled on tvos could not be decided
 [NOT VERIFIED] HakoSurface.swift:236        whether nsColor is compiled on tvos could not be decided
-[NOT VERIFIED] HakoLogView.swift:604        whether NSViewRepresentable is compiled on tvos could not be decided
-[NOT VERIFIED] HakoTaildropView.swift:423   whether QLPreviewController is compiled on tvos could not be decided
+[NOT VERIFIED] guard pair HakoTaildropView.swift:180 -> TaildropQuickLookView: undecided on tvos
+checked=54 errors=0 undecidable=61 not_covered=0
 ```
 
-The cause is a gap in the tools, not in the tree: they evaluate `os(...)` conditions and know the
-repository's own facts, but they do not treat `canImport(AppKit)` as **implying** `os(macOS)`, so a use
-inside a `canImport(AppKit)` block reads as "condition unknown" instead of "macOS only, and this is
-therefore fine on tvOS because the block is excluded there".
+`HakoTaildropView.swift` is the clearest instance. Its shape is the original's — a file-level
+`#if !os(tvOS)` at `:21` closed at `:454`, with `#if canImport(QuickLook)` (`:29-31`) and
+`#if canImport(UIKit)` (`:32-34`) inside it for the imports. On tvOS the outer condition is false, so
+nothing in the file is compiled there and every inner question is moot. `analyse()` in
+`report_hako_platform_api.py` does not short-circuit on that: it records `state["tvos"] = None` for anything
+whose *inner* condition it cannot evaluate, and `api_use_sites` (`:262-267`) then reports every such line as
+`risky_on: [tvos]`. The outer guard is decided; it is simply not consulted before the inner one.
 
-Two correct repairs, either of which closes it:
+Two repairs, either of which closes it, in order of preference:
 
-* teach the condition model the one implication, `canImport(AppKit) ⟹ os(macOS)` and
-  `canImport(UIKit) ⟹ os(iOS) || os(tvOS)` (both are Apple facts, not repository facts), or
-* route the `NSColor` / `NSView` / `QLPreviewController` availability questions through the
-  `symbol_availability()` that `scripts/dev/hako_platform_facts.py:351` already exposes, which knows
-  `NSColor` is macOS-only and has evidence for it.
+1. **Short-circuit the analysis on an enclosing condition that is already false for the platform.** If a
+   line is inside `#if !os(tvOS)` and the platform is tvOS, the line is not compiled and no inner condition
+   needs deciding. This is the general fix and it removes all 61 at once, because all 61 are inside such a
+   region. It also makes the tools faster and less wrong in every other case.
+2. **Prove `canImport(QuickLook)` for macOS and tvOS.** `QuickLook` is a `MODULE_FACTS` entry with only an
+   `ios` row today, deliberately: `UNPROVEN` records that the repository's own evidence for it is the frozen
+   original importing it under `#if os(iOS)`, and that the pbxproj does not name it. QuickLook does ship on
+   macOS and does not exist on tvOS, but those are Apple facts rather than repository facts, and this
+   round's rule was not to fill the table with values it cannot cite. Adding them needs a deliberate
+   decision about where platform facts are allowed to come from — the same decision that would let
+   `canImport(AppKit) ⟹ os(macOS)` be recorded rather than re-derived.
 
-The refusal itself is correct behaviour and must stay: nobody has proven a `canImport(QuickLook)` answer for
-tvOS, and the tools say `NOT VERIFIED` rather than guessing. The audit exits non-zero, in the text and the
-`--json` form alike.
+Option 1 is the honest one: it needs no new fact, and the shape it fixes — "the whole file is excluded on
+this platform" — is the common one.
+
+The refusal itself is correct and must stay. An unproven condition must remain `NOT VERIFIED` and non-zero
+rather than becoming a guess or a silent pass, and both tools already do that on the text and the `--json`
+path alike.
 
 ## 2. Nothing else
 
