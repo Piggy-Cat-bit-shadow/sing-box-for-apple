@@ -287,6 +287,10 @@ python scripts/dev/test_audit_apple_ui_boundary.py                     # 14/14 �
 
 ## Related Documentation
 
+- [第二阶段最终报告](docs/PHASE2-FINAL-REPORT.md) — 当前阶段的完整交付说明：首屏结论、核验与更正、屏幕状态专项、迁移矩阵、审计与测试证据
+- [迁移矩阵](docs/HAKO-UI-MIGRATION-MATRIX.md) — 手机逐页的状态与新增页面的规则
+- [第二阶段进度](docs/PHASE2-STATUS.md) — 正在进行的记录
+- [屏幕状态与锁屏事实](docs/SCREEN-STATE-FACTS.md) — 内核契约与竞态判定
 - [架构审计报告](docs/APPLE-ARCHITECTURE-AUDIT.md) — 独立复核、FACT/INFERENCE/UNKNOWN 判定、
   可达链审计、遗留风险与盲区
 - [上游同步手册](docs/UPSTREAM-SYNC-PLAYBOOK.md) — 逐步操作、冲突分类、回退方式
