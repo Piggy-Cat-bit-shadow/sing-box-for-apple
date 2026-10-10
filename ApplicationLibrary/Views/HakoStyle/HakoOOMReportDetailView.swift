@@ -31,7 +31,12 @@ public struct HakoOOMReportDetailView: View {
         @State private var includeConfig = false
         @State private var includeLog = true
         @State private var useAgeEncryption = false
+    // `#if !os(tvOS)`, as the original has it: `ReportShareAction` is declared under that condition in
+    // `ApplicationLibrary/Views/Tools/ReportShared.swift:135`, and only the share sheet below reads
+    // this property.
+    #if !os(tvOS)
         @State private var pendingAction: ReportShareAction?
+    #endif
 
 
     let report: OOMReport
@@ -137,6 +142,11 @@ public struct HakoOOMReportDetailView: View {
                     alert = AlertState(action: "save OOM report", error: error)
                 }
             }
+            // `#if !os(tvOS)`, as the original has it. This sheet is the only reader of
+            // `pendingAction`, so the modifier and the property take the same condition - wrapping
+            // the property alone would leave the reads here outside it, and wrapping everything
+            // between them would hide the page itself on tvOS.
+            #if !os(tvOS)
             .sheet(isPresented: $sharePopupPresented, onDismiss: {
                 let action = pendingAction
                 pendingAction = nil
@@ -159,6 +169,7 @@ public struct HakoOOMReportDetailView: View {
                     onShare: { pendingAction = .share }
                 )
             }
+            #endif
 
 
         .toolbar {

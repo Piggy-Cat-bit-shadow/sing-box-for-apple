@@ -82,17 +82,26 @@ public struct HakoAppView: View {
                             }
                             .hakoStandardRowMetric()
 
-                            FormNavigationLink {
-                                HakoGhosttyConfigurationView()
-                            } label: {
-                                HakoNavigationRow(
-                                    title: String(localized: "Terminal Appearance"),
-                                    subtitle: String(localized: "Colours and font for SSH sessions"),
-                                    systemImage: "terminal.fill",
-                                    tint: HakoAccentRole.neutral.color
-                                )
-                            }
-                            .hakoStandardRowMetric()
+                            // `HakoGhosttyConfigurationView` is declared under `#if !os(tvOS)`, as its
+                            // original is (`up-hako@c1935cf .../Setting/GhosttyConfigurationView.swift:1`),
+                            // so the row that leads to it needs the same condition. The original guards a
+                            // two-arm `#if os(tvOS) / #else` here (`.../Setting/MacAppView.swift:63-124`)
+                            // and its tvOS arm cannot be restored verbatim - it needs a `private` type
+                            // from upstream's own file - so this wraps the one row whose destination is
+                            // absent and leaves the language row and the Home Cards row on every platform.
+                            #if !os(tvOS)
+                                FormNavigationLink {
+                                    HakoGhosttyConfigurationView()
+                                } label: {
+                                    HakoNavigationRow(
+                                        title: String(localized: "Terminal Appearance"),
+                                        subtitle: String(localized: "Colours and font for SSH sessions"),
+                                        systemImage: "terminal.fill",
+                                        tint: HakoAccentRole.neutral.color
+                                    )
+                                }
+                                .hakoStandardRowMetric()
+                            #endif
 
                             FormButton {
                                 showCardManagement = true
