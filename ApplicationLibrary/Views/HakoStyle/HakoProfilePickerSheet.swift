@@ -69,7 +69,24 @@ struct HakoProfilePickerSheet: View {
             #endif
     }
 
+    /// What the row is told about edit state, on the platform that has to be told.
+    ///
+    /// The row reaches `EditMode` itself on iOS and is handed the value on the Mac, so both the
+    /// name and the source differ by platform - and an argument label cannot carry a directive.
+    /// One accessor keeps the call site platform-free.
+    private var rowIsEditing: Bool {
+        #if os(macOS)
+            isEditing
+        #else
+            isEditingActive
+        #endif
+    }
     var body: some View {
+        // The original branches on the platform here, not inside a version check: its `iOSBody`
+        // and `legacyIOSBody` are both iOS-only, and the Mac has `nonIOSBody`. The port kept only
+        // the iOS pair, which is why every unguarded `editMode` below had no Mac counterpart to
+        // fall into. `iOSBody` and `legacyIOSBody` still own the `#available` choice between them.
+        #if os(iOS)
             if #available(iOS 26, *) {
                 iOSBody
                     .environment(\.editMode, $editMode)
@@ -77,8 +94,17 @@ struct HakoProfilePickerSheet: View {
                 legacyIOSBody
                     .environment(\.editMode, $editMode)
             }
+        #else
+            nonIOSBody
+        #endif
     }
 
+    // The original keeps every one of these behind `#if os(iOS)` (its lines 51-133): `iOSBody`,
+    // `legacyIOSBody` and the four list shapes they compose all build `HakoProfilePickerRow` and
+    // `LegacyProfilePickerRow`, which are themselves iOS-only for the same reason - they read
+    // `EditMode`. `listContent` below is the part both platforms share, and it is what the Mac's
+    // `nonIOSBody` presents.
+    #if os(iOS)
         @available(iOS 26, *)
         private var iOSBody: some View {
             iOSListContent
@@ -163,6 +189,7 @@ struct HakoProfilePickerSheet: View {
                     HakoProfilePickerRow(
                         profile: profile,
                         isSelected: profile.id == selectedProfileID,
+                        isEditing: rowIsEditing,
                         alert: $alert,
                         onSelect: {
                             selectedProfileID = profile.id
@@ -205,7 +232,55 @@ struct HakoProfilePickerSheet: View {
                 }
                 .alert($alert)
         }
+    #endif
 
+    // The original's `#if !os(iOS)` branch (its lines 135-198), ported as the Mac's own body.
+    // The difference is deliberate and matches upstream: the Mac tracks edit state with
+    // `isEditing`, because `EditMode` does not exist there, and it presents the editor in its own
+    // sheet rather than the phone's modal. `listContent` is shared by both.
+    #if os(macOS)
+        private var nonIOSBody: some View {
+            listContent
+                .safeAreaInset(edge: .bottom) {
+                    VStack(spacing: 0) {
+                        Divider()
+                        HStack {
+                            Spacer()
+                            Button("Cancel") {
+                                dismiss()
+                            }
+                            .keyboardShortcut(.escape, modifiers: [])
+                            if isEditing {
+                                Button("Done") {
+                                    withAnimation {
+                                        isEditing = false
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                            } else {
+                                Button("Edit") {
+                                    withAnimation {
+                                        isEditing = true
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                        }
+                        .padding()
+                        .background(Color(NSColor.controlBackgroundColor))
+                    }
+                }
+                .sheet(item: $profileToEdit) { profile in
+                    NavigationSheet {
+                        HakoEditProfileView()
+                            .environmentObject(profile)
+                            .environmentObject(environments)
+                    }
+                    .frame(minWidth: 500, minHeight: 400)
+                }
+                .alert($alert)
+        }
+    #endif
 
     private var listContent: some View {
             List {
@@ -213,6 +288,11 @@ struct HakoProfilePickerSheet: View {
                     HakoProfilePickerRow(
                         profile: profile,
                         isSelected: profile.id == selectedProfileID,
+                        // The Mac arm of the row takes its edit state as a value - it has no
+                        // `EditMode` to read - so the property below supplies `nonIOSBody`'s own
+                        // flag there and the row's `EditMode` read on iOS. A directive cannot sit
+                        // in an argument list, so the platform choice lives in the accessor.
+                        isEditing: rowIsEditing,
                         alert: $alert,
                         onSelect: {
                             selectedProfileID = profile.id
@@ -236,6 +316,10 @@ struct HakoProfilePickerSheet: View {
             .listStyle(.plain)
     }
 
+    // The legacy trio belongs with `legacyIOSBody`, which is already inside `#if os(iOS)` above:
+    // all three read `editMode` and build `LegacyProfilePickerRow`, and the Mac has no pre-26
+    // layout for them to serve.
+    #if os(iOS)
         @ViewBuilder
         private var legacyListContent: some View {
             if editMode.isEditing {
@@ -292,6 +376,7 @@ struct HakoProfilePickerSheet: View {
                 }
             }
         }
+    #endif
 
         private func legacyMoveProfile(from source: IndexSet, to destination: Int) {
             profileList.move(fromOffsets: source, toOffset: destination)
@@ -388,22 +473,42 @@ struct HakoProfilePickerSheet: View {
 
 // MARK: - HakoProfilePickerRow
 
+// The original declares this row at module scope with **no** guard on the type itself (its line
+// 506): the platform differences live inside it, one condition per member - `editMode` behind
+// `#if !os(macOS)`, the row width and `ViewAnchor` behind `#if os(macOS)`, the focus and move
+// state behind `#if os(tvOS)`. The Mac reaches it from the shared `listContent`, which is why an
+// outer guard here would break the platform the guards are distinguishing.
 private struct HakoProfilePickerRow: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
     @Environment(\.locale) private var locale
+
+    // The original guards this property with `#if !os(macOS)` (its lines 508-510): `EditMode` is
+    // an iOS/tvOS `EnvironmentValue` that macOS does not declare. The row reports `isEditing` as
+    // the stored value below on both platforms, so this only feeds the iOS accessor.
+    #if !os(macOS)
         @Environment(\.editMode) private var editMode
+    #endif
 
     let profile: ProfilePreview
     let isSelected: Bool
+    // The row takes its edit state as a value on BOTH platforms, though upstream reaches it two
+    // ways: the original reads `EditMode` from the environment on iOS and is handed a `Bool` by
+    // the Mac's list. Taking the value keeps one construction site instead of a directive in an
+    // argument list, which Swift does not allow - the state still comes from `rowIsEditing`, so
+    // what the row renders is unchanged on either platform.
+    let isEditing: Bool
     @Binding var alert: AlertState?
     let onSelect: () -> Void
     let onEdit: () -> Void
     let onUpdate: () async -> Void
 
-        private var isEditing: Bool {
+    // The `EditMode`-backed answer, on the platform that has `EditMode`. The row's `isEditing` is
+    // a stored value both platforms set, so this keeps its own name rather than shadowing it.
+    #if !os(macOS)
+        private var editModeIsEditing: Bool {
             editMode?.wrappedValue.isEditing ?? false
         }
-
+    #endif
     @State private var isUpdating = false
     @State private var showQRCode = false
     @State private var showQRSShare = false
@@ -736,6 +841,10 @@ private struct HakoProfilePickerRow: View {
 
 // MARK: - Legacy iOS HakoProfilePickerRow (iOS < 26)
 
+    // The original guards this whole type with `#if os(iOS)` (its lines 1198-1451), and it is the
+    // one row that can be: it is reached only from `legacyIOSBody`, it reads `EditMode` directly
+    // rather than behind a per-member condition, and the Mac has no pre-26 layout to serve.
+    #if os(iOS)
     private struct LegacyProfilePickerRow: View {
         @EnvironmentObject private var environments: ExtensionEnvironments
         @Environment(\.editMode) private var editMode
@@ -1015,6 +1124,7 @@ private struct HakoProfilePickerRow: View {
             }
         }
     }
+    #endif
 
 // MARK: - Remaining traffic presentation
 
