@@ -18,13 +18,13 @@ Last verified: `b0f35a6`.
 | Page | Reference (`hako-ui@c1935cf`) | `HakoPageContent` route | New file | Data and side effects | Status | Static evidence | Apple check |
 |---|---|---|---|---|---|---|---|
 | **Home** | `HakoStyle/HakoHomeView.swift` (616 lines) | `HakoHomeView` | `HakoStyle/HakoHomeView.swift` (600 lines) | `DashboardViewModel` (profile list, proxy snapshot, card configuration), `ExtensionEnvironments`, `ExtensionProfile`, `CommandTarget` for the outbound mode | **MIGRATED** | `hako-page-coverage`, `hako-feature-preservation` | Home draws; start/stop; mode rows; shortcuts open Proxies/Activity/Logs; configuration centre opens with new/edit/delete/reorder/QR/update; quota row shows and is absent when the panel reports no total |
-| **Proxies** (`groups`) | `Groups/GroupListView.swift` Hako mode | `GroupListView` (upstream) | — | upstream `GroupListViewModel`, `CommandClient` | **PENDING** | `hako-page-coverage` names it as still upstream | — |
-| **Activity** (`connections`) | `Connections/ConnectionListView.swift` Hako mode | `ConnectionListView` (upstream) | — | upstream `ConnectionListViewModel`, `CommandClient` | **PENDING** | same | — |
+| **Proxies** (`groups`) | `Groups/GroupListView.swift` (+273/-30) | `HakoGroupListView` | `HakoStyle/HakoGroupListView.swift` | upstream `GroupListViewModel` plus the additive `testingItems`; `CommandClient` | **MIGRATED** | `hako-page-coverage`, `hako-feature-preservation` | Group list; expand/collapse; member selection; the per-group and per-member latency sweep, with the spinner on the row being measured; search; the summary card. **Not done:** the group detail page (`GroupView`) |
+| **Activity** (`connections`) | `Connections/ConnectionListView.swift` (+207/-34) | `HakoConnectionListView` | `HakoStyle/HakoConnectionListView.swift` | upstream `ConnectionListViewModel`; `CommandClient` | **MIGRATED** | same | Connection list; search; the row's rule and outbound columns. **Not done:** `ConnectionView` (the per-connection detail page) and the screenshot data-density fixture |
 | **Logs** | `Log/LogView.swift` Hako mode (+52/-10) | `HakoLogView` | `HakoStyle/HakoLogView.swift` | upstream `LogViewContent` through the raised visibility; `LogViewModel`, `CommandClient` | **MIGRATED** | `hako-page-coverage`, `hako-feature-preservation` | Logs streams; level filter; search; export; scroll follows; the detail chrome shows a disc rather than the platform chevron. **Not done:** the four `HakoEmptyState` texts and the `HakoCardSurface` around the log surface — both are private members of a private inner view, recorded below rather than approximated |
-| **Tools** | `Tools/ToolsView.swift` Hako presentation | `ToolsView` (upstream) | — | shared services, `TailscaleStatusViewModel`, report managers | **PENDING** | same | — |
-| **More** (`settings`) | `Setting/SettingView.swift` Hako presentation | `SettingView` (upstream) | — | `SettingsPage` navigation, `FormNavigationLink` | **PENDING** | same | — |
+| **Tools** | `Tools/ToolsView.swift` (+304/-237) | `HakoToolsView` | `HakoStyle/HakoToolsView.swift` | shared services; `TailscaleStatusViewModel`; the three report managers | **MIGRATED** | same | Every tool row, and the re-grouped sections. **Not done:** every page a row opens — about fourteen files, one modifier or one row each |
+| **More** (`settings`) | `Setting/SettingView.swift` (+427/-191) | `HakoSettingView` | `HakoStyle/HakoSettingView.swift` | `SettingsPage`; the fork's pending-sub-page machinery | **MIGRATED** | same | The destination list, and a requested sub-page carried into the destination that owns it. **Not done:** the settings sub-pages — about nine files, `HakoSettingsScaffold` each |
 
-**2 of 6 migrated.** The audit reports the other four by name.
+**6 of 6 migrated.** `hako-page-coverage` passes without `--allow-partial`, and the second-level pages are listed below with what each needs.
 
 ---
 
@@ -45,7 +45,7 @@ read from a diff rather than from a file:
 Read one with:
 
 ```bash
-git diff 2b1763a..origin/hako-ui -- ApplicationLibrary/Views/Tools/ToolsView.swift
+git diff 2b1763a..origin/hako-ui -- ApplicationLibrary/Views/Setting/CoreView.swift
 ```
 
 **Do not copy the diff over the upstream file.** Each of these files is on

@@ -243,9 +243,15 @@ def read_text(path: str) -> str | None:
 NOT_A_TARGET_TREE = ("docs/", ".build/", ".swiftpm/")
 
 
-def swift_files(root: str) -> list[str]:
+def swift_files(root: str, under: str | None = None) -> list[str]:
+    """Swift files under `root`, or under `root/<under>` when a subtree is wanted.
+
+    `under` exists so a check can count what is in a subtree - the boundary check needs to know the
+    Hako namespace is not empty before it can report that nothing outside it names a Hako symbol.
+    """
+    scan = os.path.join(root, under) if under else root
     out = []
-    for base, dirs, files in os.walk(root):
+    for base, dirs, files in os.walk(scan):
         dirs[:] = [d for d in dirs if d not in (".git", ".build", ".swiftpm", "build")]
         for name in files:
             if not name.endswith(".swift"):
@@ -416,6 +422,33 @@ def check_no_reverse_dependency(root: str) -> Check:
     problems = []
     checked = 0
 
+    # A check that scans for the presence of something must first establish that the something is
+    # there. With the namespace deleted this check used to report PASS over a tree where the phone's
+    # own pages had lost every symbol they name - true, and worthless: it would say the boundary holds
+    # while the phone does not build. The namespace and the phone root are what the check is *about*,
+    # so their absence is UNKNOWN rather than PASS.
+    namespace = os.path.join(root, HAKO_PREFIX)
+    if not os.path.isdir(namespace):
+        return Check(
+            "no-reverse-dependency",
+            "UNKNOWN",
+            f"{HAKO_PREFIX} does not exist, so there is nothing for the boundary to be drawn around",
+        )
+    hako_files = swift_files(root, HAKO_PREFIX)
+    if not hako_files:
+        return Check(
+            "no-reverse-dependency",
+            "UNKNOWN",
+            f"{HAKO_PREFIX} contains no Swift file, so there is nothing for the boundary to be drawn around",
+        )
+    missing_root = [path for path in PHONE_ROOT_FILES if not os.path.exists(os.path.join(root, path))]
+    if missing_root:
+        return Check(
+            "no-reverse-dependency",
+            "UNKNOWN",
+            f"the phone root is incomplete, so what it may reach cannot be judged: {missing_root}",
+        )
+
     for path in swift_files(root):
         if path.startswith(HAKO_PREFIX) or path in allowed:
             continue
@@ -434,7 +467,8 @@ def check_no_reverse_dependency(root: str) -> Check:
     return Check(
         "no-reverse-dependency",
         "PASS",
-        f"all {checked} Swift files outside the Hako namespace and the phone root are free of Hako symbols",
+        f"all {checked} Swift files outside the Hako namespace and the phone root are free of Hako "
+        f"symbols, with {len(hako_files)} file(s) in the namespace to be divided from",
     )
 
 

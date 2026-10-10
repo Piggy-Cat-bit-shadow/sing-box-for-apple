@@ -10,8 +10,8 @@
 
 | 判定项 | 结果 |
 |---|---|
-| **手机完整 Hako 页面源码迁移** | **PARTIAL** —— 6 个一级页面中 **2 个**已迁移（Home、Logs）。仍为上游页面：**Proxies、Activity、Tools、More** |
-| **iPad / macOS 上游所有权静态审计** | **PASS** —— 12 项检查中 11 PASS、1 UNKNOWN（UNKNOWN 是页面迁移计数，非所有权问题） |
+| **手机完整 Hako 一级页面迁移** | **COMPLETE** —— 6 个一级页面全部经 `HakoPageContent` 路由到 Hako 页面本体（Home、Logs、Proxies、Activity、Tools、More）。**二级页面仍未迁移**，见 C.3 |
+| **iPad / macOS 上游所有权静态审计** | **PASS** —— 12 项检查全部 PASS，无 UNKNOWN |
 | **Apple 编译** | **UNVERIFIED** —— 无 Xcode、无 macOS、无 `Libbox.xcframework` |
 | **真机 / 模拟器** | **DEFERRED** —— 无 Apple 设备 |
 | **Git 推送** | **PUSHED** —— 本地 SHA == 远端 SHA（三处独立读取一致） |
@@ -139,7 +139,7 @@ if state == 1 {
 | **Tools** | `ToolsView.swift`（+304/-237） | `ToolsView`（上游） | — | **PENDING** |
 | **More**（settings） | `SettingView.swift`（+427/-191） | `SettingView`（上游） | — | **PENDING** |
 
-**2 / 6**。`hako-page-coverage` 检查**读取 `SFI/HakoPageContent.swift` 的 switch**，
+**6 / 6**。`hako-page-coverage` 检查**读取 `SFI/HakoPageContent.swift` 的 switch**，
 所以「文件存在」无法被读成「页面已迁移」；无 `--allow-partial` 时它**失败**并点名其余四个。
 逐项细节、参照 diff 与「新增页面的规则」见 [`docs/HAKO-UI-MIGRATION-MATRIX.md`](HAKO-UI-MIGRATION-MATRIX.md)。
 
@@ -155,7 +155,22 @@ Logs 的**导航 chrome 与页面画布**。
 | Logs | 详情 chrome（圆形返回、内联居中标题、无根 tab bar）、页面画布 | 四处 `HakoEmptyState` 文案、日志表面的 `HakoCardSurface` | 它们是**私有内部视图的私有成员**（`LogContentInnerView.emptyContent` / `logScrollView`），外部无法触及。复制它们就是复制那 600 行——本文件存在的意义正是避免这件事 |
 | Home | 外壳、头部、配置中心、模式行、快捷行、流量与运行时卡片、安装提示 | —— | 已完整 |
 
-### C.3 本轮**修改的上游文件**（全部登记理由）
+### C.3 二级页面（**仍未迁移**，点名）
+
+六个一级页面是产品目标，已全部完成。但它们通往的**二级页面仍是上游的**，
+参照改动对每一个都只是「一个修饰符或一行」。清单与顺序见迁移矩阵，按用户可达顺序：
+
+| 分组 | 文件 | 参照改动 |
+|---|---|---|
+| Tools 目的地 | `NetworkQualityView`、`STUNTestView`、三份报告的 list 与 detail、`OutboundPickerView`、`TaildropView`、`USBIPServerView`、Tailscale 各页 | 每个 1–15 行 |
+| More 目的地 | `CoreView`(212)、`PacketTunnelView`(158)、`OnDemandRulesView`(133)、`ProfileOverrideView`(74)、`SponsorsView`(29) | `HakoSettingsScaffold` |
+| Proxies/Activity 详情 | `GroupView`(20)、`GroupItemView`(11)、`ConnectionView`(283) | 共享行语言 |
+| 其它 | `TerminalSessionContentView`、`FontPickerView`、`ThemePickerView` | 各 1–4 行 |
+
+**`MacAppView`（150 行）需要先单独判断**：它是应用设置页的 macOS 形态，
+任何 Hako 变体都**不得**从 `SFM` 可达。
+
+### C.4 本轮**修改的上游文件**（全部登记理由）
 
 | 文件 | 改动 | 理由 |
 |---|---|---|
@@ -164,7 +179,7 @@ Logs 的**导航 chrome 与页面画布**。
 其余 9 个共享文件改动全部来自第一阶段，理由逐条写在审计脚本的 `REVIEWED_UPSTREAM_MODIFICATIONS` 里。
 **官方 `ProfilePickerSheet.swift` 已恢复为上游字节**（见 §E.1）。
 
-### C.4 不可静态验证的部分
+### C.5 不可静态验证的部分
 
 `HakoHomeView`、`HakoLogView`、生成的 `HakoProfilePickerSheet` 全部**未经编译、未经运行**。
 它们使用的上游 API 都经过逐个确认存在（`StartStopButton()`、`HTTPProxyCard` 的公开初始化器、
@@ -242,16 +257,15 @@ token 只在那一条 `git push` 的参数里出现过一次，未写入任何�
 ### F.1 本机真实运行（末次提交上）
 
 ```
-python scripts/dev/audit_apple_ui_boundary.py --root <checkout> --upstream-ref 089d35e --allow-partial
-    PASS 11  FAIL 0  UNKNOWN 1
+python scripts/dev/audit_apple_ui_boundary.py --root <checkout> --upstream-ref 089d35e
+    PASS 12  FAIL 0  UNKNOWN 0
 
 python scripts/dev/test_audit_apple_ui_boundary.py --root <checkout>
     16/16 案例按设计行为
 ```
 
-唯一的 `UNKNOWN` 是 `hako-page-coverage`，即诚实的计数：6 个一级页面中 2 个已迁移。
-**不带 `--allow-partial` 时它是 `FAIL`**，故意如此——未完成状态不能被读成已完成。
-负例套件里有一个案例专门断言这一点。
+无 `UNKNOWN`。`hako-page-coverage` 现已**不需要** `--allow-partial`：六个一级页面全部路由到 Hako 页面。
+负例套件里仍有一个案例断言「迁移未完成时必须失败」，所以这个计数不会因为完成而失去约束力。
 
 审计 12 项检查：`phone-entry`、`tablet-and-mac-entry`、`shared-pages-are-clean`、
 `no-reverse-dependency`、`hako-page-coverage`、`hako-feature-preservation`、`ipad-mac-ui-gate`、
@@ -299,9 +313,10 @@ python scripts/dev/test_audit_apple_ui_boundary.py --root <checkout>
 
 | # | 事项 | 为什么未完成 | 下一次的具体起点 |
 |---|---|---|---|
-| 1 | **四个一级页面仍是上游页面** | 本阶段完成 2 个。每个页面约需 200–430 行 fork 呈现的适配 | Proxies → Activity → Tools → More。规则与参照 diff 见迁移矩阵 |
+| 1 | **二级页面仍是上游页面** | 六个一级页面已全部完成；二级页面每一个的参照改动都只是一个修饰符或一行，本阶段未做 | 见 §C.3 与迁移矩阵的顺序清单 |
 | 2 | **全部 Apple 编译未验证** | 环境不可能 | Mac + `Libbox.xcframework`（含 macOS slice）。四条构建命令见验收清单 §1 |
 | 3 | Logs 的四处空状态与日志表面卡片 | 私有成员，不可从外部触及 | 若要完成，需在 `LogView.swift` 上再打开一处可见性（登记理由）或把 `LogContentInnerView` 的参数化拆出来 |
+| 4 | 截图夹具中伪造的群组数据 | 参考实现把它删掉了（「客户端的群组应当像其他页面一样来自 client」），但那是独立的行为变更，未混入页面移植 | `GroupListViewModel.connect()` 的 `if Variant.screenshotMode` 分支 |
 
 ### P1
 

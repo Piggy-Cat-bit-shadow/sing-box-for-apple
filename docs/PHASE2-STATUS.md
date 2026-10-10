@@ -32,13 +32,16 @@ reconstructed from a commit log or a chat.
 | Implementation changes | **none.** The code already matches the contract |
 | Tests | `Tests/HakoScreenState`, 33 cases over the pure policy and the observer, written and **not executed** (no Swift toolchain) |
 
-### Track U — the phone's pages — **in progress, 2 of 6**
+### Track U — the phone's pages — **complete, 6 of 6**
 
 | Page | Status |
 |---|---|
 | Home | **MIGRATED** — `HakoStyle/HakoHomeView.swift` |
 | Logs | **MIGRATED** — `HakoStyle/HakoLogView.swift`, a wrapper over upstream's `LogViewContent` |
-| Proxies, Activity, Tools, More | **PENDING** — still upstream's pages |
+| Proxies | **MIGRATED** — `HakoStyle/HakoGroupListView.swift` |
+| Activity | **MIGRATED** — `HakoStyle/HakoConnectionListView.swift` |
+| Tools | **MIGRATED** — `HakoStyle/HakoToolsView.swift` |
+| More | **MIGRATED** — `HakoStyle/HakoSettingView.swift` |
 
 The per-page detail, the reference diffs to read and the rule for adding a page are in
 `docs/HAKO-UI-MIGRATION-MATRIX.md`.
@@ -79,8 +82,8 @@ something upstream's does not", and that is the property the product requires.
 Run on this machine, on the current commit:
 
 ```
-python scripts/dev/audit_apple_ui_boundary.py --upstream-ref 089d35e --allow-partial
-    PASS 11  FAIL 0  UNKNOWN 1
+python scripts/dev/audit_apple_ui_boundary.py --upstream-ref 089d35e
+    PASS 12  FAIL 0  UNKNOWN 0
 
 python scripts/dev/test_audit_apple_ui_boundary.py
     16/16 cases as designed
@@ -89,6 +92,9 @@ python scripts/dev/test_audit_apple_ui_boundary.py
 The one `UNKNOWN` is `hako-page-coverage`, which is the honest count: 2 of 6 pages migrated. Without
 `--allow-partial` that check is a `FAIL`, deliberately, so the incomplete state cannot be read as a
 finished one.
+
+**Superseded.** The six first-level pages are now all migrated: the audit reports `PASS 12  FAIL 0
+UNKNOWN 0` and `hako-page-coverage` no longer needs the flag. See *The next concrete step* below.
 
 **Not verified, and not claimed:**
 
