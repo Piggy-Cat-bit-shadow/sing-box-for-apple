@@ -461,6 +461,9 @@ REVIEWED_UPSTREAM_MODIFICATIONS = {
         "starting and stopping the screen-state observer once, around the tunnel's life",
     "Library/Network/ScreenStateObserver.swift":
         "a failed notify read must not publish an unlock (upstream defect, see the commit)",
+    "ApplicationLibrary/Views/Log/LogView.swift":
+        "`LogViewContent` made public so the phone's Logs page can put the fork's chrome on "
+        "upstream's content instead of copying it; no behaviour changed inside the file",
     "ApplicationLibrary/Views/Dashboard/Cards/ProfilePickerSheet.swift":
         "the remaining-quota item, the two layout properties and the locale-sized relative time",
     "sing-box.xcodeproj/project.pbxproj":
@@ -1046,7 +1049,7 @@ HAKO_PAGE_ROUTING = {
     "dashboard": "HakoHomeView",
     "groups": None,
     "connections": None,
-    "logs": None,
+    "logs": "HakoLogView",
     "tools": None,
     "settings": None,
 }
@@ -1194,6 +1197,7 @@ def check_hako_feature_preservation(root: str) -> Check:
         ("HakoPrimaryShell", "the three-destination shell"),
         ("HakoHomeView", "the Home page"),
         ("HakoProfilePickerSheet", "the configuration centre, with the quota row"),
+        ("HakoLogView", "the Logs page"),
         ("HakoNavigationRow", "the shortcut rows"),
         ("HakoPageSection", "the painted sections"),
         ("HakoRootScaffold", "the page canvas"),
@@ -1231,6 +1235,9 @@ def check_hako_feature_preservation(root: str) -> Check:
         (r"shortcutRow\(",
          r"selection\.wrappedValue\s*=\s*\.logs",
          "the shortcuts select the pages they name"),
+        (r"HakoLogView\s*\(",
+         r"LogViewContent\s*\(commandClient:",
+         "the Logs page wraps upstream's content rather than copying it"),
     )
     for opener, consumer, why in wiring:
         openers = [p for p, t in texts.items() if re.search(opener, t)]

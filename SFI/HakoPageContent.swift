@@ -28,7 +28,7 @@
 //
 //  # Migration state
 //
-//  `.dashboard` routes to the fork's Home page. The other five still render the upstream page, and
+//  `.dashboard` and `.logs` route to the fork's pages. The other four still render upstream's, and
 //  each one is a separate change: this switch is the single place such a change is made, and the
 //  audit's `hako-page-coverage` check reports exactly how many are done rather than letting the count
 //  be inferred from a diff.
@@ -73,7 +73,7 @@ struct HakoPageContent: View {
                     ConnectionListView()
             #endif
             case .logs:
-                LogView()
+                HakoLogView()
             case .tools:
                 ToolsView()
             case .settings:
