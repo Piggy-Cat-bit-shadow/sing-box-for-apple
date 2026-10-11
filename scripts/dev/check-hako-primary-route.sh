@@ -19,19 +19,35 @@
 #
 # None of that touches the project, and nothing here reimplements production logic.
 #
-# STATUS: BLOCKED_BY_ENVIRONMENT on this machine, and the blocker is precise rather than
-# mysterious: Library.framework's module interface re-exports PLCrashReporter as a FRAMEWORK
-# Clang module, and Clang resolves that module's umbrella header relative to the module map
-# in the package checkout, where the header does not live:
+# STATUS: WORKS, and this header used to say the opposite.
+#
+# It read `BLOCKED_BY_ENVIRONMENT`, on the grounds that Library.framework's module interface
+# re-exports PLCrashReporter as a FRAMEWORK Clang module and Clang resolves that module's umbrella
+# header relative to the module map in the package checkout, where the header does not live:
 #
 #   plcrashreporter/Resources/CrashReporter.modulemap:2:19:
 #     error: umbrella header 'CrashReporter.h' not found
 #
-# The Xcode build satisfies it with a generated framework layout that only exists inside the
-# build. Until the project has a unit-test target (or someone runs this where that layout is
-# available), the mapping's runtime half stays unverified exactly like the snapshot evidence;
-# the extraction itself - a pure HakoPrimaryRoute and HakoPrimaryChildArmer used by the shell -
-# is what the shell change is judged on.
+# That diagnosis describes a real property of the dependency, but it is the property the
+# CrashReporter shim below already exists to neutralise - it assembles the `CrashReporter.framework`
+# layout Clang expects, in a temp directory, and passes it with `-F "$shim_root"`. The run reaches
+# the harness and executes it: 55 cases pass against the built framework.
+#
+# What the header was really recording was one missing prerequisite, described with the wrong
+# cause. `libbox` below is resolved RELATIVE to this repository's root, and a checkout that has
+# never had Libbox installed fails the prerequisite loop with exit 2 before compiling anything.
+# On this host the framework lives in the parent repository's `clients/apple`, so the run needs:
+#
+#   ln -sfn <parent>/clients/apple/Libbox.xcframework Libbox.xcframework   # gitignored path
+#   scripts/dev/check-hako-primary-route.sh [derived-data-path]
+#
+# with the SFM scheme built into that derived-data path first. Exit 2 is the prerequisite check
+# and not a compile failure; the two are distinguishable by whether swiftc ran at all.
+#
+# Separately, the harness's settings-push cases named `HakoSettingsPush.decide` and
+# `HakoSettingsPush.Decision`, which the Hako migration renamed to `HakoSettingsRoute.decide` and
+# the nested `HakoSettingsRoute.HakoSettingsPushDecision`. Those cases could not compile, so no
+# harness run had ever executed them; the rename is in the same commit as this header.
 #
 # Usage: scripts/dev/check-hako-primary-route.sh [derived-data-path]
 set -euo pipefail

@@ -455,16 +455,45 @@ CASES = (
 )
 
 
-def reset(copy: str, git: str | None) -> None:
-    """Return the copy to its committed state, and prove it."""
+def untracked_paths(repo: str, git: str) -> set[str]:
+    """Every path `git status` reports as untracked, or as an ignored-looking `??` entry."""
+    raw = subprocess.run([git, "-C", repo, "status", "--porcelain=v1", "-uall"],
+                         capture_output=True).stdout.decode("utf-8", "replace")
+    return {line[3:] for line in raw.splitlines() if line.startswith("??")}
+
+
+def reset(copy: str, git: str | None, baseline_untracked: frozenset[str] = frozenset()) -> None:
+    """Return the copy to its committed state, and prove it.
+
+    `baseline_untracked` is the untracked set the copy had when it was made. It has to be a
+    parameter rather than an assumption, because the copy is a `shutil.copytree` of the working
+    checkout and therefore inherits whatever the developer happened to have lying around - a
+    report being written, a scratch file, a build directory that is not ignored. Asserting an
+    EMPTY `git status` made this suite fail on the presence of an unrelated untracked file in the
+    source tree, which is not a statement about the audit: the harness was reporting on the
+    developer's working directory rather than on a leaked mutation.
+
+    What the check is actually for is that the mutation functions leak nothing, so the comparison
+    is against the baseline. A path that was not there when the copy was made and is there now is
+    a leak, and is reported as one.
+    """
     if not git:
         return
     subprocess.run([git, "-C", copy, "reset", "-q"], capture_output=True)
     subprocess.run([git, "-C", copy, "checkout", "-q", "--", "."], capture_output=True)
     dirty = subprocess.run([git, "-C", copy, "status", "--porcelain=v1", "-uall"],
                            capture_output=True).stdout.decode("utf-8", "replace").strip()
+    leaked_untracked = sorted(untracked_paths(copy, git) - baseline_untracked)
     # `.gitmodules` is restored by the checkout above; a placeholder symlink on Windows may look
     # modified, which `core.symlinks=false` already handles. Anything else is a leaked mutation.
+    if dirty and not leaked_untracked:
+        # Tracked files came back; the only remaining entries are the copy's own untracked
+        # baseline, which the reset is not supposed to touch.
+        return
+    if leaked_untracked:
+        raise AssertionError(
+            "the mutation leaked untracked path(s) into the copy:\n"
+            + "\n".join(f"  {path}" for path in leaked_untracked))
     if dirty:
         raise AssertionError(f"the copy is still dirty after reset:\n{dirty}")
 
@@ -489,6 +518,17 @@ def main() -> int:
     shutil.copytree(root, copy, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
     print("copied")
     print()
+
+    # The copy inherits any untracked file the source checkout had. Record that set now, so `reset`
+    # can tell "the developer had this file lying around" from "a mutation leaked this file", and
+    # so this suite reports on the audit rather than on the state of somebody's working directory.
+    baseline_untracked = frozenset(untracked_paths(copy, git)) if git else frozenset()
+    if baseline_untracked:
+        print(f"note: the source checkout has {len(baseline_untracked)} untracked path(s); they are "
+              f"carried into the copy and tolerated by the reset check:")
+        for path in sorted(baseline_untracked):
+            print(f"        {path}")
+        print()
 
     failures: list[str] = []
     try:
@@ -518,7 +558,7 @@ def main() -> int:
 
         # 2. The page count must be a failure without the flag, or an unfinished migration could be
         #    mistaken for a finished one.
-        reset(copy, git)
+        reset(copy, git, baseline_untracked)
         code, payload = run_audit(copy, only="hako-page-coverage")
         state = statuses(payload).get("hako-page-coverage")
         detail = detail_of(payload, "hako-page-coverage")
@@ -534,7 +574,7 @@ def main() -> int:
         # 3. Each mutation must make its own check fail.
         for label, check, mutate, ref in CASES:
             try:
-                reset(copy, git)
+                reset(copy, git, baseline_untracked)
             except AssertionError as error:
                 failures.append(f"{label}: the previous case left the copy dirty ({error})")
                 print(f"[FAIL] {label}: copy was dirty before this case")
@@ -554,7 +594,7 @@ def main() -> int:
                 print(f"[FAIL] {label}: {check} -> {state}, exit {code}  ({description})")
 
         # 4. An upstream file edited without a decision must be reported and named.
-        reset(copy, git)
+        reset(copy, git, baseline_untracked)
         description = mutate_upstream_file(copy)
         code, payload = run_audit(copy, only="upstream-files-untouched", upstream_ref=UPSTREAM_REF)
         state = statuses(payload).get("upstream-files-untouched")
@@ -569,7 +609,7 @@ def main() -> int:
             print(f"[FAIL] upstream-file-edited: {state}")
 
         # 5. Deleting what a check reads must produce UNKNOWN, never PASS.
-        reset(copy, git)
+        reset(copy, git, baseline_untracked)
         os.remove(os.path.join(copy, "ApplicationLibrary/Views/Setting/SettingView.swift"))
         code, payload = run_audit(copy, only="shared-pages-are-clean")
         state = statuses(payload).get("shared-pages-are-clean")
@@ -582,7 +622,7 @@ def main() -> int:
         # 6. Removing the whole Hako namespace must not make the reverse-dependency check pass
         #    vacuously over a tree it no longer has anything to look at - the Hako view names would
         #    then be unresolved from the phone root, which is a different failure and must show.
-        reset(copy, git)
+        reset(copy, git, baseline_untracked)
         shutil.rmtree(os.path.join(copy, "ApplicationLibrary/Views/HakoStyle"), ignore_errors=True)
         code, payload = run_audit(copy, only="no-reverse-dependency")
         state = statuses(payload).get("no-reverse-dependency")
@@ -594,7 +634,7 @@ def main() -> int:
         #    repository's ref directory, so an earlier revision of this file deleted
         #    `refs/remotes/upstream/dev` from the *source* repository. A negative test must not be able
         #    to damage the thing it is testing.
-        reset(copy, git)
+        reset(copy, git, baseline_untracked)
         broken = os.path.join(workspace, "broken-git")
         os.makedirs(broken, exist_ok=True)
         for name in ("git.exe", "git.cmd", "git.bat"):
@@ -609,7 +649,7 @@ def main() -> int:
 
         # 8. Tearing down the phone's route must be caught: the page factory is the only thing that
         #    makes a Hako page reachable, so removing it must fail the coverage check.
-        reset(copy, git)
+        reset(copy, git, baseline_untracked)
         os.remove(os.path.join(copy, "SFI/HakoPageContent.swift"))
         code, payload = run_audit(copy, only="hako-page-coverage")
         state = statuses(payload).get("hako-page-coverage")
@@ -620,7 +660,7 @@ def main() -> int:
             print(f"[FAIL] page-factory-removed: {state}")
 
         # 9. Two runs on the same tree must agree.
-        reset(copy, git)
+        reset(copy, git, baseline_untracked)
         _, first = run_audit(copy)
         _, second = run_audit(copy)
         if first == second:
@@ -632,7 +672,7 @@ def main() -> int:
         # 10. The screen-state fix must not silently regress to the upstream defect it repairs. There
         #     is no audit check for "the notify status is honoured" and inventing one would be a guard
         #     that cannot fail, so this grades source text directly.
-        reset(copy, git)
+        reset(copy, git, baseline_untracked)
         observer = read(os.path.join(copy, "Library/Network/ScreenStateObserver.swift"))
         darwin = read(os.path.join(copy, "Library/Network/ScreenStateObserverDarwin.swift"))
         provider = read(os.path.join(copy, "Library/Network/ExtensionProvider.swift"))

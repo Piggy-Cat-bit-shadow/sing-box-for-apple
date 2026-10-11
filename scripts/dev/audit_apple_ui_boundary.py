@@ -44,6 +44,7 @@ means this invocation did not supply what the check needs, `UNDECIDABLE` means t
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -346,6 +347,37 @@ def is_reparse_point(path: str) -> bool:
     except (OSError, AttributeError):
         return False
     return bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def worktree_blob_id(path: str) -> str | None:
+    """The git blob id of what is on disk at `path`, or `None` if nothing is.
+
+    Reproduces how git itself hashes the entry, which is what makes it comparable with the object
+    id `git ls-tree` reports for upstream:
+
+      * a **symlink** is hashed as its *link target string*, not as the contents of whatever it
+        points at. `git hash-object <path>` does the opposite - it follows the link - which is how
+        `SFM.System/Resources/LICENSE` came to be reported as modified when its mode and blob were
+        identical on both sides.
+      * a regular file is hashed as `blob <len>\\0<bytes>`.
+
+    Size is taken from the bytes actually read rather than from `st_size`, so a file that changes
+    under the reader cannot produce an id that matches no object.
+    """
+    try:
+        if os.path.islink(path):
+            data = os.readlink(path).encode("utf-8", "surrogateescape")
+        elif os.path.isfile(path):
+            with open(path, "rb") as handle:
+                data = handle.read()
+        else:
+            return None
+    except OSError:
+        return None
+    digest = hashlib.sha1()
+    digest.update(b"blob %d\0" % len(data))
+    digest.update(data)
+    return digest.hexdigest()
 
 
 def swift_files(root: str, under: str | None = None) -> list[str]:
@@ -2688,23 +2720,41 @@ def check_upstream_files_untouched(root: str, upstream_ref: str | None) -> Check
         local = os.path.join(root, path)
         if not os.path.exists(local):
             continue
-        # Compare tree entries, not worktree files.
+        # Compare the WORKTREE file against upstream's blob, not this repository's `HEAD` blob.
         #
-        # `hash-object <path>` reads through a symlink and hashes the *target's contents*, while
-        # upstream's blob for that path is the *link target string* - so every symlink this fork
-        # had not touched was reported as modified. `SFM.System/Resources/LICENSE` is the case that
-        # exposed it: identical mode and identical blob (`30cff740`) on both sides, three different
-        # hashes from three ways of asking. Reading the index also picks up the executable bit for
-        # free, and it does not depend on the worktree being clean.
+        # # Why this is not `ls-tree HEAD`
+        #
+        # It used to be, and that made the check structurally blind to the edit it exists to catch:
+        # `ls-tree HEAD` reads the last commit, so a modification that is on disk but not yet
+        # committed compares equal to upstream and the file is reported unmodified. The negative
+        # suite's `upstream-file-edited` case (which edits an upstream file and requires a FAIL
+        # naming it) was passing for that reason rather than because the edit was reviewed.
+        #
+        # This audit's own contract says the tree under audit is read directly - see "the working
+        # tree is read directly for the tree under audit" in the module docstring - and this check
+        # was the one place that read a commit instead. Reading the worktree is also what makes the
+        # result mean something to the person running it: the question a boundary audit answers is
+        # "is the tree I am about to commit clean?", which `HEAD` cannot answer.
+        #
+        # # Why the symlink handling matters
+        #
+        # `git hash-object <path>` follows a symlink and hashes the *target's contents*, while
+        # upstream's blob for that path is the *link target string* - so every symlink this fork had
+        # not touched was reported as modified. `SFM.System/Resources/LICENSE` is the case that
+        # exposed it: identical mode and identical blob on both sides, three different hashes from
+        # three ways of asking. `worktree_blob_id` reproduces git's own rule, so the comparison is
+        # blob-id to blob-id and a symlink is compared as a symlink.
         rc, upstream_entry, _ = run([git, "-C", root, "ls-tree", upstream_commit, "--", path])
         if rc != 0 or not upstream_entry.strip():
             continue
-        rc, head_entry, _ = run([git, "-C", root, "ls-tree", "HEAD", "--", path])
-        if rc != 0 or not head_entry.strip():
+        local_blob = worktree_blob_id(local)
+        if local_blob is None:
             continue
         compared += 1
-        # "<mode> <type> <object>\t<path>"; the path is the loop variable, so compare the prefix.
-        if upstream_entry.split("\t")[0] != head_entry.split("\t")[0]:
+        # "<mode> <type> <object>\t<path>"; the path is the loop variable, so the blob id is the
+        # third field. The mode is not compared: upstream's entry carries one and a worktree file
+        # does not, and the executable bit is not what this check is about.
+        if upstream_entry.split("\t")[0].split()[2] != local_blob:
             changed.append(path)
 
     # The audit asserts rather than reports: a file that differs from upstream and is not on the
