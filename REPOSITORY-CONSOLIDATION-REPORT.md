@@ -19,9 +19,26 @@ is recorded in §11 rather than modified.
 | **Core canonical branch** | `testing` (not modified this round — see §11) |
 | **Core final SHA** | `origin/testing` = `d4241e1685f2139eee9680791a7be16e7fbe4430`, unmodified by this round |
 | **Parent Apple pin** | `clients/apple` = `2298d2c9c87c2f74aaa689b3bcc5e593dcbc5e1a` (**MATCH = YES**) |
-| **Old branches deleted** | 15 remote branches |
+| **Old branches deleted** | 13 remote branches (15 existed; `main` and `dev` were kept) |
 | **Archive tags created** | 7 |
-| **Commits added** | Apple: `f8f978c` (hardening port), `39e30a4` (branch roles / README / metadata), `48bd4b7` (this report). Parent: `414295fe7` |
+| **Commits added** | Apple: `f8f978c` (hardening port), `39e30a4` (branch roles / README / metadata), `a09194e` and later (this report and its corrections). Parent: `414295fe7` |
+
+> **Every SHA above is a snapshot at verification time, not an eternal constant.** The
+> authoritative values are read from the repository, and these are the commands that do it:
+>
+> ```bash
+> git rev-parse origin/main                              # the Apple product line, current
+> git ls-tree <parent> clients/apple                     # the revision the parent builds
+> scripts/ci/apple-client-source.sh sha ios              # must equal that gitlink
+> scripts/ci/apple-client-source.sh sha macos            # must equal it too
+> scripts/ci/apple-client-source.sh assert-shared-source  # must PASS
+> grep '^VERIFIED_APPLE_SHA=' scripts/ci/check-libbox-abi.sh   # must equal it
+> ```
+>
+> A report is a commit on the branch it describes, so a SHA written into it is one commit stale
+> the moment it is committed, and correcting it moves the branch again. That loop is why this
+> section states the relationship and hands over the commands rather than chasing the number —
+> see §8, "Reading the pinned SHA".
 
 **Result: the Apple repository now has exactly one product line (`main`), one upstream reference
 line (`dev`), and no construction branches.** All historical lines are preserved as tags, and no
@@ -283,14 +300,17 @@ SFI/Application.swift
 so Split View / Slide Over / Stage Manager / a narrow window cannot move an iPad into the phone
 shell. `SFI/MainView.swift` and `MacLibrary/MainView.swift` are blob-identical to `upstream/dev`.
 
-### Non-green checks, and why neither is a regression
+### Non-green checks at the time of this round — both since resolved
 
-| Check | Status | Assessment |
-|---|---|---|
-| `scripts/dev/test_audit_apple_ui_boundary.py` | 1 case red: `upstream-file-edited: expected FAIL naming the file, got PASS` | **Pre-existing.** Reproduces identically at `f8f978c`, whose only delta from the pre-round canonical tip is the four `ff849cc` files — none of which is a UI file or an audit script. `ff849cc`'s message reports the same `fix(audit)` symptom independently |
-| `scripts/dev/check-hako-primary-route.sh` | `error: cannot find 'HakoSettingsPush' in scope` | **Pre-existing.** The script and the tree are identical at `3a550d0`; `HakoSettingsPush` is declared in `HakoSettingView.swift` and is simply not resolvable by this standalone check |
+Both were correctly reported as **not** regressions of the consolidation round. Neither was
+silenced, and no assertion or test was skipped to obtain a green result. Both have since been
+fixed in the tail-cleanup round, and the diagnosis below is kept because the second entry's
+original explanation was wrong in a way worth recording.
 
-Neither was silenced, and no assertion or test was skipped to obtain a green result.
+| Check | Status at this round | Assessment | Now |
+|---|---|---|---|
+| `scripts/dev/test_audit_apple_ui_boundary.py` | 1 case red: `upstream-file-edited: expected FAIL naming the file, got PASS` | **Pre-existing.** Reproduced identically at `f8f978c`, whose only delta from the pre-round canonical tip is the four `ff849cc` files — none of which is a UI file or an audit script | **RESOLVED.** Two causes, both fixed: the harness forbade any untracked file in its sandbox, and `upstream-files-untouched` compared `ls-tree HEAD`, so an uncommitted edit was invisible to it. It now compares the worktree. 24/24 cases green |
+| `scripts/dev/check-hako-primary-route.sh` | `error: cannot find 'HakoSettingsPush' in scope` | **Pre-existing**, but the original note claimed `HakoSettingsPush` was "declared in `HakoSettingView.swift` and simply not resolvable". That was wrong: the type is genuinely **absent** from the tree. The Hako migration renamed it to `HakoSettingsRoute` (and its nested `Decision` to `HakoSettingsPushDecision`), and the harness was never updated | **RESOLVED.** The harness names the current types. It compiles and runs: **55 cases pass, 0 fail**. The script's own `BLOCKED_BY_ENVIRONMENT` header was also wrong and is corrected |
 
 ### Core
 
@@ -432,8 +452,10 @@ Classified, and only stale prose was changed:
    `archive/core-hardening-pre-consolidation-2026-10-11`.
 3. **Two pre-existing Android ABI violations** in `check-libbox-abi.sh` layer 4
    (`Wrappers.kt:49`, `PlatformInterfaceWrapper.kt`). Android-owned; untouched.
-4. **Two pre-existing red Apple checks** (§7): the `upstream-file-edited` negative case and
-   `check-hako-primary-route.sh`. Both reproduce before this round's changes.
+4. ~~**Two pre-existing red Apple checks** (§7)~~ — **closed in the tail-cleanup round.** The
+   `upstream-file-edited` negative case and `check-hako-primary-route.sh` are both green; see §7
+   for the two root causes. They are struck through rather than deleted because a report that
+   silently drops its own open items is how an item becomes permanent.
 5. **Device-axis acceptance remains unperformed by nature**, not by omission: iPhone simulator UI
    tests are blocked by this host's CoreSimulator store (several devices carry `isDeleted = true`,
    so `simctl boot` answers `Unable to boot deleted device`), and **iPad and macOS cannot be tested
