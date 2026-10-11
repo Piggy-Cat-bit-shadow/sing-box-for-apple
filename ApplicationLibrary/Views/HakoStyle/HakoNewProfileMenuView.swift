@@ -50,76 +50,126 @@ public struct HakoNewProfileMenuView: View {
 
     private var otherBody: some View {
         HakoModalScaffold(title: String(localized: "Add Configuration")) {
-            Group {
-                if let request = importRequest {
-                    HakoNewProfileView(request, onSuccess: { profile in
-                        await SharedPreferences.selectedProfileID.set(profile.mustID)
+            menuContent
+                .onChangeCompat(of: manualCreateSucceeded) { newValue in
+                    if newValue {
                         complete()
-                    })
-                    .environmentObject(environments)
-                } else if let request = localImportRequest {
-                    HakoNewProfileView(localImportRequest: request, onSuccess: { profile in
-                        await SharedPreferences.selectedProfileID.set(profile.mustID)
-                        complete()
-                    })
-                    .environmentObject(environments)
-                } else {
-                    menuContent
-                }
-            }
-            .onChangeCompat(of: manualCreateSucceeded) { newValue in
-                if newValue {
-                    complete()
-                }
-            }
-            .alert($alert)
-
-                // `#if !os(tvOS)`, as the original has it (`up-hako@c1935cf
-                // .../Profile/NewProfileMenuView.swift:125-138`). Both of these read state declared under
-                // that same condition at `:15-18`, and `QRScannerView` is itself declared under it
-                // (`ApplicationLibrary/Views/Scanner/QRScannerView.swift:12`) - `ApplicationLibrary` builds
-                // for tvOS, so neither reference compiles there without this.
-                #if !os(tvOS)
-                    .fileImporter(
-                        isPresented: $showFileImporter,
-                        allowedContentTypes: [.profile, .json],
-                        allowsMultipleSelection: false
-                    ) { result in
-                        handleFileImport(result)
                     }
-                    .sheet(isPresented: $showQRScanner) {
-                        QRScannerView { result in
-                            handleQRScanResult(result)
-                        }
-                    }
-                #endif
-
+                }
+                .alert($alert)
         }
-        // Outside the scaffold, not inside its content.
+        // Everything that presents another page lives OUTSIDE the scaffold, never inside its
+        // content. `HakoModalScaffold` renders its content through `HakoScaffoldBody`, which is a
+        // `Form`, and `HakoNewProfileView`'s body is a `FormView` - which is a `Form` too. Putting
+        // the editor in the content is therefore a `Form` inside a `Form`: the inner one collapses
+        // to an empty group, the page renders nearly blank and its `Create` button is unreachable.
+        // That is the import bug, and it was reachable from "Import from File" (a `.json` goes to
+        // `localImportRequest`) and from a QR scan (which sets `importRequest`), because both fed
+        // the same `if let` inside the content.
         //
-        // `HakoModalScaffold` wraps its content in a `Form`, so a hidden `NavigationLink`
-        // attached to that content is a *row* - and the platform gives a row that navigates a
-        // disclosure indicator, which is where the stray chevron at the trailing edge of the
-        // tile row came from. Attaching it to the scaffold's own result is what puts it outside
-        // the form. Two earlier attempts missed this by attaching it to the content and
-        // assuming "inside the modal" and "outside the form" were the same thing.
+        // The same rule already governs the manual-create push below, for a narrower reason
+        // recorded there: a `NavigationLink` attached to the content is a *row*, so it draws a
+        // disclosure indicator. Both symptoms have one cause and one fix - present outside.
         .background {
+            importDestination
 
-                NavigationDestinationCompat(isPresented: $showManualCreate) {
-                    // Capturing anything that holds the sheet's DismissAction here makes
-                    // SwiftUI on iOS 17 loop forever laying the pushed view out.
-                    HakoNewProfileView(onSuccess: { [$manualCreateSucceeded] profile in
-                        await SharedPreferences.selectedProfileID.set(profile.mustID)
-                        $manualCreateSucceeded.wrappedValue = true
-                    })
-                    .environmentObject(environments)
-                    // The push supplies the chrome, as every other pushed page's presenter
-                    // does. Without it the editor wore the platform's own back control and the
-                    // platform's title.
-                    .hakoNavigationChrome(title: String(localized: "New Configuration"))
-                }
-
+            NavigationDestinationCompat(isPresented: $showManualCreate) {
+                // Capturing anything that holds the sheet's DismissAction here makes
+                // SwiftUI on iOS 17 loop forever laying the pushed view out.
+                HakoNewProfileView(onSuccess: { [$manualCreateSucceeded] profile in
+                    await SharedPreferences.selectedProfileID.set(profile.mustID)
+                    $manualCreateSucceeded.wrappedValue = true
+                })
+                .environmentObject(environments)
+                // The push supplies the chrome, as every other pushed page's presenter
+                // does. Without it the editor wore the platform's own back control and the
+                // platform's title.
+                .hakoNavigationChrome(title: String(localized: "New Configuration"))
+            }
         }
+
+        // `#if !os(tvOS)`, as the original has it (`up-hako@c1935cf
+        // .../Profile/NewProfileMenuView.swift:125-138`). Both of these read state declared under
+        // that same condition at `:15-18`, and `QRScannerView` is itself declared under it
+        // (`ApplicationLibrary/Views/Scanner/QRScannerView.swift:12`) - `ApplicationLibrary` builds
+        // for tvOS, so neither reference compiles there without this.
+        //
+        // Attached to the scaffold's own result rather than to its content, for the reason above:
+        // both of these present a page, and a presenter inside the form is a row.
+        #if !os(tvOS)
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [.profile, .json],
+                allowsMultipleSelection: false
+            ) { result in
+                handleFileImport(result)
+            }
+            .sheet(isPresented: $showQRScanner) {
+                QRScannerView { result in
+                    handleQRScanResult(result)
+                }
+            }
+        #endif
+    }
+
+    /// The imported-profile editor, pushed rather than embedded.
+    ///
+    /// One destination for both import shapes, because they differ only in which request they
+    /// carry: `localImportRequest` is a `.json` chosen from Files, `importRequest` is a remote
+    /// profile from a scanned QR link. Both open the same editor, and on success both select the
+    /// new configuration and close this sheet - which is what the two embedded branches did.
+    @ViewBuilder
+    private var importDestination: some View {
+        NavigationDestinationCompat(isPresented: showImportEditor) {
+            if let request = importRequest {
+                HakoNewProfileView(request, onSuccess: importedProfileSelected)
+                    .environmentObject(environments)
+                    .hakoNavigationChrome(title: String(localized: "New Configuration"))
+                    .onDisappear(perform: releaseImportRequest)
+            } else if let request = localImportRequest {
+                HakoNewProfileView(localImportRequest: request, onSuccess: importedProfileSelected)
+                    .environmentObject(environments)
+                    .hakoNavigationChrome(title: String(localized: "New Configuration"))
+                    .onDisappear(perform: releaseImportRequest)
+            }
+        }
+    }
+
+    /// What an imported profile does when the editor creates it.
+    ///
+    /// Unchanged from the two branches this replaces: select the new configuration, then close
+    /// this sheet.
+    @Sendable
+    private func importedProfileSelected(_ profile: Profile) async {
+        await SharedPreferences.selectedProfileID.set(profile.mustID)
+        complete()
+    }
+
+    /// Popping the editor must release the request.
+    ///
+    /// `showImportEditor` is derived from the two requests, so a request left set would leave the
+    /// destination "active": the tile row would already be navigated away, and the next import
+    /// would find the sheet showing nothing.
+    private func releaseImportRequest() {
+        importRequest = nil
+        localImportRequest = nil
+    }
+
+    /// Whether the imported-profile editor is presented.
+    ///
+    /// Derived from the requests rather than stored beside them, so there is one source of truth
+    /// for "an import is in progress": setting either request pushes the editor, and clearing the
+    /// request when the push ends is the same statement as "the import is over".
+    private var showImportEditor: Binding<Bool> {
+        Binding(
+            get: { importRequest != nil || localImportRequest != nil },
+            set: { presented in
+                if !presented {
+                    importRequest = nil
+                    localImportRequest = nil
+                }
+            }
+        )
     }
 
     private func complete() {
