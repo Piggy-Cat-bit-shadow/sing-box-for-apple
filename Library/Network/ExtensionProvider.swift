@@ -251,8 +251,56 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         if let error {
             throw ExtensionStartupError("(packet-tunnel): create command server error: \(error.localizedDescription)")
         }
+
+        // Everything from here to the end of this function is the start TRANSACTION, and it is
+        // wrapped so that a failure unwinds what it created instead of leaving it live.
+        //
+        // Before this, every failure below threw without releasing anything. `commandServer` was
+        // left created and - after `start()` returned - listening on `command.pb`, with the Go side's
+        // power-report worker and OOM recorder already running and nothing left to stop them. On
+        // macOS the XPC listener had been resumed, so the app's command channel pointed at a server
+        // whose service never started and which no `stopTunnel` would be told about.
+        //
+        // # Why a `do/catch` and not `defer` plus a flag
+        //
+        // The successful path must NOT unwind, and a `catch` says that in the shape of the code
+        // rather than in a boolean. On failure the order is the one `stopTunnel` uses, for the same
+        // reason: the observer first (it publishes into the server), then the service, then the
+        // server, then the platform interface.
         do {
-            try commandServer!.start()
+            try await startTunnel0()
+            #if os(macOS)
+                if Variant.useSystemExtension {
+                    xpcService.markServiceReady()
+                }
+            #endif
+            #if os(iOS)
+                if #available(iOS 18.0, *) {
+                    ControlCenter.shared.reloadControls(ofKind: ExtensionProfile.controlKind)
+                }
+            #endif
+        } catch {
+            #if os(macOS)
+                if Variant.useSystemExtension {
+                    xpcService.markServiceNotReady(error)
+                }
+            #endif
+            unwindFailedStart()
+            throw error
+        }
+    }
+
+    /// The half of `startTunnel` that runs once the command server exists.
+    ///
+    /// Split out so the caller can hold the whole thing in one `do/catch`: there is no way to write
+    /// that block around the inline version without either indenting the entire function or giving
+    /// the failures a shared label.
+    private func startTunnel0() async throws {
+        guard let commandServer else {
+            throw ExtensionStartupError("(packet-tunnel): command server was not created")
+        }
+        do {
+            try commandServer.start()
         } catch {
             throw ExtensionStartupError("(packet-tunnel): start command server error: \(error.localizedDescription)")
         }
@@ -265,30 +313,29 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             }
         #endif
 
-        do {
-            try await startService()
-        } catch {
-            #if os(macOS)
-                if Variant.useSystemExtension {
-                    xpcService.markServiceNotReady(error)
-                }
-            #endif
-            throw error
-        }
+        try await startService()
         writeMessage("(packet-tunnel): Here I stand")
         #if os(iOS)
             startScreenStateObserver()
         #endif
-        #if os(macOS)
-            if Variant.useSystemExtension {
-                xpcService.markServiceReady()
-            }
-        #endif
+    }
+
+    /// Releases what a failed `startTunnel` created, in the order `stopTunnel` releases it.
+    ///
+    /// Idempotent and safe when only part of the start ran: every step tolerates its resource being
+    /// absent. `commandServer` is cleared last, so the closing calls can still reach it.
+    ///
+    /// This is not a substitute for `stopTunnel` - it deliberately does not touch the XPC listener or
+    /// the location manager, which belong to the macOS entry points and are torn down there - it only
+    /// guarantees that a throw leaves no live command server, no registered notifications and no
+    /// platform state pointing at a service that never started.
+    private func unwindFailedStart() {
         #if os(iOS)
-            if #available(iOS 18.0, *) {
-                ControlCenter.shared.reloadControls(ofKind: ExtensionProfile.controlKind)
-            }
+            stopScreenStateObserver()
         #endif
+        stopService()
+        commandServer?.close()
+        commandServer = nil
     }
 
     func writeMessage(_ message: String, level: LogLevel = .error) {
@@ -297,19 +344,46 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         }
     }
 
+    /// Starts (or reloads) the service inside the running command server.
+    ///
+    /// # Why the server is a `guard` and not a force-unwrap
+    ///
+    /// This used to be `commandServer!.startOrReloadService(...)`, the only force-unwrap of that
+    /// property in the file. It is reachable with `commandServer == nil`, on two paths that need no
+    /// exotic timing:
+    ///
+    ///   * `stopTunnel` sets `commandServer = nil` (its own assignment inside the shutdown block, now
+    ///     guarded by an identity check so it cannot nil a server a concurrent start installed), and
+    ///     the guard above the call reads `tunnelOptions` - which `stopTunnel` never clears. A
+    ///     `handleAppMessage` that arrives
+    ///     during or after a stop therefore passes the guard and traps.
+    ///   * `startTunnel` sets `tunnelOptions` (`:201`) before it creates the server (`:250`), so a
+    ///     start that fails in between leaves exactly that state behind.
+    ///
+    /// A trap in the extension is not a caught error: it kills the provider process, which is the one
+    /// outcome this whole file is arranged to avoid, and on the device it is indistinguishable from
+    /// "the tunnel stopped working". The other two uses of `commandServer` in this function's family
+    /// are folded in for the same reason.
     private func startService() async throws {
         guard let configContent = tunnelOptions?["configContent"] as? String else {
             throw ExtensionStartupError("(packet-tunnel) error: missing configContent in tunnel options")
         }
+        guard let commandServer else {
+            // Not `ExtensionStartupError`: this is the ordinary "the server is gone" case, and the
+            // caller's `handleAppMessage` catch turns it into a message for the app rather than a
+            // process death. `reloadService` rethrows it, so `reasserting` is still restored by its
+            // `defer`.
+            throw ExtensionStartupError("(packet-tunnel) error: command server is not running")
+        }
 
         let options = LibboxOverrideOptions()
         do {
-            try commandServer!.startOrReloadService(configContent, options: options)
+            try commandServer.startOrReloadService(configContent, options: options)
         } catch {
             throw ExtensionStartupError("(packet-tunnel) error: start service: \(error.localizedDescription)")
         }
         #if os(macOS)
-            if !Variant.useSystemExtension, commandServer!.needWIFIState() {
+            if !Variant.useSystemExtension, commandServer.needWIFIState() {
                 locationManager = CLLocationManager()
                 locationDelegate = stubLocationDelegate()
                 locationManager!.delegate = locationDelegate
@@ -365,22 +439,45 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             stopScreenStateObserver()
         #endif
         stopService()
+        // # Why this identity check is load-bearing
+        //
+        // `if let server = commandServer` captures the CURRENT server, and the `Task.sleep` below is a
+        // suspension point: the extension's actor can run another task during it. If a new
+        // `startTunnel` completes in that window it creates and starts a NEW command server and
+        // assigns it to this same property - and the unconditional `commandServer = nil` that used to
+        // be here would then have (a) closed the new, healthy server and (b) dropped the only
+        // reference to it. The tunnel would be running with a closed command server, so the app's
+        // channel to it dies, `reloadService` starts failing, and a later `stopTunnel` would find
+        // `commandServer == nil` and skip the cleanup entirely - leaking whatever the new start built.
+        //
+        // The same reasoning applies to the macOS block below: `xpcListener.invalidate()`,
+        // `xpcService = nil` and the registry clear are all "tear down the surface I owned", so they
+        // are conditional on the server being the one this call captured. The earlier comment here
+        // claimed this ordering was safe for macOS *because* the stop runs first; that is only true
+        // when nothing started in between, which is exactly what cannot be assumed.
         if let server = commandServer {
             try? await Task.sleep(nanoseconds: 100 * NSEC_PER_MSEC)
+            let serverIsStillCurrent = commandServer === server
             server.close()
-            commandServer = nil
+            if serverIsStillCurrent {
+                commandServer = nil
+                #if os(macOS)
+                    if Variant.useSystemExtension {
+                        xpcService.markServiceNotReady(NSError(domain: "CommandXPC", code: -1, userInfo: [
+                            NSLocalizedDescriptionKey: "Command server stopped",
+                        ]))
+                        xpcListener.invalidate()
+                        xpcListener = nil
+                        xpcService.commandServer = nil
+                        xpcService = nil
+                        UserServiceEndpointRegistry.shared.clear()
+                    }
+                #endif
+            } else {
+                Self.logger.info("stopTunnel: a new command server was installed during the stop; releasing the previous one only")
+            }
         }
         #if os(macOS)
-            if Variant.useSystemExtension {
-                xpcService.markServiceNotReady(NSError(domain: "CommandXPC", code: -1, userInfo: [
-                    NSLocalizedDescriptionKey: "Command server stopped",
-                ]))
-                xpcListener.invalidate()
-                xpcListener = nil
-                xpcService.commandServer = nil
-                xpcService = nil
-                UserServiceEndpointRegistry.shared.clear()
-            }
             locationManager = nil
             locationDelegate = nil
         #endif
