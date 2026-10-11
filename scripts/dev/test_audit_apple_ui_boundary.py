@@ -427,6 +427,32 @@ def mutate_shared_container_gains_hako_close(root: str) -> str:
     return "HakoCloseButton put back into the shared modal container, where an iPad compiles it"
 
 
+def mutate_form_page_embedded_in_scaffold(root: str) -> str:
+    # The import bug itself, re-injected: the complete editor page put back inside
+    # `HakoModalScaffold`'s content, where it becomes a `Form` inside the scaffold's `Form`. The editor
+    # then collapses to an empty group and its `Create` button is unreachable while every other check
+    # stays green - so this case is the only thing that would notice a regression.
+    #
+    # Anchored on `replace_line_containing` rather than on a multi-line literal, because the indentation
+    # of the content block is not a fact this test should encode. The scaffold's own line is: it is
+    # written once, and the mutation appends a sibling line under it.
+    path = os.path.join(root, "ApplicationLibrary/Views/HakoStyle/HakoNewProfileMenuView.swift")
+    line = next((l for l in read(path).splitlines()
+                 if "HakoModalScaffold(title:" in l), None)
+    if line is None:
+        raise AssertionError("no HakoModalScaffold line in HakoNewProfileMenuView.swift")
+    indent = line[:len(line) - len(line.lstrip())]
+    replace_line_containing(
+        path,
+        "HakoModalScaffold(title:",
+        line
+        + "\n" + indent + "    if let request = localImportRequest {"
+        + "\n" + indent + "        HakoNewProfileView(localImportRequest: request, onSuccess: importedProfileSelected)"
+        + "\n" + indent + "    }",
+    )
+    return "the imported-profile editor put back inside the modal scaffold's form"
+
+
 CASES = (
     # (label, check that must fail, mutation, upstream ref that check needs)
     ("hako-ref-in-upstream-page", "shared-pages-are-clean", mutate_hako_ref_in_upstream_page, None),
@@ -452,6 +478,10 @@ CASES = (
     ("guarded-use-in-else-arm", "platform-guard-agreement", mutate_guarded_use_in_else_arm, None),
     # The check round 8 wrote and did not register, with the shape it exists to catch.
     ("hako-type-loses-its-caller", "hako-type-has-caller", mutate_hako_type_loses_its_caller, None),
+    # The import bug the phone shipped: the profile editor embedded in the modal scaffold's form. The
+    # check was written with this fix and this case is what proves it still detects the shape.
+    ("form-page-embedded-in-scaffold", "form-pages-are-not-embedded",
+     mutate_form_page_embedded_in_scaffold, None),
 )
 
 

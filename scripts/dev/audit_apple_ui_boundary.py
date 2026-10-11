@@ -2607,6 +2607,122 @@ def check_hako_type_has_caller(root: str) -> Check:
                    f"of them exactly once at its own declaration too")
     return Check("hako-type-has-caller", "PASS", detail, [str(item) for item in inherited])
 
+
+#: Pages whose body is a `Form`/`FormView`, and therefore must never be *embedded* as the content of
+#: another form. The key is the type; the value says what it is, which is what the failure quotes.
+#:
+#: The list is the check's whole point: a page on it is a complete surface, so it is presented - pushed
+#: through `NavigationDestinationCompat`, or sheeted - and never dropped into a container that is
+#: already a `Form`.
+FORM_BODIED_PAGES: dict[str, str] = {
+    "HakoNewProfileView": "the New Configuration editor, whose body is a `FormView`",
+    "HakoEditProfileView": "the Edit Profile editor, whose body is a `FormView`",
+}
+
+#: How a page is *presented* rather than embedded. A presentation is a call something owns: the page
+#: is handed to a push, a sheet or a navigation container. An embedded page is a bare child of a
+#: `ViewBuilder` block that the enclosing layout renders directly - which, inside a scaffold, means a
+#: `Form` inside the container's own `Form`.
+#:
+#: The two shapes are told apart by the line the page is constructed on. A presented page is preceded
+#: on its own line by a receiver (`$state`, `.modifier`, `= `); an embedded one opens the line.
+PAGE_PRESENTATION_PREFIXES = ("$", ".", "= ", "return ", "-> ", ":")
+
+#: Containers that *are* the presentation. A page wrapped by one of these is where it belongs: the
+#: container supplies the navigation chrome or the sheet, so the page's own `Form` is the outermost one
+#: rather than nested inside another. `NavigationSheet` is shared and upstream's; the rest are the
+#: fork's own phone mechanisms.
+PAGE_PRESENTING_CONTAINERS = (
+    "NavigationDestinationCompat",
+    "NavigationSheet",
+    "HakoSheetContainer",
+    "NavigationStackCompat",
+)
+
+
+def check_form_pages_are_not_embedded(root: str) -> Check:
+    """A page whose body is a form must be presented, not embedded in another form.
+
+    # The defect this exists for
+
+    `HakoNewProfileView`'s body is a `FormView`, and `HakoModalScaffold` renders its content through
+    `HakoScaffoldBody`, which is a `Form`. `HakoNewProfileMenuView` used to put the editor *inside* the
+    scaffold's content for both import paths, so importing a `.json` (which sets `localImportRequest`)
+    or scanning a QR profile link (which sets `importRequest`) produced a `Form` inside a `Form`. The
+    inner one collapses to an empty group: the page rendered nearly blank and its `Create` button was
+    unreachable - while every existing check stayed green, because the editor was still declared, still
+    called and still routed to. Nothing was looking at *how* it was presented.
+
+    # What it asserts
+
+    Every construction of a page in `FORM_BODIED_PAGES` must be owned by something that presents it:
+
+      * a **receiver** on its own line - `$state`, `.environmentObject`, `= `, `return ` - so the call is
+        part of an expression rather than a block's child; or
+      * a **presenting container** within the few lines above it - `NavigationDestinationCompat`,
+        `NavigationSheet`, `HakoSheetContainer`, `NavigationStackCompat`.
+
+    A bare `HakoNewProfileView(` that opens a `ViewBuilder` block, with neither, fails. That is the shape
+    the bug had, so the check fails on the code as it was and passes on the code as it is.
+
+    Deliberately a text rule rather than a call graph, and honest about it: it proves a page is not a
+    bare block child, not that the surrounding container is a `Form`. That is the half that regressed,
+    and the other half is covered - `hako-page-coverage` requires the page to be routed to, and
+    `hako-type-has-caller` requires it to be named.
+    """
+    namespace = os.path.join(root, HAKO_PREFIX)
+    if not os.path.isdir(namespace):
+        return Check("form-pages-are-not-embedded", "UNKNOWN",
+                     f"{HAKO_PREFIX} does not exist, so there are no pages to inspect")
+
+    #: How far above a construction to look for the container that owns it. The window has to clear the
+    #: `ViewBuilder` arms a destination is written with: the `else if` arm of
+    #: `HakoNewProfileMenuView.importDestination` puts its page six lines below the
+    #: `NavigationDestinationCompat` that presents it, where the `if` arm puts it two.
+    CONTEXT_LINES = 10
+
+    embedded: list[Blame] = []
+    presented = 0
+    for path in swift_files(root):
+        if path in OUTSIDE_THE_APP:
+            continue
+        text = read_text(os.path.join(root, path))
+        if text is None:
+            continue
+        lines = strip_comments(text).split("\n")
+        for name, reason in FORM_BODIED_PAGES.items():
+            pattern = re.compile(rf"(?<![.\w]){re.escape(name)}\s*\(")
+            for index, line_text in enumerate(lines):
+                match = pattern.search(line_text)
+                if match is None:
+                    continue
+                stripped = line_text[:match.start()].strip()
+                if stripped and stripped.startswith(PAGE_PRESENTATION_PREFIXES):
+                    presented += 1
+                    continue
+                window = "\n".join(lines[max(0, index - CONTEXT_LINES):index])
+                if any(container in window for container in PAGE_PRESENTING_CONTAINERS):
+                    presented += 1
+                    continue
+                embedded.append(Blame(
+                    path, index + 1,
+                    f"{name} is constructed as a bare block child; it is a page ({reason}), so it "
+                    f"renders a `Form` inside the presenter's own layout - present it instead"))
+
+    if embedded:
+        return Check(
+            "form-pages-are-not-embedded", "FAIL",
+            f"{len(embedded)} form-bodied page(s) are embedded rather than presented, so their content "
+            f"collapses inside the enclosing form",
+            [str(item) for item in embedded],
+        )
+    return Check(
+        "form-pages-are-not-embedded", "PASS",
+        f"all {presented} construction site(s) of the {len(FORM_BODIED_PAGES)} form-bodied page(s) are "
+        f"presented, so no page form is nested inside a container form",
+    )
+
+
 def check_hako_platform_imports(root: str) -> Check:
     """No ported file imports a platform framework outside a conditional.
 
@@ -3799,6 +3915,10 @@ CHECKS = (
     # up now, the check distinguishes an inherited orphan from a port-introduced one and reports each as
     # such, and it fails only on the second kind.
     check_hako_type_has_caller,
+    # Registered with the import-routing fix. `HakoNewProfileView` was declared, called and routed to
+    # while being embedded in a `Form` for both import paths, so every check above stayed green and the
+    # page still rendered nearly blank. This is the one that looks at presentation rather than existence.
+    check_form_pages_are_not_embedded,
     check_ipad_mac_ui_gate,
     check_upstream_files_untouched,
     check_project_membership,
