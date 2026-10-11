@@ -284,22 +284,65 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
     private var nwMonitor: NWPathMonitor?
     private var lastNetworkPath: String?
 
+    /// Identifies the monitor a path callback belongs to.
+    ///
+    /// `startDefaultInterfaceMonitor` predates this and had no such notion, which was fine while the
+    /// only way to stop a monitor was to cancel it and exit. It is not fine now that the first update is
+    /// bounded: a monitor can be superseded - by a `reset()` from a reload, or by the next start - while
+    /// its first callback is still queued, and that callback would otherwise publish a stale interface to
+    /// the listener the new monitor had just installed. Bumped wherever `nwMonitor` is assigned or
+    /// cleared; a callback whose captured generation no longer matches is dropped.
+    private var nwMonitorGeneration: UInt64 = 0
+
+    /// How long `startDefaultInterfaceMonitor` waits for the first path update.
+    ///
+    /// The first update exists to seed the listener with the current path, and `NWPathMonitor` delivers
+    /// it on its own schedule. In airplane mode there is no path transition to observe, so the update can
+    /// simply never arrive - and the old implementation waited on it forever, which is the startup hang:
+    /// `startService` -> core -> here -> a semaphore nobody signals, before the tunnel ever starts.
+    ///
+    /// Two seconds is chosen to be unambiguous rather than tight. A first update that is going to arrive
+    /// does so in milliseconds; the cost of waiting longer is startup latency in a state that has no
+    /// network anyway, and the cost of waiting less is seeding a path that was about to arrive.
+    private static let defaultInterfaceMonitorTimeout = DispatchTimeInterval.seconds(2)
+
     public func startDefaultInterfaceMonitor(_ listener: LibboxInterfaceUpdateListenerProtocol?) throws {
         guard let listener else {
             return
         }
         let monitor = NWPathMonitor()
         nwMonitor = monitor
+        nwMonitorGeneration &+= 1
+        let generation = nwMonitorGeneration
+
         let semaphore = DispatchSemaphore(value: 0)
+        // One closure for the monitor's whole life. The previous revision replaced the handler from inside
+        // the first callback to avoid re-signalling the semaphore; a generation check does that without
+        // mutating the handler from the queue it runs on.
         monitor.pathUpdateHandler = { path in
+            guard generation == self.nwMonitorGeneration else {
+                return
+            }
             self.onUpdateDefaultInterface(listener, path)
             semaphore.signal()
-            monitor.pathUpdateHandler = { path in
-                self.onUpdateDefaultInterface(listener, path)
-            }
         }
         monitor.start(queue: DispatchQueue.global())
-        semaphore.wait()
+
+        // Seed from `currentPath` first, so the ordinary case does not wait at all: `NWPathMonitor`
+        // populates `currentPath` before `start` returns, and it is `.unsatisfied` rather than invalid when
+        // there is no usable path - which is exactly the airplane-mode state, and one `getInterfaces()`
+        // already knows how to express (it returns an empty list for `.unsatisfied`).
+        //
+        // A network with no default interface is a legal state, not a failure to start. The listener is
+        // told so and the tunnel continues to start; the callbacks above keep it current if a path appears
+        // later, which is what makes "airplane mode, then Wi-Fi on" recover.
+        onUpdateDefaultInterface(listener, monitor.currentPath)
+
+        // Then wait, briefly, for a real update to supersede the seed. The result is deliberately unused:
+        // whether the callback arrived or the wait timed out, the listener has a state and startup
+        // proceeds. This is the whole fix - the wait is bounded, so there is no state in which startup
+        // blocks forever on a callback that never comes.
+        _ = semaphore.wait(timeout: .now() + Self.defaultInterfaceMonitorTimeout)
     }
 
     private func onUpdateDefaultInterface(_ listener: LibboxInterfaceUpdateListenerProtocol, _ path: Network.NWPath) {
@@ -355,6 +398,10 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
     }
 
     public func closeDefaultInterfaceMonitor(_: LibboxInterfaceUpdateListenerProtocol?) throws {
+        // Bumping the generation before the cancel is what makes a late callback harmless: the closure
+        // captures the generation it was installed under, so one already queued when `cancel()` is called
+        // finds a different value and returns without touching the listener or `lastNetworkPath`.
+        nwMonitorGeneration &+= 1
         nwMonitor?.cancel()
         nwMonitor = nil
         lastNetworkPath = nil
@@ -557,6 +604,9 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
 
     func reset() {
         networkSettings = nil
+        // The same generation bump as `closeDefaultInterfaceMonitor`, and for the same reason: this is
+        // reached from `stopService()`, so it can land while a start's first callback is still queued.
+        nwMonitorGeneration &+= 1
         nwMonitor?.cancel()
         nwMonitor = nil
         #if os(macOS)
