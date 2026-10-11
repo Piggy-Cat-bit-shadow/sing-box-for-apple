@@ -2,7 +2,7 @@
 //  HakoNewProfileMenuView.swift
 //  ApplicationLibrary
 //
-//  The phone's copy of `ApplicationLibrary/Views/Profile/NewProfileMenuView.swift`, from `hako-ui` @ `c1935cf`.
+//  The phone's copy of `ApplicationLibrary/Views/Profile/HakoNewProfileMenuView.swift`, from `hako-ui` @ `c1935cf`.
 //
 //  A copy rather than an edit, because that file is upstream's and an iPad or a Mac loads it
 //  too. Every module-scope type it declares is renamed into the Hako namespace and the phone's
@@ -74,25 +74,18 @@ public struct HakoNewProfileMenuView: View {
             }
             .alert($alert)
 
-                // `#if !os(tvOS)`, as the original has it (`up-hako@c1935cf
-                // .../Profile/NewProfileMenuView.swift:125-138`). Both of these read state declared under
-                // that same condition at `:15-18`, and `QRScannerView` is itself declared under it
-                // (`ApplicationLibrary/Views/Scanner/QRScannerView.swift:12`) - `ApplicationLibrary` builds
-                // for tvOS, so neither reference compiles there without this.
-                #if !os(tvOS)
-                    .fileImporter(
-                        isPresented: $showFileImporter,
-                        allowedContentTypes: [.profile, .json],
-                        allowsMultipleSelection: false
-                    ) { result in
-                        handleFileImport(result)
+                .fileImporter(
+                    isPresented: $showFileImporter,
+                    allowedContentTypes: [.profile, .json],
+                    allowsMultipleSelection: false
+                ) { result in
+                    handleFileImport(result)
+                }
+                .sheet(isPresented: $showQRScanner) {
+                    QRScannerView { result in
+                        handleQRScanResult(result)
                     }
-                    .sheet(isPresented: $showQRScanner) {
-                        QRScannerView { result in
-                            handleQRScanResult(result)
-                        }
-                    }
-                #endif
+                }
 
         }
         // Outside the scaffold, not inside its content.

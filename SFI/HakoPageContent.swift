@@ -28,11 +28,10 @@
 //
 //  # Migration state
 //
-//  All six destinations route to the phone's own pages. This comment used to say that only `.dashboard`
-//  and `.logs` did, which was true when it was written and has been wrong since the other four landed -
-//  a reader checking the routing here would have been told the wrong answer by the file that decides it.
-//  `scripts/dev/audit_apple_ui_boundary.py --only hako-page-coverage` reads this switch and is the
-//  authority; it fails while any arm still returns an upstream type.
+//  `.dashboard` and `.logs` route to the fork's pages. The other four still render upstream's, and
+//  each one is a separate change: this switch is the single place such a change is made, and the
+//  audit's `hako-page-coverage` check reports exactly how many are done rather than letting the count
+//  be inferred from a diff.
 //
 //  # The environment the pages read
 //
@@ -62,15 +61,6 @@ struct HakoPageContent: View {
     /// the client has before a tunnel is installed - the same one the rest of the client starts from.
     @StateObject private var placeholderProfile = ExtensionProfile(NEVPNManager.shared())
 
-    /// What went wrong installing the tunnel, if it did.
-    ///
-    /// The original reported this and the migration dropped the report: `installTunnel` was
-    /// `{ await environments.reload() }`, and `reload()` only *loads* an already-installed extension -
-    /// `ExtensionProfile.load()` returns nil when there is no manager. So the notice's action ran, changed
-    /// nothing, and repainted: a system-authorisation refusal looked exactly like a press that had not
-    /// registered yet. `ExtensionProfile.install()` had no caller anywhere on the phone's path.
-    @State private var installAlert: AlertState?
-
     var body: some View {
         Group {
             switch page {
@@ -92,7 +82,6 @@ struct HakoPageContent: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .background(Color(uiColor: .systemGroupedBackground))
-        .alert($installAlert)
     }
 
     /// Home, with the extension profile in the environment when one exists.
@@ -122,30 +111,10 @@ struct HakoPageContent: View {
                 systemProxyAvailable: $dashboard.systemProxyAvailable,
                 systemProxyEnabled: $dashboard.systemProxyEnabled,
                 tunnelIsInstalled: false,
-                // The original's own action, restored with the error it reported
-                // (`up-hako/ActiveDashboardView.swift:172-181`): install, then reload so the page
-                // learns the tunnel exists, and say so when installing fails instead of repainting.
-                installTunnel: installTunnel,
+                installTunnel: { await environments.reload() },
                 cardConfiguration: cardConfiguration
             )
             .environmentObject(placeholderProfile)
-        }
-    }
-
-    /// Ask the system to install the tunnel, then re-read the environment so the page sees it.
-    ///
-    /// A closure over `self` rather than the bare method reference: this view's `@State installAlert` is
-    /// written here, and a `@State` mutation through a method reference taken in a `@ViewBuilder` is the
-    /// kind of capture that is easy to get subtly wrong. The shape is the one the original used, an
-    /// action that awaits the install and reports its failure.
-    private var installTunnel: () async -> Void {
-        {
-            do {
-                try await ExtensionProfile.install()
-                await environments.reload()
-            } catch {
-                installAlert = AlertState(action: "install network extension", error: error)
-            }
         }
     }
 }

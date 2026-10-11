@@ -93,12 +93,7 @@ public extension NavigationPage {
             return .tools
         case .settings:
             return .more
-        // The gate is `!os(tvOS)`, not `os(macOS)`, and it has to be *this* gate: `NavigationPage`
-        // declares `groups` and `connections` under `#if !os(tvOS)`, so on iOS those cases exist and a
-        // switch that does not handle them is not exhaustive. `os(macOS)` was not merely a wrong width -
-        // it left the iOS slice of `ApplicationLibrary` unable to compile, in a file whose pages
-        // `HakoPageContent` already renders under `#if !os(tvOS)`.
-        #if !os(tvOS)
+        #if os(macOS)
             case .groups, .connections:
                 return .tools
         #endif

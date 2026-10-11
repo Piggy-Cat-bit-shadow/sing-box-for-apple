@@ -2,7 +2,7 @@
 //  HakoCrashReportDetailView.swift
 //  ApplicationLibrary
 //
-//  The phone's copy of `ApplicationLibrary/Views/Tools/CrashReportDetailView.swift`, from `hako-ui` @ `c1935cf`.
+//  The phone's copy of `ApplicationLibrary/Views/Tools/HakoCrashReportDetailView.swift`, from `hako-ui` @ `c1935cf`.
 //
 //  A copy rather than an edit, because that file is upstream's and an iPad or a Mac loads it
 //  too. Every module-scope type it declares is renamed into the Hako namespace and the phone's
@@ -31,11 +31,7 @@ public struct HakoCrashReportDetailView: View {
         @State private var includeConfig = false
         @State private var includeLog = true
         @State private var useAgeEncryption = false
-        // `#if !os(tvOS)`, as the original has it: `ReportShareAction` is declared under that condition in
-    // `ApplicationLibrary/Views/Tools/ReportShared.swift:135`, and only the share sheet above reads this.
-    #if !os(tvOS)
         @State private var pendingAction: ReportShareAction?
-    #endif
 
 
     let report: CrashReport
@@ -142,35 +138,28 @@ public struct HakoCrashReportDetailView: View {
                     alert = AlertState(action: "save crash report", error: error)
                 }
             }
-            // `#if !os(tvOS)`, as the original has it: `ReportShareAction` is declared under that
-            // condition in `ApplicationLibrary/Views/Tools/ReportShared.swift:135`, and this sheet is the
-            // only thing that reads the property holding one. Wrapping the modifier rather than the
-            // property alone keeps every read of it inside the same condition, which is the pairing the
-            // platform check looks for.
-            #if !os(tvOS)
-                .sheet(isPresented: $sharePopupPresented, onDismiss: {
-                    let action = pendingAction
-                    pendingAction = nil
-                    switch action {
-                    case .save:
-                        Task { await saveReport(includeConfig: includeConfig, includeLog: includeLog, useAgeEncryption: useAgeEncryption) }
-                    case .share:
-                        Task { await shareReport(includeConfig: includeConfig, includeLog: includeLog, useAgeEncryption: useAgeEncryption) }
-                    case .none:
-                        break
-                    }
-                }) {
-                    HakoReportSharePopup(
-                        hasConfig: files.contains(where: { $0.id == .configContent }),
-                        hasLog: false,
-                        includeConfig: $includeConfig,
-                        includeLog: $includeLog,
-                        useAgeEncryption: $useAgeEncryption,
-                        onSave: { pendingAction = .save },
-                        onShare: { pendingAction = .share }
-                    )
+            .sheet(isPresented: $sharePopupPresented, onDismiss: {
+                let action = pendingAction
+                pendingAction = nil
+                switch action {
+                case .save:
+                    Task { await saveReport(includeConfig: includeConfig, includeLog: includeLog, useAgeEncryption: useAgeEncryption) }
+                case .share:
+                    Task { await shareReport(includeConfig: includeConfig, includeLog: includeLog, useAgeEncryption: useAgeEncryption) }
+                case .none:
+                    break
                 }
-            #endif
+            }) {
+                HakoReportSharePopup(
+                    hasConfig: files.contains(where: { $0.id == .configContent }),
+                    hasLog: false,
+                    includeConfig: $includeConfig,
+                    includeLog: $includeLog,
+                    useAgeEncryption: $useAgeEncryption,
+                    onSave: { pendingAction = .save },
+                    onShare: { pendingAction = .share }
+                )
+            }
 
 
         .toolbar {

@@ -2,7 +2,7 @@
 //  HakoCoreView.swift
 //  ApplicationLibrary
 //
-//  The phone's copy of `ApplicationLibrary/Views/Setting/CoreView.swift`, from `hako-ui` @ `c1935cf`.
+//  The phone's copy of `ApplicationLibrary/Views/Setting/HakoCoreView.swift`, from `hako-ui` @ `c1935cf`.
 //
 //  A copy rather than an edit, because that file is upstream's and an iPad or a Mac loads it
 //  too. Every module-scope type it declares is renamed into the Hako namespace and the phone's
@@ -16,15 +16,12 @@ import Libbox
 import Library
 import SwiftUI
 
-// The original's two-arm condition, restored: `FileProvider` and `UIKit` are iOS, `ServiceManagement` is
-// macOS, and this file is compiled into `ApplicationLibrary` for all of its platforms. Resolving `os(iOS)`
-// left `import FileProvider` at file scope, outside the `#if canImport(UIKit)` that replaced the rest.
-#if os(iOS)
     import FileProvider
+#if canImport(UIKit)
     import UIKit
-#elseif os(macOS)
-    import ServiceManagement
 #endif
+
+
 @MainActor
 public struct HakoCoreView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -334,16 +331,9 @@ public struct HakoCoreView: View {
                     try Self.clearWorkingDirectoryContents(at: workingDirectory)
                 }
 
-                    // The original's own guard, restored. `notifyFileProviderWorkingDirectoryChanged()` is
-                    // declared inside `#if os(iOS)`, and this call was left bare under
-                    // `if #available(iOS 16.0, *)` - which is an availability annotation, not a platform
-                    // gate: the macOS and tvOS compilers still parse the call, so without this they are
-                    // asked to resolve a function that does not exist for them.
-                    #if os(iOS)
-                        if #available(iOS 16.0, *) {
-                            await notifyFileProviderWorkingDirectoryChanged()
-                        }
-                    #endif
+                    if #available(iOS 16.0, *) {
+                        await notifyFileProviderWorkingDirectoryChanged()
+                    }
 
 
             isLoading = true

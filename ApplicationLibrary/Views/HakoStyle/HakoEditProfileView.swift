@@ -2,7 +2,7 @@
 //  HakoEditProfileView.swift
 //  ApplicationLibrary
 //
-//  The phone's copy of `ApplicationLibrary/Views/Profile/EditProfileView.swift`, from `hako-ui` @ `c1935cf`.
+//  The phone's copy of `ApplicationLibrary/Views/Profile/HakoEditProfileView.swift`, from `hako-ui` @ `c1935cf`.
 //
 //  A copy rather than an edit, because that file is upstream's and an iPad or a Mac loads it
 //  too. Every module-scope type it declares is renamed into the Hako namespace and the phone's
@@ -105,27 +105,21 @@ public struct HakoEditProfileView: View {
                 }
                 .disabled(viewModel.isLoading)
 
-                // `.navigationBarTrailing` is the original's own `#if os(iOS)` arm, restored: it is a
-                // UIKit-only toolbar placement and this file is in the shared `ApplicationLibrary`
-                // target, which is built for macOS too. The migration resolved the guard away and kept
-                // the arm, which asks the macOS compiler to parse a placement it does not have.
-                #if os(iOS)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("Save") {
-                                viewModel.isLoading = true
-                                Task {
-                                    await viewModel.saveProfile(profile, environments: environments)
-                                }
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Save") {
+                            viewModel.isLoading = true
+                            Task {
+                                await viewModel.saveProfile(profile, environments: environments)
                             }
-                            .disabled(!viewModel.isChanged)
-                            // The same primary treatment the creation page's button uses, so the
-                            // page's action looks the same before and after a configuration exists -
-                            // the review's "the two states must not maintain two button layouts".
-                            .hakoPrimaryActionButtonStyle()
                         }
+                        .disabled(!viewModel.isChanged)
+                        // The same primary treatment the creation page's button uses, so the
+                        // page's action looks the same before and after a configuration exists -
+                        // the review's "the two states must not maintain two button layouts".
+                        .hakoPrimaryActionButtonStyle()
                     }
-                #endif
+                }
 
                 .alert($viewModel.alert)
                 .navigationTitle("Edit Profile")

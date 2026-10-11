@@ -399,29 +399,18 @@ def main() -> int:
 
     failures: list[str] = []
     try:
-        # 1. The unmutated copy must pass everything except the checks that are **known to be open** and
-        #    are enumerated below with their reason, and the migration count, which is incomplete on
-        #    purpose and says so through `--allow-partial`.
-        #
-        #    The list is empty, and that is the point of keeping it: `platform-guard-agreement` was on it
-        #    while the twenty-nine findings it produced were being worked through, and the round fixed all
-        #    of them. A positive case that tolerated any failure would stop being a check, so the set is
-        #    named rather than implied - an entry here has to be justified in a commit message.
-        KNOWN_OPEN: set[str] = set()
+        # 1. The unmutated copy must pass everything except the migration count, which is incomplete
+        #    on purpose and says so through `--allow-partial`.
         code, payload = run_audit(copy, allow_partial=True)
         states = statuses(payload)
         failing = sorted(name for name, state in states.items() if state == "FAIL")
-        unexpected = [name for name in failing if name not in KNOWN_OPEN]
-        if code != 0 or unexpected:
-            failures.append(f"positive: the unmutated copy did not pass (exit {code}, failures {failing}, "
-                            f"of which unexpected: {unexpected})")
-            print(f"[FAIL] positive: unmutated copy (exit {code}, failures {failing}, "
-                  f"unexpected {unexpected})")
+        if code != 0 or failing:
+            failures.append(f"positive: the unmutated copy did not pass (exit {code}, failures {failing})")
+            print(f"[FAIL] positive: unmutated copy (exit {code}, failures {failing})")
         else:
             unknown = sorted(name for name, state in states.items() if state == "UNKNOWN")
             print(f"[ ok ] positive: unmutated copy passes all {len(states)} checks "
-                  f"({len(unknown)} UNKNOWN: {', '.join(unknown) or 'none'}; "
-                  f"{len(failing)} known open: {', '.join(failing) or 'none'})")
+                  f"({len(unknown)} UNKNOWN: {', '.join(unknown) or 'none'})")
 
         # 2. The page count must be a failure without the flag, or an unfinished migration could be
         #    mistaken for a finished one.

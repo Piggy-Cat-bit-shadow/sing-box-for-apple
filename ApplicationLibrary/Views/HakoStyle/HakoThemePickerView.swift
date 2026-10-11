@@ -2,7 +2,7 @@
 //  HakoThemePickerView.swift
 //  ApplicationLibrary
 //
-//  The phone's copy of `ApplicationLibrary/Views/Terminal/ThemePickerView.swift`, from `hako-ui` @ `c1935cf`.
+//  The phone's copy of `ApplicationLibrary/Views/Terminal/HakoThemePickerView.swift`, from `hako-ui` @ `c1935cf`.
 //
 //  A copy rather than an edit, because that file is upstream's and an iPad or a Mac loads it
 //  too. Every module-scope type it declares is renamed into the Hako namespace and the phone's
@@ -13,97 +13,108 @@
 //
 
 
-//  The file-level `#if canImport(GhosttyTerminal)` is the original's and is load-bearing: `GhosttyTheme` carries `platformFilters = (ios, macos, )` in `sing-box.xcodeproj/project.pbxproj`, so it is not linked for tvOS, and this file reads `GhosttyThemeDefinition` and `GhosttyThemeCatalog` unconditionally. Restored by `scripts/dev/restore_picker_guards.py`; the nested enum's rename to `HakoScheme` is this fork's and is kept.
-//
-#if canImport(GhosttyTerminal)
-        import GhosttyTheme
-        import SwiftUI
-        public struct HakoThemePickerView: View {
-            public enum HakoScheme: Sendable {
-                case light
-                case dark
-                var navigationTitle: String {
-                    switch self {
-                    case .light: NSLocalizedString("Light Theme", comment: "")
-                    case .dark: NSLocalizedString("Dark Theme", comment: "")
-                    }
-                }
-                var isDark: Bool {
-                    self == .dark
+    import GhosttyTheme
+    import SwiftUI
+
+    public struct HakoThemePickerView: View {
+        public enum HakoScheme: Sendable {
+            case light
+            case dark
+
+            var navigationTitle: String {
+                switch self {
+                case .light: NSLocalizedString("Light Theme", comment: "")
+                case .dark: NSLocalizedString("Dark Theme", comment: "")
                 }
             }
-            private let scheme: HakoScheme
-            private let pool: [GhosttyThemeDefinition]
-            private let onSelect: (String) -> Void
-            @State private var selected: String
-            @State private var searchText: String = ""
-            @Environment(\.dismiss) private var dismiss
-            public init(scheme: HakoScheme, currentName: String, onSelect: @escaping (String) -> Void) {
-                self.scheme = scheme
-                self.onSelect = onSelect
-                _selected = State(initialValue: currentName)
-                pool = GhosttyThemeCatalog.allThemes
-                    .filter { scheme.isDark ? $0.isDark : !$0.isDark }
-                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+            var isDark: Bool {
+                self == .dark
             }
-            public var body: some View {
-                List {
-                    if searchText.isEmpty {
-                        ForEach(groupedKeys, id: \.self) { letter in
-                            Section(letter) {
-                                ForEach(grouped[letter] ?? []) { theme in
-                                    themeRow(theme)
-                                }
-                            }
-                        }
-                    } else {
-                        Section("Themes") {
-                            ForEach(filteredThemes) { theme in
+        }
+
+        private let scheme: HakoScheme
+        private let pool: [GhosttyThemeDefinition]
+        private let onSelect: (String) -> Void
+
+        @State private var selected: String
+        @State private var searchText: String = ""
+        @Environment(\.dismiss) private var dismiss
+
+        public init(scheme: HakoScheme, currentName: String, onSelect: @escaping (String) -> Void) {
+            self.scheme = scheme
+            self.onSelect = onSelect
+            _selected = State(initialValue: currentName)
+            pool = GhosttyThemeCatalog.allThemes
+                .filter { scheme.isDark ? $0.isDark : !$0.isDark }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+
+        public var body: some View {
+            List {
+                if searchText.isEmpty {
+                    ForEach(groupedKeys, id: \.self) { letter in
+                        Section(letter) {
+                            ForEach(grouped[letter] ?? []) { theme in
                                 themeRow(theme)
                             }
                         }
                     }
-                }
-                .searchable(text: $searchText)
-                .navigationTitle(scheme.navigationTitle)
-                    #if !os(macOS)
-                    .navigationBarTitleDisplayMode(.inline)
-                    #endif
-            }
-            private func themeRow(_ theme: GhosttyThemeDefinition) -> some View {
-                Button {
-                    select(theme.name)
-                } label: {
-                    HStack {
-                        Text(theme.name)
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        HakoSelectionMark(isSelected: selected == theme.name)
+                } else {
+                    Section("Themes") {
+                        ForEach(filteredThemes) { theme in
+                            themeRow(theme)
+                        }
                     }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
-            private var filteredThemes: [GhosttyThemeDefinition] {
-                let query = searchText.lowercased()
-                return pool.filter { $0.name.lowercased().contains(query) }
-            }
-            private var grouped: [String: [GhosttyThemeDefinition]] {
-                var result: [String: [GhosttyThemeDefinition]] = [:]
-                for theme in pool {
-                    let first = theme.name.first.map(String.init)?.uppercased() ?? "#"
-                    let key = first.first?.isLetter == true ? first : "#"
-                    result[key, default: []].append(theme)
-                }
-                return result
-            }
-            private var groupedKeys: [String] {
-                grouped.keys.sorted()
-            }
-            private func select(_ name: String) {
-                selected = name
-                onSelect(name)
-                dismiss()
-            }
+            .searchable(text: $searchText)
+            .navigationTitle(scheme.navigationTitle)
+
+                #if !os(macOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+
         }
-#endif
+
+        private func themeRow(_ theme: GhosttyThemeDefinition) -> some View {
+            Button {
+                select(theme.name)
+            } label: {
+                HStack {
+                    Text(theme.name)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    HakoSelectionMark(isSelected: selected == theme.name)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+
+        private var filteredThemes: [GhosttyThemeDefinition] {
+            let query = searchText.lowercased()
+            return pool.filter { $0.name.lowercased().contains(query) }
+        }
+
+        private var grouped: [String: [GhosttyThemeDefinition]] {
+            var result: [String: [GhosttyThemeDefinition]] = [:]
+            for theme in pool {
+                let first = theme.name.first.map(String.init)?.uppercased() ?? "#"
+                let key = first.first?.isLetter == true ? first : "#"
+                result[key, default: []].append(theme)
+            }
+            return result
+        }
+
+        private var groupedKeys: [String] {
+            grouped.keys.sorted()
+        }
+
+        private func select(_ name: String) {
+            selected = name
+            onSelect(name)
+            dismiss()
+        }
+    }
+

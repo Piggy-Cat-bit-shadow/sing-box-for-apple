@@ -145,34 +145,24 @@ private struct HakoLogViewContent: View {
         }
 
         private var logMenu: AnyView {
-            // The original's own condition, restored: the outer gate is `#if !os(tvOS)` because
-            // `HakoLogMenuView` is declared under that condition - as the original's `LogMenuView` is, at
-            // `up-hako@c1935cf .../Log/LogView.swift:153-335` - and the inner `#if canImport(UIKit)` is what
-            // selects between the `UIViewRepresentable` button and the plain menu. Two conditions, one
-            // question each: the outer one is "does this type exist here", the inner one is "which variant".
-            // Gating only on `canImport(UIKit)` asked the tvOS compiler for `HakoLogMenuView`, which does not
-            // exist there.
-            #if !os(tvOS)
-                #if canImport(UIKit)
-                    if #available(iOS 16.0, *) {
-                        return AnyView(HakoLogMenuButton(
-                            viewModel: viewModel,
-                            remoteServers: remoteServers,
-                            activeRemoteServerID: environments.remoteServer?.id,
-                            onSelectLocalDevice: { environments.exitRemoteControl() },
-                            onSelectRemoteServer: { server in
-                                guard environments.remoteServer?.id != server.id else { return }
-                                environments.enterRemoteControl(server)
-                            }
-                        ))
-                    } else {
-                        // UIViewRepresentable views collapse to zero size in iOS 15 toolbars
-                        return AnyView(HakoLogMenuView(viewModel: viewModel, remoteServers: remoteServers))
-                    }
-                #else
-                    return AnyView(HakoLogMenuView(viewModel: viewModel))
-                #endif
-            #endif
+
+                if #available(iOS 16.0, *) {
+                    return AnyView(HakoLogMenuButton(
+                        viewModel: viewModel,
+                        remoteServers: remoteServers,
+                        activeRemoteServerID: environments.remoteServer?.id,
+                        onSelectLocalDevice: { environments.exitRemoteControl() },
+                        onSelectRemoteServer: { server in
+                            guard environments.remoteServer?.id != server.id else { return }
+                            environments.enterRemoteControl(server)
+                        }
+                    ))
+                } else {
+                    // UIViewRepresentable views collapse to zero size in iOS 15 toolbars
+                    return AnyView(HakoLogMenuView(viewModel: viewModel, remoteServers: remoteServers))
+                }
+
+
         }
 
 
@@ -305,79 +295,67 @@ private struct HakoLogViewContent: View {
         #endif
 
 
-    // `#if !os(tvOS)`, as the original has it (`up-hako@c1935cf .../Log/LogView.swift:153-335`: the
-    // condition opens at `:153` and closes at `:335`, one line past this struct's closing brace).
-    // `RemoteControlMenuItems`, used at the end of `body`, is declared under `os(iOS) || os(macOS)`
-    // (`ApplicationLibrary/Views/RemoteControl/RemoteControlMenuItems.swift:5`), so that one line takes the
-    // narrower condition of its own - recorded there rather than widened here.
-    #if !os(tvOS)
-        private struct HakoLogMenuView: View {
-            let viewModel: LogViewModel
-            var remoteServers: [RemoteServer] = []
+    private struct HakoLogMenuView: View {
+        let viewModel: LogViewModel
+        var remoteServers: [RemoteServer] = []
 
-            var body: some View {
-                Menu {
-                    if #unavailable(iOS 16.0) {
-                        // iOS 15 renders a bare Picker inline; wrap it to match the iOS 16+ submenu
-                        Menu {
-                            logLevelPicker
-                        } label: {
-                            Label("Log Level", systemImage: "slider.horizontal.3")
-                        }
-                    } else {
-                        logLevelPicker
-                    }
+        var body: some View {
+            Menu {
+                if #unavailable(iOS 16.0) {
+                    // iOS 15 renders a bare Picker inline; wrap it to match the iOS 16+ submenu
                     Menu {
-                        Button {
-                            viewModel.dataModel.copyToClipboard()
-                        } label: {
-                            Label("To Clipboard", systemImage: "doc.on.clipboard")
-                        }
-                        Button {
-                            viewModel.dataModel.prepareLogFile()
-                            viewModel.dataModel.showFileExporter = true
-                        } label: {
-                            Label("To File", systemImage: "arrow.down.doc")
-                        }
-                        Button {
-                            viewModel.dataModel.prepareLogFile()
-                        } label: {
-                            Label("Share", systemImage: "square.and.arrow.up")
-                        }
+                        logLevelPicker
                     } label: {
-                        Label("Save", systemImage: "square.and.arrow.down")
+                        Label("Log Level", systemImage: "slider.horizontal.3")
                     }
-                    Button(role: .destructive) {
-                        viewModel.dataModel.clearLogs()
-                    } label: {
-                        Label(NSLocalizedString("Clear Logs", comment: "Clear all logs"), systemImage: "trash")
-                    }
-                    // `RemoteControlMenuItems` is declared under `os(iOS) || os(macOS)`
-                    // (`.../RemoteControl/RemoteControlMenuItems.swift:5`), which is narrower than this
-                    // struct's own `#if !os(tvOS)`, so the row takes its declaration's condition.
-                    #if os(iOS) || os(macOS)
-                        RemoteControlMenuItems(servers: remoteServers)
-                    #endif
-                } label: {
-                    Label("Others", systemImage: "line.3.horizontal.circle")
+                } else {
+                    logLevelPicker
                 }
-            }
-
-            private var logLevelPicker: some View {
-                Picker(selection: Binding(
-                    get: { viewModel.selectedLogLevel },
-                    set: { viewModel.selectedLogLevel = $0 }
-                )) {
-                    Text(NSLocalizedString("Default", comment: "Log level filter default option")).tag(Int?.none)
-                    ForEach(LogLevel.allCases) { level in
-                        Text(level.name).tag(Int?.some(level.rawValue))
+                Menu {
+                    Button {
+                        viewModel.dataModel.copyToClipboard()
+                    } label: {
+                        Label("To Clipboard", systemImage: "doc.on.clipboard")
+                    }
+                    Button {
+                        viewModel.dataModel.prepareLogFile()
+                        viewModel.dataModel.showFileExporter = true
+                    } label: {
+                        Label("To File", systemImage: "arrow.down.doc")
+                    }
+                    Button {
+                        viewModel.dataModel.prepareLogFile()
+                    } label: {
+                        Label("Share", systemImage: "square.and.arrow.up")
                     }
                 } label: {
-                    Label("Log Level", systemImage: "slider.horizontal.3")
+                    Label("Save", systemImage: "square.and.arrow.down")
                 }
+                Button(role: .destructive) {
+                    viewModel.dataModel.clearLogs()
+                } label: {
+                    Label(NSLocalizedString("Clear Logs", comment: "Clear all logs"), systemImage: "trash")
+                }
+                RemoteControlMenuItems(servers: remoteServers)
+            } label: {
+                Label("Others", systemImage: "line.3.horizontal.circle")
             }
         }
-    #endif
+
+        private var logLevelPicker: some View {
+            Picker(selection: Binding(
+                get: { viewModel.selectedLogLevel },
+                set: { viewModel.selectedLogLevel = $0 }
+            )) {
+                Text(NSLocalizedString("Default", comment: "Log level filter default option")).tag(Int?.none)
+                ForEach(LogLevel.allCases) { level in
+                    Text(level.name).tag(Int?.some(level.rawValue))
+                }
+            } label: {
+                Label("Log Level", systemImage: "slider.horizontal.3")
+            }
+        }
+    }
 
 
 private struct HakoLogContentInnerView: View {
@@ -532,17 +510,10 @@ private struct HakoLogContentInnerView: View {
                 }
                 .sheet(isPresented: $showShareSheet) {
                     if let url = dataModel.logFileURL {
-                        // The original's own split, restored. The migration kept an iOS-only declaration
-                        // and dropped the reference's guard, so macOS was asked to parse a reference to a
-                        // type the macOS SDK does not provide. The macOS arm is the original's, renamed
-                        // into the Hako namespace the same way its sibling was: a guarded reference with an
-                        // empty sheet on macOS would compile and present nothing, which is not the
-                        // original's behaviour and not an acceptable substitute for it.
-                        #if canImport(UIKit)
+
                             HakoShareViewController(activityItems: [url])
-                        #elseif canImport(AppKit)
-                            HakoShareView(items: [url], alert: $alert)
-                        #endif
+
+
                     }
                 }
                 .onChange(of: dataModel.logFileURL) { newValue in
@@ -594,39 +565,6 @@ private struct HakoLogContentInnerView: View {
             }
 
             func updateUIViewController(_: UIActivityViewController, context _: Context) {}
-        }
-        #elseif canImport(AppKit)
-        /// The macOS arm of the original's share presentation
-        /// (`up-hako@c1935cf .../Log/LogView.swift:626-652`), renamed into the Hako namespace.
-        ///
-        /// The migration kept the iOS declaration and dropped this one, together with the reference's
-        /// guard, so macOS had neither a valid reference nor anything to present.
-        private struct HakoShareView: NSViewRepresentable {
-            let items: [Any]
-            @Binding var alert: AlertState?
-
-            func makeNSView(context _: Context) -> NSView {
-                NSView()
-            }
-
-            func updateNSView(_ nsView: NSView, context: Context) {
-                // updateNSView re-runs whenever the observed data model publishes;
-                // the picker must only be presented once per sheet appearance.
-                guard !context.coordinator.didShowPicker else { return }
-                context.coordinator.didShowPicker = true
-                let picker = NSSharingServicePicker(items: items)
-                DispatchQueue.main.async {
-                    picker.show(relativeTo: .zero, of: nsView, preferredEdge: .minY)
-                }
-            }
-
-            func makeCoordinator() -> Coordinator {
-                Coordinator()
-            }
-
-            final class Coordinator {
-                var didShowPicker = false
-            }
         }
         #endif
 

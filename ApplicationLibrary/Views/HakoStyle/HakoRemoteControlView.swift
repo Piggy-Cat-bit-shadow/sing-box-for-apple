@@ -2,7 +2,7 @@
 //  HakoRemoteControlView.swift
 //  ApplicationLibrary
 //
-//  The phone's copy of `ApplicationLibrary/Views/RemoteControl/RemoteControlView.swift`, from `hako-ui` @ `c1935cf`.
+//  The phone's copy of `ApplicationLibrary/Views/RemoteControl/HakoRemoteControlView.swift`, from `hako-ui` @ `c1935cf`.
 //
 //  A copy rather than an edit, because that file is upstream's and an iPad or a Mac loads it
 //  too. Every module-scope type it declares is renamed into the Hako namespace and the phone's
@@ -122,12 +122,6 @@ public struct HakoRemoteControlView: View {
                     EditRemoteServerView(server) {
                         await reload()
                     }
-                    // The close, attached to the content: `ProfileSheetHelpers.swift` is official bytes
-                    // again and its `NavigationSheet` no longer grows a Hako button an iPad would compile,
-                    // so every phone modal carries its own. This was the one of five `NavigationSheet`
-                    // sites on the phone path missing it - More -> Remote Control -> "+" or a server row
-                    // opened a sheet with no way back out.
-                    .hakoModalClose()
                 }
 
         }

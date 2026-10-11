@@ -2,7 +2,7 @@
 //  HakoGroupItemView.swift
 //  ApplicationLibrary
 //
-//  The phone's copy of `ApplicationLibrary/Views/Groups/GroupItemView.swift`, from `hako-ui` @ `c1935cf`.
+//  The phone's copy of `ApplicationLibrary/Views/Groups/HakoGroupItemView.swift`, from `hako-ui` @ `c1935cf`.
 //
 //  A copy rather than an edit, because that file is upstream's and an iPad or a Mac loads it
 //  too. Every module-scope type it declares is renamed into the Hako namespace and the phone's
@@ -92,15 +92,9 @@ public struct HakoGroupItemView: View {
     }
 
     private var itemBackground: Color {
-        // The original's three-way split, restored. The migration resolved `#if os(iOS)` and kept its arm,
-        // which left `Color(uiColor:)` - a UIKit initialiser - as the only arm of a file the shared
-        // `ApplicationLibrary` target also builds for macOS and tvOS.
-        #if os(iOS)
+
             return Color(uiColor: .systemGroupedBackground)
-        #elseif os(macOS)
-            return Color(nsColor: .windowBackgroundColor)
-        #else
-            return Color.clear
-        #endif
+
+
     }
 }
