@@ -73,6 +73,20 @@
         func recordLockState(locked: Bool) {
             commandServer?.recordLockState(locked)
         }
+
+        /// The LEVEL half of the pair, and the one P1-C needed.
+        ///
+        /// A separate core entry point rather than a flag on the method above, because the two are
+        /// different facts and not a refinement of one: `recordScreenState` says a transition
+        /// happened and a new measurement begins, this says what the display is doing now and no
+        /// measurement may move. Collapsing them into one two-valued call is what the defect was.
+        func reconcileScreenState(on: Bool) {
+            commandServer?.reconcileScreenState(on)
+        }
+
+        func reconcileLockState(locked: Bool) {
+            commandServer?.reconcileLockState(locked)
+        }
     }
 
     extension ScreenStateObserver {

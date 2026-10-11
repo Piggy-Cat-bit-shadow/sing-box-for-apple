@@ -66,15 +66,17 @@ protocol DarwinNotifyAPI: AnyObject {
 
 /// What the observer is allowed to tell the core.
 ///
-/// A one-to-one mirror of the two `LibboxCommandServer` record methods and deliberately nothing
-/// more:
+/// A one-to-one mirror of the `LibboxCommandServer` record methods, and deliberately nothing more:
 ///
 ///   * `recordScreenState(on:)` -> `CommandServer.RecordScreenState` -> `Box.ScreenStateChanged`
 ///   * `recordLockState(locked:)` -> `CommandServer.RecordLockState` -> `Box.LockStateChanged`
+///   * `reconcileScreenState(on:)` -> `CommandServer.ReconcileScreenState` -> `Box.ReconcileScreenState`
+///   * `reconcileLockState(locked:)` -> `CommandServer.ReconcileLockState` -> `Box.ReconcileLockState`
 ///
-/// Both take a `BOOL`, so the bridge is two-valued. It cannot carry "unknown", and that is why the
-/// policy for a read that failed is "publish nothing at all" rather than "publish a third value" -
-/// see `ScreenStatePolicy.decide`.
+/// The first pair are EDGES and the second pair are LEVELS, and the split is the whole of the P1-C
+/// fix - see `ScreenStateDelivery`. Both still take a `BOOL`, so the bridge remains two-valued per
+/// method and still cannot carry "unknown"; that is why the policy for a read that failed is "publish
+/// nothing at all" rather than "publish a third value" - see `ScreenStatePolicy.decide`.
 ///
 /// `WakeNow` is deliberately absent. On the core this client targets, an unlock is the device wake
 /// (`Box.LockStateChanged(false)` -> `lifecycle.woke()`, edge plus LEVEL release), while the display
@@ -82,8 +84,15 @@ protocol DarwinNotifyAPI: AnyObject {
 /// `lifecycle.resumed()` only, because a push notification lights the lock screen). A publisher that
 /// offered `wakeNow()` would be offering a way to turn a lit lock screen into a wake storm.
 protocol ScreenStatePublishing: AnyObject {
+    /// EDGE plus LEVEL: the system witnessed this transition, so a new sleep begins.
     func recordScreenState(on: Bool)
+    /// EDGE plus LEVEL. `false` is the only fact that releases the level.
     func recordLockState(locked: Bool)
+    /// LEVEL only: a current-state read found the display in this state. Never moves an anchor.
+    func reconcileScreenState(on: Bool)
+    /// LEVEL only: a current-state read found the device in this lock state. Never moves an anchor,
+    /// and the core refuses the unlock direction outright.
+    func reconcileLockState(locked: Bool)
 }
 
 /// The four facts the observer can establish, named for what the core does with them.
@@ -200,7 +209,47 @@ enum ScreenStateStartResult: Equatable {
     }
 }
 
-/// The result of one observation: what to remember, and what (if anything) to publish.
+/// How a fact may be delivered to the core, which is the one thing the two-valued bridge cannot say
+/// for itself.
+///
+/// This type exists because P1-C was a fact published through the wrong verb. The core has two
+/// vocabularies for a sleep and they are not interchangeable:
+///
+///   * `recordScreenState(on:)` / `recordLockState(locked:)` reach `lifecycle.slept()`, which
+///     publishes a sleep EDGE (`governor.SleepStarted()`) and then the LEVEL. An edge is what starts
+///     a new reuse measurement and moves its anchor - correct for a transition the system witnessed.
+///   * `reconcileScreenState(on:)` / `reconcileLockState(locked:)` reach the LEVEL only. The level is
+///     idempotent, so a restatement of a state the core already holds changes nothing and cannot move
+///     an anchor.
+///
+/// The provenance was already known here and stopped at this type's doorstep: a `.snapshot` was
+/// allowed to publish a sleep fact, and `publish` had no way to say that the fact was a re-read
+/// rather than a transition, so it took the edge path. That is exactly the defect - the client
+/// re-reads both names on every NetworkExtension resume, *after* waking the core, so the edge from
+/// the re-read arrives with a resume already noted and re-anchors the measurement the resume had just
+/// published. See `ScreenStatePolicy.decide` and `wake()` in `ExtensionProvider`.
+enum ScreenStateDelivery: Equatable {
+    /// A transition the system witnessed and delivered. EDGE plus LEVEL in the core: a new sleep, a
+    /// new measurement.
+    case edge
+    /// A current-state read taken outside a callback. LEVEL only: it may establish that the device is
+    /// not in use and may never move a measurement's anchor.
+    case level
+
+    /// The delivery a given provenance implies. Total, so a new provenance cannot default to the
+    /// destructive one.
+    init(provenance: ScreenStateProvenance) {
+        switch provenance {
+        case .event:
+            self = .edge
+        case .snapshot:
+            self = .level
+        }
+    }
+}
+
+/// The result of one observation: what to remember, what (if anything) to publish, and how that
+/// publication may be delivered.
 struct ScreenStateDecision: Equatable {
     /// The raw value to remember as this source's last observation, or `nil` when the read
     /// established nothing and what was known before must be kept.
@@ -208,6 +257,9 @@ struct ScreenStateDecision: Equatable {
     /// The fact to publish, or `nil` when nothing may be published. `nil` is how this code spells
     /// "unknown": the bridge has no third value to send.
     let publish: ScreenFact?
+    /// How `publish` may be delivered. Carried on the decision rather than recomputed at the call
+    /// site so the rule is one pure function that the tests can pin without an observer.
+    let delivery: ScreenStateDelivery
 }
 
 /// The whole policy, as a pure function, so every failure path is exercisable without a device.
@@ -236,26 +288,37 @@ enum ScreenStatePolicy {
     ///    indistinguishable from the never-set `0` rule 4 refuses on a snapshot - so it is refused
     ///    on an event too. The value is still remembered, so the next read is measured against it
     ///    and a genuine lock-then-unlock still publishes.
+    /// 6. Whatever survives the rules above is delivered as the provenance it came from: an `.event`
+    ///    as an EDGE, a `.snapshot` as a LEVEL. Rule 4 already limits a snapshot to sleep facts, and
+    ///    this is the other half of the same idea - such a fact is a restatement of the current
+    ///    state, so the core is told to reconcile the level rather than to begin a new measurement.
+    ///    Delivering a snapshot as an edge is the P1-C defect: the client re-reads on every
+    ///    NetworkExtension resume, after the core has been woken, so the edge lands with a resume
+    ///    already noted and moves the anchor of the measurement that resume had just published.
     static func decide(read: NotifyStateRead,
                        source: ScreenStateSource,
                        provenance: ScreenStateProvenance,
                        lastObserved: UInt64?) -> ScreenStateDecision {
+        let delivery = ScreenStateDelivery(provenance: provenance)
+        func establishingNothing() -> ScreenStateDecision {
+            ScreenStateDecision(rememberValue: nil, publish: nil, delivery: delivery)
+        }
         guard case let .value(raw) = read else {
-            return ScreenStateDecision(rememberValue: nil, publish: nil)
+            return establishingNothing()
         }
         guard let fact = source.fact(for: raw) else {
-            return ScreenStateDecision(rememberValue: nil, publish: nil)
+            return establishingNothing()
         }
         if lastObserved == raw {
-            return ScreenStateDecision(rememberValue: raw, publish: nil)
+            return ScreenStateDecision(rememberValue: raw, publish: nil, delivery: delivery)
         }
         if provenance == .snapshot, !fact.isSleep {
-            return ScreenStateDecision(rememberValue: raw, publish: nil)
+            return ScreenStateDecision(rememberValue: raw, publish: nil, delivery: delivery)
         }
         if fact == .unlocked, lastObserved != 1 {
-            return ScreenStateDecision(rememberValue: raw, publish: nil)
+            return ScreenStateDecision(rememberValue: raw, publish: nil, delivery: delivery)
         }
-        return ScreenStateDecision(rememberValue: raw, publish: fact)
+        return ScreenStateDecision(rememberValue: raw, publish: fact, delivery: delivery)
     }
 }
 
@@ -532,28 +595,48 @@ final class ScreenStateObserver {
         guard let fact = decision.publish else {
             return
         }
-        publish(fact)
+        publish(fact, as: decision.delivery)
     }
 
     /// The state table, in code:
     ///
-    ///     locked=1   -> recordLockState(true)   -> Box.LockStateChanged(true)  -> slept()   (LEVEL pause)
-    ///     unlocked=0 -> recordLockState(false)  -> Box.LockStateChanged(false) -> woke()    (LEVEL wake)
-    ///     display=on -> recordScreenState(true) -> Box.ScreenStateChanged(true) -> resumed() (EDGE only)
-    ///     display=off-> recordScreenState(false)-> Box.ScreenStateChanged(false)-> slept()   (LEVEL pause)
+    ///     EDGE (a transition the system delivered)
+    ///     locked=1    -> recordLockState(true)    -> Box.LockStateChanged(true)    -> slept()     (EDGE + LEVEL)
+    ///     unlocked=0  -> recordLockState(false)   -> Box.LockStateChanged(false)   -> woke()      (EDGE + LEVEL wake)
+    ///     display=on  -> recordScreenState(true)  -> Box.ScreenStateChanged(true)  -> resumed()   (EDGE only)
+    ///     display=off -> recordScreenState(false) -> Box.ScreenStateChanged(false) -> slept()     (EDGE + LEVEL)
+    ///
+    ///     LEVEL (a current-state read; rule 4 limits it to the sleep facts)
+    ///     locked=1    -> reconcileLockState(true)    -> Box.ReconcileLockState(true)    -> DevicePause() (LEVEL only)
+    ///     display=off -> reconcileScreenState(false) -> Box.ReconcileScreenState(false) -> DevicePause() (LEVEL only)
+    ///
+    /// The delivery is a parameter rather than something this method re-derives, so the rule lives in
+    /// one place - `ScreenStatePolicy.decide` - and is asserted there by the tests. The switch below
+    /// is exhaustive over the pair, so a sleep fact can never reach an edge entry point from a
+    /// snapshot again: that combination does not compile its way to `recordScreenState`.
     ///
     /// There is no path to `wakeNow()`: an unlock already publishes the wake, and a display going on
     /// must not.
-    private func publish(_ fact: ScreenFact) {
-        switch fact {
-        case .displayOn:
+    private func publish(_ fact: ScreenFact, as delivery: ScreenStateDelivery) {
+        switch (fact, delivery) {
+        case (.displayOn, .edge):
             publisher.recordScreenState(on: true)
-        case .displayOff:
+        case (.displayOff, .edge):
             publisher.recordScreenState(on: false)
-        case .locked:
+        case (.locked, .edge):
             publisher.recordLockState(locked: true)
-        case .unlocked:
+        case (.unlocked, .edge):
             publisher.recordLockState(locked: false)
+        case (.displayOff, .level):
+            publisher.reconcileScreenState(on: false)
+        case (.locked, .level):
+            publisher.reconcileLockState(locked: true)
+        case (.displayOn, .level), (.unlocked, .level):
+            // Unreachable: rule 4 refuses a wake fact from a snapshot, and rule 5 refuses an unlock
+            // whose prior value was not observed. Spelled out rather than folded into `default` so
+            // that a future case has to be classified instead of silently landing here - and
+            // publishing nothing is the safe half of the mistake if one ever does.
+            break
         }
     }
 

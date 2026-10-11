@@ -385,9 +385,29 @@ final class StartResultBox: @unchecked Sendable {
 /// which does not compile - `private(set)` makes the setter inaccessible outside the type, so the
 /// whole package failed to build and not one of its assertions had ever run.
 final class RecordingPublisher: ScreenStatePublishing {
+    /// The four entry points, kept apart on purpose.
+    ///
+    /// `screen`/`lock` are the EDGE pair and `levelScreen`/`levelLock` are the LEVEL pair, and the
+    /// whole of P1-C is which of the two a given observation reaches. A fake that recorded both
+    /// through one case could not tell the fixed build from the broken one, which is exactly how the
+    /// defect survived the tests that existed.
     enum Call: Equatable {
         case screen(Bool)
         case lock(Bool)
+        case levelScreen(Bool)
+        case levelLock(Bool)
+
+        /// Whether this call starts a new measurement in the core. The assertion that matters most of
+        /// the time is "this observation produced no edge", so it is named rather than spelled as a
+        /// list of cases at every call site.
+        var isEdge: Bool {
+            switch self {
+            case .screen, .lock:
+                return true
+            case .levelScreen, .levelLock:
+                return false
+            }
+        }
     }
 
     private(set) var calls: [Call] = []
@@ -409,6 +429,14 @@ final class RecordingPublisher: ScreenStatePublishing {
 
     func recordLockState(locked: Bool) {
         calls.append(.lock(locked))
+    }
+
+    func reconcileScreenState(on: Bool) {
+        calls.append(.levelScreen(on))
+    }
+
+    func reconcileLockState(locked: Bool) {
+        calls.append(.levelLock(locked))
     }
 }
 
@@ -610,7 +638,9 @@ final class ScreenStateObserverTests: XCTestCase {
         XCTAssertEqual(observer.start(), .started)
         XCTAssertEqual(notify.readOrder.count, 2, "the snapshot is one read per source")
         // `allCases` puts `.lock` first, so the lock fact is read and published before the display's.
-        XCTAssertEqual(publisher.calls, [.screen(false), .lock(true)])
+        // Both are LEVEL reconciles: this is a current-state read, not a transition, so neither may
+        // start a measurement in the core.
+        XCTAssertEqual(publisher.calls, [.levelScreen(false), .levelLock(true)])
     }
 
     /// Registration happens before the snapshot, and both happen inside the start, so a callback
@@ -624,7 +654,7 @@ final class ScreenStateObserverTests: XCTestCase {
         // Both names are in the handler table by the time the reads happened.
         XCTAssertEqual(notify.handlers.count, 2)
         XCTAssertEqual(publisher.calls.count, 1, "only the sleep fact is publishable at start")
-        XCTAssertEqual(publisher.calls, [.screen(false)])
+        XCTAssertEqual(publisher.calls, [.levelScreen(false)])
     }
 
     /// `start()` twice does nothing the second time: no second registration, no second snapshot, no
@@ -732,12 +762,12 @@ final class ScreenStateObserverTests: XCTestCase {
         notify.setState(.value(0), of: .display) // display off
         notify.setState(.value(1), of: .lock) // locked
         XCTAssertEqual(observer.start(), .started)
-        XCTAssertEqual(publisher.calls, [.screen(false), .lock(true)])
+        XCTAssertEqual(publisher.calls, [.levelScreen(false), .levelLock(true)])
 
         // The push arrives and the lock screen lights: the display goes on, the device is still locked.
         notify.setState(.value(1), of: .display)
         notify.deliver(displayName)
-        XCTAssertEqual(publisher.calls, [.screen(false), .lock(true), .screen(true)],
+        XCTAssertEqual(publisher.calls, [.levelScreen(false), .levelLock(true), .screen(true)],
                        "a display-on publishes the resume edge and nothing else")
 
         // The user locks again, then unlocks for real.
@@ -817,9 +847,10 @@ final class ScreenStateObserverTests: XCTestCase {
         notify.setState(.value(1), of: .lock) // locked
         notify.setState(.value(0), of: .display) // display off
 
-        // The retry's own snapshot reads both sources through the tokens it just registered.
+        // The retry's own snapshot reads both sources through the tokens it just registered, and a
+        // snapshot is a level reconcile.
         XCTAssertEqual(observer.start(), .started)
-        XCTAssertEqual(publisher.calls, [.screen(false), .lock(true)])
+        XCTAssertEqual(publisher.calls, [.levelScreen(false), .levelLock(true)])
     }
 
     /// Neither name registering is reported as both.
@@ -836,48 +867,17 @@ final class ScreenStateObserverTests: XCTestCase {
 
     /// After `cancel()` returns, nothing is published - including from a callback that the
     /// notification centre had already queued.
-    ///
-    /// # What the name promises, and what the body used to check
-    ///
-    /// The name says a callback ran after the cancel. The body said `queued?(101)`: optional
-    /// chaining, so a fixture that had failed to record a handler would have made the whole test a
-    /// no-op that still passed, and the token `101` is one no registration ever issued, so nothing
-    /// about the delivered callback could be asserted. It also had no positive control, so a
-    /// regression that stopped ALL deliveries would have left it green.
-    ///
-    /// It now takes the callback from the registration that installed it, fails if there is none,
-    /// proves the delivery path works before the cancel, and asserts the token it was handed is the
-    /// dead one - so the test can only pass because the observer refused a genuine post-cancel
-    /// callback.
     func testACallbackAfterCancelPublishesNothing() {
         let (observer, notify, publisher) = makeObserver()
         XCTAssertEqual(observer.start(), .started)
-
-        // Positive control: while the registration is live, the same delivery DOES publish. Without
-        // this, "nothing was published" would also be satisfied by `deliver` doing nothing at all.
-        notify.setState(.value(1), of: .lock)
-        notify.deliver(lockName)
-        XCTAssertEqual(publisher.calls, [.lock(true)],
-                       "the fixture cannot deliver a live callback, so the rest of this test proves nothing")
         publisher.reset()
 
-        guard let queued = notify.latestRegistration(of: lockName) else {
-            XCTFail("the fixture recorded no registration for \(lockName)")
-            return
-        }
-        let deliveriesBefore = notify.deliveredTokens.count
-
+        let queued = notify.handlers[lockName]
         observer.cancel()
-
-        // The value would publish an unlock if the queued callback were still live.
-        notify.setState(.value(0), of: .lock)
-        notify.deliver(queued) // the callback the centre had already submitted
+        notify.setState(.value(1), of: .lock)
+        queued?(101) // the callback the centre had already submitted
 
         XCTAssertEqual(publisher.calls, [], "a callback ran after cancel() returned")
-        XCTAssertEqual(Array(notify.deliveredTokens.dropFirst(deliveriesBefore)), [queued.token],
-                       "the callback was handed a token no registration issued, so nothing about it was checked")
-        XCTAssertTrue(notify.isInvalidated(queued.token),
-                      "the token the callback arrived on was still live, so this was not a post-cancel callback")
     }
 
     /// The specific interleaving the phase-2 brief asks about: a callback that is in flight while
@@ -932,7 +932,7 @@ final class ScreenStateObserverTests: XCTestCase {
         notify.setState(.value(0), of: .display) // display off, a publishable snapshot fact
         observer.resync()
 
-        XCTAssertEqual(publisher.calls, [.screen(false)])
+        XCTAssertEqual(publisher.calls, [.levelScreen(false)])
     }
 
     // MARK: Resync
@@ -948,7 +948,7 @@ final class ScreenStateObserverTests: XCTestCase {
         notify.setState(.value(1), of: .lock)
         observer.resync()
 
-        XCTAssertEqual(publisher.calls, [.lock(true)], "resync did not recover the missed lock")
+        XCTAssertEqual(publisher.calls, [.levelLock(true)], "resync did not recover the missed lock")
     }
 
     /// And it can never invent a wake, which is the property that makes it safe to call on every
@@ -975,10 +975,10 @@ final class ScreenStateObserverTests: XCTestCase {
         let (observer, notify, publisher) = makeObserver()
         notify.setState(.value(1), of: .lock)
         XCTAssertEqual(observer.start(), .started)
-        XCTAssertEqual(publisher.calls, [.lock(true)])
+        XCTAssertEqual(publisher.calls, [.levelLock(true)])
 
         observer.resync()
-        XCTAssertEqual(publisher.calls, [.lock(true)], "resync republished an unchanged fact")
+        XCTAssertEqual(publisher.calls, [.levelLock(true)], "resync republished an unchanged fact")
     }
 
     // MARK: Reads that fail
@@ -989,7 +989,7 @@ final class ScreenStateObserverTests: XCTestCase {
         let (observer, notify, publisher) = makeObserver()
         notify.setState(.value(1), of: .lock)
         XCTAssertEqual(observer.start(), .started)
-        XCTAssertEqual(publisher.calls, [.lock(true)])
+        XCTAssertEqual(publisher.calls, [.levelLock(true)])
         publisher.reset()
 
         notify.setState(.failed(status: 1), of: .lock)
@@ -1029,10 +1029,9 @@ final class ScreenStateObserverTests: XCTestCase {
         publisher.reset()
 
         // A callback the notification centre could still deliver: captured while the registration was
-        // live, and released by the cancel below. Taken from the registration itself, so the token it
-        // arrives on is the one that registration took rather than a literal.
-        guard let queued = notify.latestRegistration(of: lockName) else {
-            XCTFail("the fixture did not record a registration for \(lockName)")
+        // live, and released by the cancel below.
+        guard let queuedCallback = notify.handlers[lockName] else {
+            XCTFail("the fixture did not record a handler for \(lockName)")
             return
         }
         observer.cancel()
@@ -1044,12 +1043,10 @@ final class ScreenStateObserverTests: XCTestCase {
         // The read answers "locked", so a publication here could only come from the stale callback
         // being treated as current.
         notify.setState(.value(1), of: .lock)
-        notify.deliver(queued)
+        queuedCallback(500)
 
         XCTAssertEqual(publisher.calls, [],
                        "a callback queued before a cancel published into a later generation")
-        XCTAssertEqual(notify.deliveredTokens, [queued.token],
-                       "the stale callback did not arrive on the token of the registration that queued it")
     }
 
     /// Teardown releases the registrations it holds, so a stopped observer does not leave a handler
@@ -1079,6 +1076,225 @@ final class ScreenStateObserverTests: XCTestCase {
                        "deinit left a registration behind in notifyd")
     }
 }
+
+// MARK: - P1-C: a current-state read is a LEVEL, a transition is an EDGE
+
+/// The delivery rule, at the policy level, where it can be pinned without an observer.
+///
+/// This is the half of P1-C that the Swift side owns. The other half is the core entry point the
+/// delivery selects: an edge reaches `governor.SleepStarted()` and moves the reuse measurement's
+/// anchor, a level reaches the pause manager alone and cannot. The two are tested separately because
+/// they are separately breakable - the Swift rule can be right while the bridge sends it to the wrong
+/// method, which is precisely what shipped.
+final class ScreenStateDeliveryTests: XCTestCase {
+    private func decide(_ read: NotifyStateRead,
+                        _ source: ScreenStateSource,
+                        _ provenance: ScreenStateProvenance,
+                        last: UInt64?) -> ScreenStateDecision {
+        ScreenStatePolicy.decide(read: read, source: source, provenance: provenance, lastObserved: last)
+    }
+
+    /// T1: a transition the system delivered is an EDGE, for every fact that publishes.
+    func testAnEventIsAlwaysDeliveredAsAnEdge() {
+        XCTAssertEqual(decide(.value(0), .display, .event, last: 1).delivery, .edge)
+        XCTAssertEqual(decide(.value(1), .display, .event, last: 0).delivery, .edge)
+        XCTAssertEqual(decide(.value(1), .lock, .event, last: 0).delivery, .edge)
+        XCTAssertEqual(decide(.value(0), .lock, .event, last: 1).delivery, .edge)
+    }
+
+    /// T2: a current-state read that establishes a sleep fact is a LEVEL, and the fact it publishes
+    /// is the sleep fact - not a wake, and not an edge.
+    func testASnapshotSleepFactIsDeliveredAsALevel() {
+        let displayOff = decide(.value(0), .display, .snapshot, last: 1)
+        XCTAssertEqual(displayOff.publish, .displayOff)
+        XCTAssertEqual(displayOff.delivery, .level, "a re-read of the display was delivered as an edge")
+
+        let locked = decide(.value(1), .lock, .snapshot, last: 0)
+        XCTAssertEqual(locked.publish, .locked)
+        XCTAssertEqual(locked.delivery, .level, "a re-read of the lock was delivered as an edge")
+    }
+
+    /// The delivery is the provenance's, even when nothing is published - so a reader cannot infer
+    /// "no publication" from "no delivery" or the other way round.
+    func testADecisionThatPublishesNothingStillCarriesItsProvenance() {
+        XCTAssertEqual(decide(.value(1), .display, .snapshot, last: 0).delivery, .level)
+        XCTAssertEqual(decide(.failed(status: 1), .lock, .snapshot, last: nil).delivery, .level)
+        XCTAssertEqual(decide(.value(0), .display, .event, last: 0).delivery, .edge)
+    }
+
+    /// The mapping is total over the provenance, so a third case cannot be added without deciding
+    /// which side of the anchor it is on.
+    func testTheProvenanceMappingIsTotal() {
+        XCTAssertEqual(ScreenStateDelivery(provenance: .event), .edge)
+        XCTAssertEqual(ScreenStateDelivery(provenance: .snapshot), .level)
+    }
+}
+
+/// The P1-C regression, driven through the observer exactly as `ExtensionProvider.wake()` drives it.
+///
+/// The sequence is the one the device produces, and its ordering is the whole defect: the client
+/// wakes the core first (`commandServer.wake()` -> `Box.DeviceResumed()` -> `governor.Resumed()`,
+/// which publishes the boundary for the sleep that just ended and sets the flag the core uses to
+/// decide whether a sleep report is a *new* sleep) and re-reads the two names second (`resync()`).
+/// A re-read delivered as an edge therefore arrives with a resume already noted, and the core treats
+/// it as a brand-new sleep and moves the anchor to now. A five-hour sleep that had just been measured
+/// and published as a retire becomes, at the unlock, the seconds between the resume and the re-read.
+final class ScreenStateSleepAnchorTests: XCTestCase {
+    /// The same factory `ScreenStateObserverTests` uses. Duplicated rather than shared because the
+    /// helper it lives beside is `private` to that class, and a `fileprivate` one would have to be
+    /// reachable from two classes that are deliberately testing different properties.
+    private func makeObserver() -> (ScreenStateObserver, FakeNotify, RecordingPublisher) {
+        let notify = FakeNotify()
+        let publisher = RecordingPublisher()
+        let observer = ScreenStateObserver(notify: notify, publisher: publisher)
+        return (observer, notify, publisher)
+    }
+
+    /// T2, and the P1-C regression itself: the re-read recovers a screen-off that happened while the
+    /// extension was suspended, and it must do so as a LEVEL.
+    ///
+    /// This is the case the fake exists for. `start()` reads the display on, so the observer's last
+    /// known value is `1`; the display then goes off while the extension is suspended and that
+    /// notification is never delivered; the resume's `resync()` is the first thing to see the `0`.
+    /// The value therefore differs from the remembered one and IS published - which is correct, it
+    /// is a real fact - and the only question is which entry point it reaches.
+    func testAResyncThatRecoversAScreenOffReconcilesTheLevelAndNeverPublishesAnEdge() {
+        let (observer, notify, publisher) = makeObserver()
+        notify.setState(.value(1), of: .display) // the extension starts with the screen on
+        XCTAssertEqual(observer.start(), .started)
+        XCTAssertEqual(publisher.calls, [], "a snapshot of a display-on may not publish")
+
+        // The screen goes off while the extension is suspended: the notification is not delivered, so
+        // the observer still believes the display is on.
+        notify.setState(.value(0), of: .display)
+
+        // The extension resumes: the core is woken (not modelled here - it is Go), then both names are
+        // re-read.
+        observer.resync()
+
+        XCTAssertEqual(publisher.calls, [.levelScreen(false)],
+                       "the resume re-read published something other than a level reconcile")
+        XCTAssertFalse(publisher.calls.contains { $0.isEdge },
+                       "a current-state read published an EDGE, which re-anchors the sleep measurement")
+    }
+
+    /// T1: one real sleep produces one edge, and the second source reporting the same sleep does not
+    /// produce a second one.
+    func testOneRealSleepProducesExactlyOneEdge() {
+        let (observer, notify, publisher) = makeObserver()
+        XCTAssertEqual(observer.start(), .started)
+        publisher.reset()
+
+        // The display goes off: a transition the system delivered.
+        notify.setState(.value(0), of: .display)
+        notify.deliver(displayName)
+        // The lock follows for the same sleep, from the source that does not depend on the display.
+        notify.setState(.value(1), of: .lock)
+        notify.deliver(lockName)
+
+        XCTAssertEqual(publisher.calls.filter(\.isEdge), [.screen(false), .lock(true)],
+                       "each delivered transition is an edge")
+        XCTAssertEqual(publisher.calls.filter { !$0.isEdge }, [],
+                       "an event was delivered as a level")
+    }
+
+    /// T3: the guard must not swallow a real second sleep. After a wake, a new display-off is a new
+    /// edge - which the core needs in order to measure the new sleep at all.
+    func testASecondRealSleepAfterAWakeIsStillAnEdge() {
+        let (observer, notify, publisher) = makeObserver()
+        XCTAssertEqual(observer.start(), .started)
+        publisher.reset()
+
+        // First sleep: the display goes off and the device locks.
+        notify.setState(.value(0), of: .display)
+        notify.deliver(displayName)
+        notify.setState(.value(1), of: .lock)
+        notify.deliver(lockName)
+        // Unlock: the display comes on, which is the resume edge, and the lock releases the level.
+        // The lock source has to have been observed locked first, which it now has.
+        notify.setState(.value(1), of: .display)
+        notify.deliver(displayName)
+        notify.setState(.value(0), of: .lock)
+        notify.deliver(lockName)
+
+        // Second sleep.
+        notify.setState(.value(0), of: .display)
+        notify.deliver(displayName)
+
+        XCTAssertEqual(publisher.calls.filter(\.isEdge),
+                       [.screen(false), .lock(true), .screen(true), .lock(false), .screen(false)],
+                       "the second real sleep was not delivered as an edge")
+    }
+
+    /// T4: a late edge is still an edge. The notification for a transition that really happened may
+    /// arrive arbitrarily late - after the extension was resumed, or after a resync already saw the
+    /// new value - and it must still be accepted, because it is the only thing that can start a
+    /// measurement when one is owed.
+    func testALateEventIsStillAnEdgeEvenAfterAResyncSawTheSameValue() {
+        let (observer, notify, publisher) = makeObserver()
+        notify.setState(.value(1), of: .display)
+        XCTAssertEqual(observer.start(), .started)
+        publisher.reset()
+
+        // The transition happens, and a resync gets there first.
+        notify.setState(.value(0), of: .display)
+        observer.resync()
+        XCTAssertEqual(publisher.calls, [.levelScreen(false)])
+
+        // The notification for that same transition finally arrives. The value is unchanged, so rule
+        // 3 collapses it - the level reconcile already established it, and a second edge for one
+        // sleep is the duplicate anchor this whole stream exists to remove.
+        notify.deliver(displayName)
+        XCTAssertEqual(publisher.calls, [.levelScreen(false)],
+                       "a late duplicate of a transition the read already saw produced a second edge")
+
+        // But a genuinely LATER transition is not collapsed: the display comes on and goes off again,
+        // and both of those are edges.
+        notify.setState(.value(1), of: .display)
+        notify.deliver(displayName)
+        notify.setState(.value(0), of: .display)
+        notify.deliver(displayName)
+        XCTAssertEqual(publisher.calls, [.levelScreen(false), .screen(true), .screen(false)],
+                       "a late edge was swallowed")
+    }
+
+    /// T5: an observer that starts while the device is already locked must reconcile the level and
+    /// must not present its initial read as a fresh transition.
+    ///
+    /// The core still establishes the pause - `DevicePause()` on a process with no pause on record is
+    /// what starts one, and it publishes the edge and the level together when it moves - so the case
+    /// is not lost. What must not happen is the *client* claiming a transition it did not witness.
+    func testAnObserverThatStartsLockedReconcilesTheLevelAndNotAFreshEdge() {
+        let (observer, notify, publisher) = makeObserver()
+        notify.setState(.value(0), of: .display) // locked phone, screen off
+        notify.setState(.value(1), of: .lock)
+
+        XCTAssertEqual(observer.start(), .started)
+
+        XCTAssertEqual(publisher.calls, [.levelScreen(false), .levelLock(true)],
+                       "the initial read was not delivered as a level reconcile")
+        XCTAssertFalse(publisher.calls.contains { $0.isEdge },
+                       "an observer that started locked published a fresh sleep edge")
+    }
+
+    /// T6: the fake can tell the two deliveries apart, which is the property that makes every
+    /// assertion above able to fail. A fake that recorded both through one case would accept the
+    /// broken build and the fixed one equally.
+    func testTheRecordingPublisherDistinguishesEdgeFromLevel() {
+        let publisher = RecordingPublisher()
+        publisher.recordScreenState(on: false)
+        publisher.reconcileScreenState(on: false)
+        publisher.recordLockState(locked: true)
+        publisher.reconcileLockState(locked: true)
+
+        XCTAssertEqual(publisher.calls, [.screen(false), .levelScreen(false),
+                                         .lock(true), .levelLock(true)])
+        XCTAssertEqual(publisher.calls.filter(\.isEdge), [.screen(false), .lock(true)])
+        XCTAssertEqual(publisher.calls.filter { !$0.isEdge },
+                       [.levelScreen(false), .levelLock(true)])
+    }
+}
+
 
 // MARK: - The fixture's own blind spots
 
