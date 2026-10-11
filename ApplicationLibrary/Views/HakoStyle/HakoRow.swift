@@ -564,6 +564,26 @@ struct HakoRowBody<Trailing: View>: View {
 
             Spacer(minLength: HakoTheme.Spacing.compact)
 
+            // The badge is a trailing accessory, not part of the title.
+            //
+            // It used to sit inside `copy`, in the title's own `HStack`, which made it the second word
+            // of the title: the title's visual centre moved as soon as a count appeared, the leading
+            // column shifted as the number gained digits (1 -> 12 -> 999), and the three report rows
+            // stopped lining up with each other. Everything in the leading column is measured as part
+            // of that column, so the fix is to put the badge where a trailing accessory belongs -
+            // after the `Spacer`, ahead of the row's own trailing view and ahead of the disclosure.
+            // The title then starts at the same x on every row, at every count.
+            //
+            // `copy` still owns the accessibility type sizes: there the badge would compete with the
+            // icon well and the chevron for a width that does not exist, so it stays stacked under the
+            // subtitle, where it is read in sequence rather than squeezed beside the title.
+            if let badge, !badge.isEmpty, dynamicTypeSize < .accessibility1 {
+                HakoStatusBadge(badge, emphasis: badgeEmphasis)
+                    // A wide count must not narrow the title's column - the same complaint at a
+                    // larger size - so the badge yields to the title rather than the other way round.
+                    .layoutPriority(-1)
+            }
+
             trailing()
 
             if showsDisclosure ?? !containerDrawsDisclosure {
@@ -587,15 +607,12 @@ struct HakoRowBody<Trailing: View>: View {
 
     private var copy: some View {
         VStack(alignment: .leading, spacing: HakoTheme.Typography.rowSubtitleGap(locale)) {
-            HStack(alignment: .firstTextBaseline, spacing: HakoTheme.Spacing.compact) {
-                Text(title)
-                    .font(HakoTheme.FontRole.rowPrimary)
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let badge, !badge.isEmpty, dynamicTypeSize < .accessibility1 {
-                    HakoStatusBadge(badge, emphasis: badgeEmphasis)
-                }
-            }
+            // The title, and nothing else. The badge that used to sit beside it here is a trailing
+            // accessory of the row - see the comment on it in `body`.
+            Text(title)
+                .font(HakoTheme.FontRole.rowPrimary)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
@@ -604,6 +621,8 @@ struct HakoRowBody<Trailing: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // The accessibility type sizes are the one place the badge still belongs to the copy:
+            // there is no room for it beside the title, and the row is read as a single element.
             if let badge, !badge.isEmpty, dynamicTypeSize >= .accessibility1 {
                 HakoStatusBadge(badge, emphasis: badgeEmphasis)
             }
