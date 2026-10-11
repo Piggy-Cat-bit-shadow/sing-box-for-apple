@@ -13,15 +13,15 @@ is recorded in §11 rather than modified.
 | | |
 |---|---|
 | **Apple canonical branch** | `main` |
-| **Apple final SHA** | `39e30a4fea120af68d161c0ca32d3e18034bd14d` |
+| **Apple final SHA** | `a09194e0ad629ff66c5fd84acf8f2fb8574843bf` |
 | **Apple default branch** | `main` (was `dev`) |
 | **Apple remaining branches** | `main`, `dev` |
 | **Core canonical branch** | `testing` (not modified this round — see §11) |
 | **Core final SHA** | `origin/testing` = `d4241e1685f2139eee9680791a7be16e7fbe4430`, unmodified by this round |
-| **Parent Apple pin** | `clients/apple` = `39e30a4fea120af68d161c0ca32d3e18034bd14d` (**MATCH = YES**) |
+| **Parent Apple pin** | `clients/apple` = `a09194e0ad629ff66c5fd84acf8f2fb8574843bf` (**MATCH = YES**) |
 | **Old branches deleted** | 15 remote branches |
 | **Archive tags created** | 7 |
-| **Commits added** | Apple: 2 (`f8f978c`, `39e30a4`). Parent: 1 (`bda04b1f8`) |
+| **Commits added** | Apple: `f8f978c` (hardening port), `39e30a4` (branch roles / README / metadata), `a09194e` (this report). Parent: `414295fe7` |
 
 **Result: the Apple repository now has exactly one product line (`main`), one upstream reference
 line (`dev`), and no construction branches.** All historical lines are preserved as tags, and no
@@ -60,7 +60,9 @@ Tags before this round: `iphone-hako-ui-freeze-v1`, `libbox-stringbox-abi-1`,
 
 ```text
 sing-box-for-apple
-├── main    39e30a4fe   (JiejieBox Apple product line; GitHub default branch)
+├── main    39e30a4fe → a09194e   (JiejieBox Apple product line; GitHub default branch)
+│           The branch-role, README and metadata rewrite landed as 39e30a4; this report was
+│           then added on top as a09194e, which is the final value quoted in §1.
 └── dev     d1224bb50   (upstream synchronisation / reference; read-only)
 ```
 
@@ -73,8 +75,12 @@ archive/pre-consolidation-2026-10-11            3a550d0de
 archive/ipad-upstream-port-final                816600ab3
 archive/r8-final                                2a189686a
 archive/hardening-wip-2026-10-11                052f06b19
-archive/apple-consolidated-candidate-2026-10-11 39e30a4fe
+archive/apple-consolidated-candidate-2026-10-11 a09194e0a
 ```
+
+`archive/apple-consolidated-candidate-2026-10-11` was first cut at `39e30a4fe` and moved forward to
+the final `a09194e0a` once this report was added, so it names the validated end state rather than
+an intermediate one.
 
 ---
 
@@ -217,7 +223,7 @@ Deletions were issued in five small batches rather than one command, after
 | `archive/ipad-upstream-port-final` | `816600ab3` | iPad upstream port line final tip |
 | `archive/r8-final` | `2a189686a` | Round-8 construction line final tip; covers `r8/a-generator`, `r8/b-boundary`, `r8/c-platform`, `r8/d-reach` (all ancestors of it) |
 | `archive/hardening-wip-2026-10-11` | `052f06b19` | The parked Hako-migration WIP tip, which **contains** the hardening tip `ff849cc` |
-| `archive/apple-consolidated-candidate-2026-10-11` | `39e30a4fe` | The validated canonical candidate. **Not a release tag** |
+| `archive/apple-consolidated-candidate-2026-10-11` | `a09194e0a` | The validated canonical candidate. **Not a release tag** |
 
 All seven verified pushed with `git ls-remote --tags origin`.
 
@@ -294,8 +300,8 @@ Not run this round (§4).
 ## 8. Parent pin verification
 
 ```text
-parent clients/apple gitlink:  39e30a4fea120af68d161c0ca32d3e18034bd14d
-Apple main:                    39e30a4fea120af68d161c0ca32d3e18034bd14d
+parent clients/apple gitlink:  a09194e0ad629ff66c5fd84acf8f2fb8574843bf
+Apple main:                    a09194e0ad629ff66c5fd84acf8f2fb8574843bf
 MATCH = YES
 ```
 
@@ -303,16 +309,16 @@ Independently confirmed through the repository's own tooling rather than by eye:
 
 ```text
 $ scripts/ci/apple-client-source.sh sha ios
-39e30a4fea120af68d161c0ca32d3e18034bd14d
+a09194e0ad629ff66c5fd84acf8f2fb8574843bf
 $ scripts/ci/apple-client-source.sh sha macos
-39e30a4fea120af68d161c0ca32d3e18034bd14d
+a09194e0ad629ff66c5fd84acf8f2fb8574843bf
 $ scripts/ci/apple-client-source.sh assert-shared-source
-PASS: iOS and macOS share Apple source 39e30a4fea120af68d161c0ca32d3e18034bd14d
+PASS: iOS and macOS share Apple source a09194e0ad629ff66c5fd84acf8f2fb8574843bf
 ```
 
 **Source selection is still one repository / one SHA / two products.** No per-platform Apple SHA
 was reintroduced. `scripts/ci/check-libbox-abi.sh` layer 5 now reports
-`PASS: apple gitlink is the verified revision (39e30a4fea12)`.
+`PASS: apple gitlink is the verified revision (a09194e0ad62)`.
 
 The parent's submodule checkout was aligned to the new pin; the parent working tree carries no
 tracked modification to `clients/apple`.
@@ -323,8 +329,29 @@ tracked modification to `clients/apple`.
 an `git update-index --cacheinfo` performed first. The first attempt therefore committed the *old*
 revision while its message described the new one. Caught by re-reading the commit with
 `git ls-tree HEAD clients/apple`, and fixed by re-running `update-index` and amending with
-`git commit --amend` **without** a trailing `git add`. The recorded pin is now `39e30a4fea12` as
+`git commit --amend` **without** a trailing `git add`. The recorded pin is now `a09194e0ad62`, as
 the message states.
+
+### Why the pin was restated more than once
+
+This report is itself a commit on `main`, so writing it moved `main` and invalidated the pin that
+had just been set — twice, because moving the pin moves the parent commit that records it. The
+sequence was: pin to `39e30a4fe`, add the report (`a09194e`), re-pin and move the candidate tag,
+then update `VERIFIED_APPLE_SHA`. The values quoted in §1, §6 and §8 are the state **after** the
+last of those steps.
+
+The dependency chain is worth stating plainly, because it is the thing that makes this kind of
+round error-prone:
+
+```text
+Apple main changes  ->  parent clients/apple gitlink must change
+                    ->  check-libbox-abi.sh VERIFIED_APPLE_SHA must change with it
+                    ->  editing either file is a new parent commit, not a new Apple commit
+```
+
+An Apple-side *documentation* commit therefore costs three coordinated updates. That is why the
+last step in this round is a pin update with no further Apple content, and why the parent pin is
+stated with both its SHA and the evidence that it agrees with the Apple tree.
 
 ---
 
@@ -335,7 +362,7 @@ the message states.
 | `README.md` | Branch roles rewritten (`main` product, `dev` reference); the seven-branch construction table replaced by the archive tags that now carry that content; every `hako-ui` reference repointed to `archive/hako-design-v1` + SHA; **Build and Validation Status rewritten** from "maintained on Windows, Xcode and `swift test` impossible" to the measured results above, with `NEEDS_DEVICE` for the device axis; "known incomplete" list corrected (the Hako page migration and the StringBox question are both closed); build commands now carry `-skipPackagePluginValidation` with the reason |
 | `BRANCH-INVENTORY.md` | **New.** Every remote branch with head, date, ancestry, ahead/behind, patch-equivalence count and disposition; the tag retention dependency; the method used |
 | `release/apple-client-refs.env` | `APPLE_CLIENT_BRANCH` `jiejiebox/integrated` → `main`. `IOS_APPLE_BRANCH=hako-ui` **deleted** and replaced by `HAKO_DESIGN_BASELINE_TAG=archive/hako-design-v1`. The variable was already dead — `platform_branch` answers with `APPLE_CLIENT_BRANCH` for both platforms and deliberately does not fall back to it |
-| `scripts/ci/check-libbox-abi.sh` | `VERIFIED_APPLE_SHA` `2a189686ae38` → `39e30a4fea12`, so layer 5 asserts agreement with the pin this round set |
+| `scripts/ci/check-libbox-abi.sh` | `VERIFIED_APPLE_SHA` `2a189686ae38` → `a09194e0ad62`, so layer 5 asserts agreement with the pin this round set |
 | `docs/SCREEN-STATE-FACTS.md` | Updated by the ported `ff849cc` content (§4.4 verdict corrected, §4.5 rewritten) |
 
 ### Stale-reference sweep
@@ -360,7 +387,7 @@ Classified, and only stale prose was changed:
 
 ## 10. Remaining manual actions
 
-1. **Push the parent commit.** `bda04b1f8` is committed locally on the parent's `testing` branch
+1. **Push the parent commit.** `414295fe7` is committed locally on the parent's `testing` branch
    and is **not pushed** (the parent is `2` commits ahead of `origin/testing`; the other is
    `837b14923`, pre-existing). Left for the operator because the core/parent push is being handled
    separately.
