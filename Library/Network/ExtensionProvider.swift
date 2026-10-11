@@ -17,6 +17,34 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     public var tunnelOptions: [String: NSObject]?
     private var startOptionsURL: URL?
 
+    /// Serialises the service lifecycle so a teardown cannot overlap a start.
+    ///
+    /// # Why this is needed, and why it is not an actor
+    ///
+    /// The core reaches `stopService()` **synchronously from a gRPC handler goroutine**, not from a
+    /// NetworkExtension entry point: `ExtensionPlatformInterface.serviceStop()` calls
+    /// `tunnel.stopService()` on whatever thread is running the handler. `stopTunnel` calls it too, on
+    /// the tunnel's task. Nothing serialised those two, and the damage is not the double call itself:
+    ///
+    ///   * `stopService()` ends in `platformInterface.reset()`, which cancels and nils `nwMonitor`.
+    ///     A reload's `startService()` installs a **fresh** monitor in
+    ///     `ExtensionPlatformInterface.startDefaultInterfaceMonitor`, and that method blocks on a
+    ///     semaphore until the monitor's first path update - so the window between "the new monitor is
+    ///     assigned" and "the new monitor has delivered" is not short. A `reset()` landing in it
+    ///     cancels the live monitor, and the next `getInterfaces()` throws "NWMonitor not started" with
+    ///     nothing to repair it.
+    ///   * Two concurrent `stopService()` calls run `reset()` twice over the same four unsynchronised
+    ///     statements.
+    ///
+    /// Reachability does not rest on whether NetworkExtension permits its own callbacks to overlap,
+    /// which is why this is fixed rather than listed as device-only: the gRPC path is an independent
+    /// thread by construction, and a reload can be in flight while it arrives.
+    ///
+    /// A lock rather than an actor or a state machine, because the protected region is a direct call
+    /// into the core plus a handful of assignments - there is nothing to suspend on, so the smallest
+    /// correct mechanism is the one that adds no new lifecycle concept.
+    private let serviceLifecycleLock = NSLock()
+
     public struct OverridePreferences {
         public var includeAllNetworks: Bool = false
         public var systemProxyEnabled: Bool = true
@@ -377,6 +405,15 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         }
 
         let options = LibboxOverrideOptions()
+        // Held across `startOrReloadService` and the monitor install that follows it inside the core,
+        // and NOT across the `locationManager` block below, which is macOS-only, touches no shared
+        // resource and would only widen the region.
+        //
+        // The `startOrReloadService` call is synchronous and the install it triggers is synchronous
+        // too, so nothing here suspends while the lock is held and there is no deadlock surface
+        // against `stopService()`, which takes the same lock directly.
+        serviceLifecycleLock.lock()
+        defer { serviceLifecycleLock.unlock() }
         do {
             try commandServer.startOrReloadService(configContent, options: options)
         } catch {
@@ -405,6 +442,12 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     #endif
 
     func stopService() {
+        // Single-entry, and mutually exclusive with `startService()`. See `serviceLifecycleLock`:
+        // `reset()` cancels a monitor that a concurrent start has just installed and is still waiting
+        // on, and this is reachable from the core's gRPC goroutine without any NetworkExtension
+        // reentrancy assumption.
+        serviceLifecycleLock.lock()
+        defer { serviceLifecycleLock.unlock() }
         do {
             try commandServer?.closeService()
         } catch {
