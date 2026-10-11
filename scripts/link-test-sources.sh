@@ -23,6 +23,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 package="$root/Tests/HakoSubscriptionUsage"
 screen_state_package="$root/Tests/HakoScreenState"
+startup_package="$root/Tests/HakoInterfaceStartup"
 
 core=(
     "Library/Network/SubscriptionInfo.swift"
@@ -39,6 +40,12 @@ profile=(
 )
 policy=(
     "Library/Network/ScreenStateObserver.swift"
+)
+#: The interface-monitor startup policy: the bound on the first path update, and the generation that
+#: decides whether a callback still owns the monitor. Foundation only, so it compiles into its own
+#: package - see `Tests/HakoInterfaceStartup/Package.swift` for why the adapter is not here.
+startup=(
+    "Library/Network/InterfaceMonitorStartup.swift"
 )
 
 # Relative targets, so the checkout stays where it is put: a link recorded against an absolute
@@ -64,5 +71,8 @@ done
 for source in "${policy[@]}"; do
     link "$source" "$screen_state_package/Sources/Policy/$(basename "$source")"
 done
+for source in "${startup[@]}"; do
+    link "$source" "$startup_package/Sources/Policy/$(basename "$source")"
+done
 
-echo "linked ${#core[@]} core, ${#profile[@]} profile and ${#policy[@]} policy source(s) into the test packages"
+echo "linked ${#core[@]} core, ${#profile[@]} profile, ${#policy[@]} screen-state policy and ${#startup[@]} interface-startup policy source(s) into the test packages"
