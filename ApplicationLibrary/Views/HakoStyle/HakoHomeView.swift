@@ -378,7 +378,7 @@ public struct HakoHomeView: View {
     /// the runtime card further down.
     private var sessionDetail: (title: String, value: String?, emphasis: HakoStatusBadge.Emphasis)? {
         if environments.remoteServer != nil {
-            return (String(localized: "Remote control"), nil, .info)
+            return (String(localized: "Remote Control"), nil, .info)
         }
         if environments.emptyProfiles {
             return (String(localized: "Add a profile to start"), nil, .warning)

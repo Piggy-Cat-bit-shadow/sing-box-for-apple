@@ -1,6 +1,756 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Activity" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接"
+          }
+        }
+      }
+    },
+    "Add Configuration" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加配置"
+          }
+        }
+      }
+    },
+    "Add a profile to start" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加一个配置即可开始"
+          }
+        }
+      }
+    },
+    "Add rule" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加规则"
+          }
+        }
+      }
+    },
+    "Apple's tunnel routing reference" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple 的隧道路由参考"
+          }
+        }
+      }
+    },
+    "Battery use during each run" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每次运行期间的电池消耗"
+          }
+        }
+      }
+    },
+    "Browse in Files" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在「文件」中浏览"
+          }
+        }
+      }
+    },
+    "Client Settings" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客户端设置"
+          }
+        }
+      }
+    },
+    "Collapse all groups" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "折叠全部分组"
+          }
+        }
+      }
+    },
+    "Colours and font for SSH sessions" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH 会话的配色与字体"
+          }
+        }
+      }
+    },
+    "Connection Behavior" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接行为"
+          }
+        }
+      }
+    },
+    "Core Settings" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内核设置"
+          }
+        }
+      }
+    },
+    "Current sessions" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前会话"
+          }
+        }
+      }
+    },
+    "Deletes the core's data, caches and downloaded resources on this device." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除本机上内核的数据、缓存与已下载的资源。"
+          }
+        }
+      }
+    },
+    "Direct" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直连"
+          }
+        }
+      }
+    },
+    "Downloaded" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下载"
+          }
+        }
+      }
+    },
+    "Drive another device from this one" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用本机控制另一台设备"
+          }
+        }
+      }
+    },
+    "Enforce Routes" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "强制路由"
+          }
+        }
+      }
+    },
+    "Erase Working Directory" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "抹掉工作目录"
+          }
+        }
+      }
+    },
+    "Exclude APNs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排除 APNs"
+          }
+        }
+      }
+    },
+    "Exclude Cellular Services" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排除蜂窝服务"
+          }
+        }
+      }
+    },
+    "Exclude Device Communication" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排除设备间通信"
+          }
+        }
+      }
+    },
+    "Exclude Local Networks" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排除本地网络"
+          }
+        }
+      }
+    },
+    "Expand all groups" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开全部分组"
+          }
+        }
+      }
+    },
+    "From Apple TV" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "来自 Apple TV"
+          }
+        }
+      }
+    },
+    "From this device" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "来自本机"
+          }
+        }
+      }
+    },
+    "Global" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全局"
+          }
+        }
+      }
+    },
+    "Home" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "首页"
+          }
+        }
+      }
+    },
+    "Home Cards" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "首页卡片"
+          }
+        }
+      }
+    },
+    "How the system decides what a VPN routes" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统如何决定 VPN 的路由"
+          }
+        }
+      }
+    },
+    "Include All Networks" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "包含所有网络"
+          }
+        }
+      }
+    },
+    "Integrations" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "集成"
+          }
+        }
+      }
+    },
+    "Language, menu bar, updates and caches" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语言、菜单栏、更新与缓存"
+          }
+        }
+      }
+    },
+    "Memory use before the system killed it" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "被系统终止前的内存占用"
+          }
+        }
+      }
+    },
+    "More" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多"
+          }
+        }
+      }
+    },
+    "Network Tools" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网络工具"
+          }
+        }
+      }
+    },
+    "New Configuration" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建配置"
+          }
+        }
+      }
+    },
+    "No profile selected" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未选择配置"
+          }
+        }
+      }
+    },
+    "Nodes" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点"
+          }
+        }
+      }
+    },
+    "Not Installed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未安装"
+          }
+        }
+      }
+    },
+    "On Demand" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按需启动"
+          }
+        }
+      }
+    },
+    "Outbound Mode" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "出站模式"
+          }
+        }
+      }
+    },
+    "Proxies" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理"
+          }
+        }
+      }
+    },
+    "Proxy groups" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理分组"
+          }
+        }
+      }
+    },
+    "Removes what the client has cached. The working directory is kept." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除客户端缓存的内容，工作目录会保留。"
+          }
+        }
+      }
+    },
+    "Reset On Demand Rules" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置按需启动规则"
+          }
+        }
+      }
+    },
+    "Reset Profile Override" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置配置重载"
+          }
+        }
+      }
+    },
+    "Reset Tunnel Settings" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置隧道设置"
+          }
+        }
+      }
+    },
+    "Routes the client adjusts for compatibility" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客户端为兼容性调整的路由"
+          }
+        }
+      }
+    },
+    "Runtime & Reports" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运行与报告"
+          }
+        }
+      }
+    },
+    "STUN & NAT" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "STUN 与 NAT"
+          }
+        }
+      }
+    },
+    "Send every connection out directly" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有连接均直连"
+          }
+        }
+      }
+    },
+    "Send every connection through the proxy" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有连接均走代理"
+          }
+        }
+      }
+    },
+    "Shown" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示"
+          }
+        }
+      }
+    },
+    "Signals from the runs that ended early" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提前结束的运行所留下的信号"
+          }
+        }
+      }
+    },
+    "Split traffic by the profile's rules" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按配置的规则分流"
+          }
+        }
+      }
+    },
+    "Switching…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在切换…"
+          }
+        }
+      }
+    },
+    "Terminal Appearance" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "终端外观"
+          }
+        }
+      }
+    },
+    "Test all groups" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测试全部分组"
+          }
+        }
+      }
+    },
+    "Test latency" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测试延迟"
+          }
+        }
+      }
+    },
+    "The VPN extension is not installed yet. Install it to start the tunnel." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "VPN 扩展尚未安装。安装后即可启动隧道。"
+          }
+        }
+      }
+    },
+    "The manual for the core this client runs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本客户端所用内核的文档"
+          }
+        }
+      }
+    },
+    "This client's repository" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本客户端的代码仓库"
+          }
+        }
+      }
+    },
+    "Throughput and responsiveness" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "吞吐量与响应速度"
+          }
+        }
+      }
+    },
+    "Tunnel" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隧道"
+          }
+        }
+      }
+    },
+    "Tunnel output" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隧道输出"
+          }
+        }
+      }
+    },
+    "UDP reachability and NAT behaviour" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UDP 可达性与 NAT 行为"
+          }
+        }
+      }
+    },
+    "Unread" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未读"
+          }
+        }
+      }
+    },
+    "Update All" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部更新"
+          }
+        }
+      }
+    },
+    "Uploaded" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上传"
+          }
+        }
+      }
+    },
+    "Use the defaults the client ships with." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用客户端自带的默认值。"
+          }
+        }
+      }
+    },
+    "Version and working directory" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "版本与工作目录"
+          }
+        }
+      }
+    },
+    "What the home shows, and which device this client controls." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "首页显示什么，以及本客户端控制哪台设备。"
+          }
+        }
+      }
+    },
+    "What the system routes through the tunnel" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统通过隧道转发的流量"
+          }
+        }
+      }
+    },
+    "When the tunnel connects and disconnects by itself" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隧道何时自动连接与断开"
+          }
+        }
+      }
+    },
     "%@ left" : {
       "localizations" : {
         "zh-Hans" : {

@@ -357,7 +357,7 @@ public struct HakoToolsView: View {
                         HakoOOMReportListView()
                     } label: {
                         reportRow(
-                            title: String(localized: "Out of Memory Report"),
+                            title: String(localized: "OOM Report"),
                             subtitle: String(localized: "Memory use before the system killed it"),
                             systemImage: "memorychip",
                             tint: HakoAccentRole.neutral,

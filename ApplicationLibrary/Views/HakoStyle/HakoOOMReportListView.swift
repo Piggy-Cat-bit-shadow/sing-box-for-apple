@@ -29,7 +29,7 @@ public struct HakoOOMReportListView: View {
     }
 
     public var body: some View {
-        HakoReportScaffold(title: String(localized: "Out of Memory Report")) {
+        HakoReportScaffold(title: String(localized: "OOM Report")) {
             if !isLoading {
                 HakoSettingsSection("Reports", footnote: "A report is recorded when the device runs out of memory while the service is running.") {
                     if manager.reports.isEmpty {
