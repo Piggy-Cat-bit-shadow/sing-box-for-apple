@@ -19,6 +19,61 @@ final class FakeNotify: DarwinNotifyAPI {
     private(set) var handlers: [String: (Int32) -> Void] = [:]
     private(set) var registeredTokens: [String: Int32] = [:]
     private(set) var cancelledTokens: [Int32] = []
+
+    // MARK: Accounting, so the blind spots below are observable
+
+    /// One successful `notify_register_dispatch`, kept in full.
+    ///
+    /// # Why this exists
+    ///
+    /// The fake used to record only the *latest* handler and token per name (`handlers[name]`,
+    /// `registeredTokens[name]`), overwriting whatever was there. Three things followed, and all
+    /// three were blind spots rather than conveniences:
+    ///
+    ///   * A duplicate registration - the observer registering a name it had already registered, or
+    ///     registering twice across a cancel/start pair - was invisible. The table just held the new
+    ///     value. `testStartIsIdempotent` could only assert that the number of *reads* did not grow,
+    ///     which is a different claim.
+    ///   * A callback notifyd had queued before a `cancel()` belonged to a registration the fake
+    ///     could no longer name, so the two tests that deliver one had to grab `handlers[name]` and
+    ///     call it with a literal token (`101`, `500`) that no registration ever issued. A literal
+    ///     token cannot be checked against anything, so "this is a post-cancel callback" was an
+    ///     assumption rather than a fact.
+    ///   * `deliver()` looked up the *live* registration, so there was no way to express "deliver
+    ///     the callback that registration #1 installed, after registration #2 is live" - which is
+    ///     the interleaving the generation fence exists for.
+    struct Registration {
+        let name: String
+        /// 1-based, per name.
+        let ordinal: Int
+        let token: Int32
+        let queue: DispatchQueue
+        let handler: (Int32) -> Void
+    }
+
+    /// Every successful registration, in order, per name. Never cleared by `cancel` - a callback the
+    /// notification centre has already queued cannot be un-queued, so the registration it belongs to
+    /// stays nameable after the token is gone. That is the whole point.
+    private(set) var registrations: [String: [Registration]] = [:]
+
+    /// Every `registerDispatch` call, successful or not.
+    private(set) var registrationAttempts: [String: Int] = [:]
+    /// Every `registerDispatch` that returned a token.
+    private(set) var successfulRegistrations: [String: Int] = [:]
+    /// Tokens `cancel` has invalidated, minus any a later registration revived.
+    private(set) var invalidatedTokens: Set<Int32> = []
+    /// The token each delivered callback was handed, so a test can refuse a made-up one.
+    private(set) var deliveredTokens: [Int32] = []
+
+    /// `NOTIFY_STATUS_INVALID_TOKEN`.
+    ///
+    /// The value is from `<notify.h>`; nothing in the observer branches on the number - every
+    /// `.failed` establishes nothing - so this is documentation rather than behaviour. What matters
+    /// is that it is representable at all, which it was not before: `cancel` answered `.ok` to
+    /// everything and `getState` answered a configured *value* for a token that notifyd had already
+    /// released.
+    static let invalidTokenStatus: UInt32 = 2
+
     /// Every `getState` call, in order, so ordering can be asserted rather than assumed.
     private(set) var readOrder: [Int32] = []
     /// Answers the next `getState` for a token, then falls through to `stateResult`.
@@ -74,23 +129,49 @@ final class FakeNotify: DarwinNotifyAPI {
                           handler: @escaping (Int32) -> Void) -> NotifyRegistration {
         registrationQueues[name] = queue
         queue.setSpecific(key: Self.deliveryQueueKey, value: 1)
+        registrationAttempts[name, default: 0] += 1
 
         let registration: NotifyRegistration
         if let canned = registrationResult[name] {
             if case let .registered(token) = canned {
                 handlers[name] = handler
                 registeredTokens[name] = token
+                invalidatedTokens.remove(token)
             }
             registration = canned
         } else if let token = Self.fixedTokens[name] {
             handlers[name] = handler
             registeredTokens[name] = token
+            // A successful registration revives the name's token. Darwin hands back the same token
+            // id for the same notification name, so a cancel followed by a fresh registration
+            // produces a token that is live again - which is exactly the sequence
+            // `testStartAfterCancelWorks` and `testAFailedStartCanBeRetried` exercise.
+            invalidatedTokens.remove(token)
             registration = .registered(token: token)
         } else {
             XCTFail("FakeNotify has no token for \(name); add it to fixedTokens")
             registration = .failed(status: 1)
         }
-        if case .registered = registration {
+
+        if case let .registered(token) = registration {
+            var list = registrations[name] ?? []
+            var ordinal = successfulRegistrations[name] ?? 0
+#if FAKE_BLIND_DUPLICATE_REGISTRATION
+            // MUTATION FLAG, off in every real run. Reintroduces the "duplicate registration
+            // counting" blind spot: the fake forgets that this name was ever registered before, so a
+            // second or leaked registration is invisible. `FakeNotifyBlindSpotTests` goes red under
+            // it; see `fakenotify-red-proof.ps1`.
+            list = []
+            ordinal = 0
+#endif
+            ordinal += 1
+            successfulRegistrations[name] = ordinal
+            list.append(Registration(name: name,
+                                     ordinal: ordinal,
+                                     token: token,
+                                     queue: queue,
+                                     handler: handler))
+            registrations[name] = list
             onRegisterDispatch?(name)
         }
         return registration
@@ -99,6 +180,15 @@ final class FakeNotify: DarwinNotifyAPI {
     func getState(token: Int32) -> NotifyStateRead {
         readOrder.append(token)
         onGetState?(token)
+#if !FAKE_BLIND_INVALID_TOKEN
+        // notifyd answers NOTIFY_STATUS_INVALID_TOKEN for a token `cancel` has released. Modelling
+        // that is what makes "a read on a dead token establishes nothing" a test rather than a
+        // comment: the fake used to answer whatever value the test had configured, so the observer's
+        // failure path was never reached by a cancelled token.
+        if invalidatedTokens.contains(token) {
+            return .failed(status: Self.invalidTokenStatus)
+        }
+#endif
         if var queued = stateResultOverride[token], !queued.isEmpty {
             let next = queued.removeFirst()
             stateResultOverride[token] = queued
@@ -108,8 +198,56 @@ final class FakeNotify: DarwinNotifyAPI {
     }
 
     func cancel(token: Int32) -> NotifyOutcome {
+#if FAKE_BLIND_INVALID_TOKEN
+        // MUTATION FLAG, off in every real run. Reintroduces the INVALID_TOKEN blind spot: every
+        // cancel answers `.ok` and the token stays usable, so a double cancel and a cancel of a dead
+        // token are indistinguishable from a first cancel.
         cancelledTokens.append(token)
         return .ok
+#else
+        if invalidatedTokens.contains(token) {
+            // Already released. `notify_cancel` does not succeed twice for the same token, and a
+            // double cancel that answered `.ok` would make `testCancelIsIdempotent` unable to tell
+            // "cancelled once" from "cancelled a token that was already gone".
+            return .failed(status: Self.invalidTokenStatus)
+        }
+        invalidatedTokens.insert(token)
+        cancelledTokens.append(token)
+        return .ok
+#endif
+    }
+
+    // MARK: Reading the accounting
+
+    /// The registrations recorded for a name, oldest first.
+    func registrations(of name: String) -> [Registration] {
+        registrations[name] ?? []
+    }
+
+    /// The registration with a given 1-based ordinal for a name.
+    func registration(of name: String, ordinal: Int) -> Registration? {
+        registrations(of: name).first { $0.ordinal == ordinal }
+    }
+
+    /// The most recent registration for a name.
+    func latestRegistration(of name: String) -> Registration? {
+        registrations(of: name).last
+    }
+
+    /// The registrations notifyd would still deliver: the latest token per name, when it is live.
+    var liveRegistrations: [String: Int32] {
+        var result: [String: Int32] = [:]
+        for (name, list) in registrations {
+            guard let last = list.last else { continue }
+            if !invalidatedTokens.contains(last.token) {
+                result[name] = last.token
+            }
+        }
+        return result
+    }
+
+    func isInvalidated(_ token: Int32) -> Bool {
+        invalidatedTokens.contains(token)
     }
 
     /// Deliver a notification for a name, as the system would.
@@ -118,22 +256,40 @@ final class FakeNotify: DarwinNotifyAPI {
     /// the observer's design depends on. Delivering inline on the caller's thread - which is what this
     /// fake used to do - made the observer's queue confinement unobservable and let a callback
     /// interleave with the snapshot in a way production cannot.
+    ///
+    /// This delivers the *latest* registration. `deliver(_:)` below delivers one specific
+    /// registration, which is how a test reaches a callback that outlived its own registration.
     func deliver(_ name: String) {
-        guard let token = registeredTokens[name], let handler = handlers[name] else {
+        guard let registration = latestRegistration(of: name) else {
             XCTFail("no registration for \(name)")
             return
         }
-        guard let queue = registrationQueues[name] else {
-            XCTFail("no queue recorded for \(name)")
-            return
-        }
+        deliver(registration)
+    }
+
+    /// Deliver the callback one specific registration installed, with that registration's own token.
+    ///
+    /// A real post-cancel callback is exactly this: the block the notification centre queued before
+    /// `cancel()` ran, arriving with a token that is now invalid. The token is carried through and
+    /// recorded, so a test can refuse a callback whose token no registration ever issued - which is
+    /// what the previous spelling (`queued?(101)`) could not do.
+    func deliver(_ registration: Registration) {
+#if FAKE_BLIND_STALE_CALLBACK
+        // MUTATION FLAG, off in every real run. Reintroduces the post-cancel blind spot exactly as
+        // the previous revision had it: the callback is invoked with a literal token that no
+        // registration ever issued (`queued?(101)`), so nothing about the delivered callback can be
+        // checked. `FakeNotifyBlindSpotTests` goes red under it.
+        deliveredTokens.append(101)
+#else
+        deliveredTokens.append(registration.token)
+#endif
         // A test may deliver from inside a hook that already runs on that queue (`onGetState` is called
         // from `observe`, which is on the queue); re-entering it would deadlock, and running inline is
         // what real dispatch does there too.
         if DispatchQueue.getSpecific(key: Self.deliveryQueueKey) != nil {
-            handler(token)
+            registration.handler(registration.token)
         } else {
-            queue.sync { handler(token) }
+            registration.queue.sync { registration.handler(registration.token) }
         }
     }
 
@@ -680,17 +836,48 @@ final class ScreenStateObserverTests: XCTestCase {
 
     /// After `cancel()` returns, nothing is published - including from a callback that the
     /// notification centre had already queued.
+    ///
+    /// # What the name promises, and what the body used to check
+    ///
+    /// The name says a callback ran after the cancel. The body said `queued?(101)`: optional
+    /// chaining, so a fixture that had failed to record a handler would have made the whole test a
+    /// no-op that still passed, and the token `101` is one no registration ever issued, so nothing
+    /// about the delivered callback could be asserted. It also had no positive control, so a
+    /// regression that stopped ALL deliveries would have left it green.
+    ///
+    /// It now takes the callback from the registration that installed it, fails if there is none,
+    /// proves the delivery path works before the cancel, and asserts the token it was handed is the
+    /// dead one - so the test can only pass because the observer refused a genuine post-cancel
+    /// callback.
     func testACallbackAfterCancelPublishesNothing() {
         let (observer, notify, publisher) = makeObserver()
         XCTAssertEqual(observer.start(), .started)
+
+        // Positive control: while the registration is live, the same delivery DOES publish. Without
+        // this, "nothing was published" would also be satisfied by `deliver` doing nothing at all.
+        notify.setState(.value(1), of: .lock)
+        notify.deliver(lockName)
+        XCTAssertEqual(publisher.calls, [.lock(true)],
+                       "the fixture cannot deliver a live callback, so the rest of this test proves nothing")
         publisher.reset()
 
-        let queued = notify.handlers[lockName]
+        guard let queued = notify.latestRegistration(of: lockName) else {
+            XCTFail("the fixture recorded no registration for \(lockName)")
+            return
+        }
+        let deliveriesBefore = notify.deliveredTokens.count
+
         observer.cancel()
-        notify.setState(.value(1), of: .lock)
-        queued?(101) // the callback the centre had already submitted
+
+        // The value would publish an unlock if the queued callback were still live.
+        notify.setState(.value(0), of: .lock)
+        notify.deliver(queued) // the callback the centre had already submitted
 
         XCTAssertEqual(publisher.calls, [], "a callback ran after cancel() returned")
+        XCTAssertEqual(Array(notify.deliveredTokens.dropFirst(deliveriesBefore)), [queued.token],
+                       "the callback was handed a token no registration issued, so nothing about it was checked")
+        XCTAssertTrue(notify.isInvalidated(queued.token),
+                      "the token the callback arrived on was still live, so this was not a post-cancel callback")
     }
 
     /// The specific interleaving the phase-2 brief asks about: a callback that is in flight while
@@ -842,9 +1029,10 @@ final class ScreenStateObserverTests: XCTestCase {
         publisher.reset()
 
         // A callback the notification centre could still deliver: captured while the registration was
-        // live, and released by the cancel below.
-        guard let queuedCallback = notify.handlers[lockName] else {
-            XCTFail("the fixture did not record a handler for \(lockName)")
+        // live, and released by the cancel below. Taken from the registration itself, so the token it
+        // arrives on is the one that registration took rather than a literal.
+        guard let queued = notify.latestRegistration(of: lockName) else {
+            XCTFail("the fixture did not record a registration for \(lockName)")
             return
         }
         observer.cancel()
@@ -856,10 +1044,12 @@ final class ScreenStateObserverTests: XCTestCase {
         // The read answers "locked", so a publication here could only come from the stale callback
         // being treated as current.
         notify.setState(.value(1), of: .lock)
-        queuedCallback(500)
+        notify.deliver(queued)
 
         XCTAssertEqual(publisher.calls, [],
                        "a callback queued before a cancel published into a later generation")
+        XCTAssertEqual(notify.deliveredTokens, [queued.token],
+                       "the stale callback did not arrive on the token of the registration that queued it")
     }
 
     /// Teardown releases the registrations it holds, so a stopped observer does not leave a handler
@@ -887,5 +1077,151 @@ final class ScreenStateObserverTests: XCTestCase {
         observer = nil
         XCTAssertEqual(Set(notify.cancelledTokens), tokens,
                        "deinit left a registration behind in notifyd")
+    }
+}
+
+// MARK: - The fixture's own blind spots
+
+/// The three things `FakeNotify` used to be unable to say, and the tests that now depend on it
+/// being able to.
+///
+/// Each of these fails if the corresponding ability is removed from the fake. That is checked by
+/// execution rather than asserted: `fakenotify-red-proof.ps1` compiles this file with one of the
+/// `FAKE_BLIND_*` mutation flags set, which restores the pre-fix behaviour inside `FakeNotify`, and
+/// shows this class going red. A test whose fixture cannot fail is not a test.
+final class FakeNotifyBlindSpotTests: XCTestCase {
+    private func makeObserver() -> (ScreenStateObserver, FakeNotify, RecordingPublisher) {
+        let notify = FakeNotify()
+        let publisher = RecordingPublisher()
+        let observer = ScreenStateObserver(notify: notify, publisher: publisher)
+        return (observer, notify, publisher)
+    }
+
+    /// BLIND SPOT 1: `INVALID_TOKEN`.
+    ///
+    /// `cancel` used to answer `.ok` to everything, and `getState` used to answer whatever value the
+    /// test had configured for a token notifyd had already released. So a read on a dead token looked
+    /// exactly like a read on a live one, and "a read that failed establishes nothing" could never be
+    /// reached through the one path that produces it on a device.
+    ///
+    /// Mutation that makes this red: `-D FAKE_BLIND_INVALID_TOKEN`.
+    func testACancelledTokenIsInvalidAndEstablishesNothing() {
+        let (observer, notify, publisher) = makeObserver()
+        XCTAssertEqual(observer.start(), .started)
+        let token = notify.token(for: .lock)
+        // A value that would publish an unlock if it were ever read back.
+        notify.setState(.value(0), of: .lock)
+
+        observer.cancel()
+
+        XCTAssertTrue(notify.isInvalidated(token), "cancel() left the token live")
+        XCTAssertEqual(notify.getState(token: token), .failed(status: FakeNotify.invalidTokenStatus),
+                       "a read on a released token answered a value instead of NOTIFY_STATUS_INVALID_TOKEN")
+        XCTAssertEqual(notify.cancel(token: token), .failed(status: FakeNotify.invalidTokenStatus),
+                       "releasing a released token was reported as a fresh success")
+        XCTAssertEqual(notify.cancelledTokens.filter { $0 == token }.count, 1,
+                       "the same token was released more than once")
+
+        // And the configured value must not be able to reach the publisher through that dead token.
+        guard let stale = notify.latestRegistration(of: lockName) else {
+            XCTFail("the fixture lost the registration")
+            return
+        }
+        publisher.reset()
+        notify.deliver(stale)
+        XCTAssertEqual(publisher.calls, [], "a callback on a released token published")
+    }
+
+    /// BLIND SPOT 2: duplicate registration counting.
+    ///
+    /// The fake used to keep one handler and one token per name, overwriting on every registration,
+    /// so registering a name twice was indistinguishable from registering it once.
+    /// `testStartIsIdempotent` asserted that the number of *reads* did not grow, which a start that
+    /// registered a second handler and skipped its snapshot would also satisfy.
+    ///
+    /// Mutation that makes this red: `-D FAKE_BLIND_DUPLICATE_REGISTRATION`.
+    func testStartRegistersEachNameExactlyOnceAcrossARestart() {
+        let (observer, notify, _) = makeObserver()
+        let names = ScreenStateSource.allCases.map(\.notificationName)
+
+        XCTAssertEqual(observer.start(), .started)
+        for name in names {
+            XCTAssertEqual(notify.registrationAttempts[name], 1, "one start() attempted \(name) more than once")
+            XCTAssertEqual(notify.successfulRegistrations[name], 1, "one start() registered \(name) more than once")
+            XCTAssertEqual(notify.registrations(of: name).count, 1)
+        }
+        XCTAssertEqual(notify.liveRegistrations.count, 2)
+
+        // A second start() must not register anything at all - not merely skip the snapshot.
+        XCTAssertEqual(observer.start(), .alreadyStarted)
+        for name in names {
+            XCTAssertEqual(notify.registrationAttempts[name], 1, "the second start() re-registered \(name)")
+            XCTAssertEqual(notify.registrations(of: name).count, 1)
+        }
+
+        observer.cancel()
+        XCTAssertEqual(notify.liveRegistrations.count, 0, "cancel() left a registration live in notifyd")
+
+        // A restart is a fresh registration per name, and the history says so.
+        XCTAssertEqual(observer.start(), .started)
+        for name in names {
+            XCTAssertEqual(notify.registrationAttempts[name], 2, "\(name) was not attempted afresh after the cancel")
+            XCTAssertEqual(notify.successfulRegistrations[name], 2, "\(name) did not register afresh after the cancel")
+            XCTAssertEqual(notify.registrations(of: name).count, 2)
+        }
+        XCTAssertEqual(notify.registrations(of: lockName).map(\.ordinal), [1, 2],
+                       "the restarted registrations are not distinguishable from the first")
+        // Exactly one live registration per source. A restart that leaked the previous one would
+        // leave three registrations behind and still report success.
+        XCTAssertEqual(notify.liveRegistrations.count, 2, "a restart leaked a registration")
+        observer.cancel()
+    }
+
+    /// BLIND SPOT 3: a callback arriving after `cancel()`.
+    ///
+    /// The fake used to keep only the live handler, so a callback that outlived its own registration
+    /// could not be named. The two tests that deliver one reached into `handlers[name]` and called it
+    /// with a literal token (`101`, `500`) that no registration had ever issued - and with optional
+    /// chaining, so "there was no handler at all" and "the observer refused the handler" produced the
+    /// same green.
+    ///
+    /// Here the callback comes from the registration that installed it, carries that registration's
+    /// own token, and the test refuses any token the fake did not issue.
+    ///
+    /// Mutation that makes this red: `-D FAKE_BLIND_STALE_CALLBACK`.
+    func testACallbackFromACancelledRegistrationArrivesWithItsOwnDeadToken() {
+        let (observer, notify, publisher) = makeObserver()
+        XCTAssertEqual(observer.start(), .started)
+
+        guard let queued = notify.latestRegistration(of: lockName) else {
+            XCTFail("the fixture recorded no registration for \(lockName)")
+            return
+        }
+        XCTAssertEqual(queued.token, notify.token(for: .lock),
+                       "the fixture handed back a registration for the wrong token")
+
+        publisher.reset()
+        observer.cancel()
+
+        // The registration outlives its token: a callback the notification centre had already queued
+        // cannot be un-queued, so the registration that queued it has to stay nameable.
+        XCTAssertEqual(notify.registrations(of: lockName).count, 1,
+                       "cancel() erased the registration the queued callback came from")
+        XCTAssertTrue(notify.isInvalidated(queued.token))
+
+        // The value would publish an unlock if the callback were still live.
+        notify.setState(.value(0), of: .lock)
+        let readsBefore = notify.readOrder.count
+        notify.deliver(queued)
+
+        XCTAssertEqual(publisher.calls, [], "a post-cancel callback published an unlock")
+        XCTAssertEqual(notify.readOrder.count, readsBefore,
+                       "the observer read state through a released token instead of refusing on the epoch")
+        XCTAssertEqual(notify.deliveredTokens, [queued.token],
+                       "the callback was handed a token no registration issued")
+        for delivered in notify.deliveredTokens {
+            XCTAssertTrue(notify.isInvalidated(delivered),
+                          "a callback was delivered on a token that was never released")
+        }
     }
 }
