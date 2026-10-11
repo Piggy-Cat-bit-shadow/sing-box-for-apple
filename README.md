@@ -7,9 +7,12 @@ SagerNet 官方 [sing-box-for-apple](https://github.com/SagerNet/sing-box-for-ap
 本 README 是**本项目架构的权威说明**。它是给人和 AI 协作者读的：
 读完这一页就能知道哪段代码归谁、新功能该写在哪里、哪些东西绝对不能碰。
 
-> **集成分支**：`jiejiebox/integrated`，从 `upstream/dev` @ `089d35e` 建立，已推送到 origin。
-> GitHub 上的**默认分支目前仍是 `dev`**，尚未切换。分支清单见
-> [`docs/APPLE-REFACTOR-BASELINES.md`](docs/APPLE-REFACTOR-BASELINES.md)。
+> **产品主线：`main`。** 它指向经本轮验证的唯一 Apple 产品 SHA。
+> `dev` 是上游同步 / 参考线（只 fetch 不推送）。
+> 历史施工分支已于收口轮删除，其内容由 `archive/*` tag 与固定 SHA 保存——
+> 分支清单见 [`BRANCH-INVENTORY.md`](BRANCH-INVENTORY.md)，
+> 历史基线见 [`docs/APPLE-REFACTOR-BASELINES.md`](docs/APPLE-REFACTOR-BASELINES.md)（历史记录，
+> 其中列出的施工分支已不存在）。
 
 ---
 
@@ -38,13 +41,13 @@ python scripts/dev/audit_apple_ui_boundary.py --upstream-ref 089d35e
 
 ## 产品所有权铁律（最高准则）
 
-> **iPhone 界面设计来源：`hako-ui@c1935cf`。任何人不得擅自改变它——不改视觉、不改信息架构、不改交互、不改文案、不"顺手优化"。iPad 与 macOS 保持上游官方 UI。这两条同等必须满足。**
+> **iPhone 界面设计来源：`archive/hako-design-v1` @ `c1935cf`。任何人不得擅自改变它——不改视觉、不改信息架构、不改交互、不改文案、不"顺手优化"。iPad 与 macOS 保持上游官方 UI。这两条同等必须满足。**
 
 这是给后续 AI 与协作者的第一条约束，优先于任何"让代码更整洁""让视觉更现代"的施工提示。
 
 | | |
 |---|---|
-| **iPhone UI 真值来源** | `hako-ui` @ `c1935cff77246f97498400f5a0a7f430cfabbd55`。已完成的界面就是它，不需要重新设计 |
+| **iPhone UI 真值来源** | `archive/hako-design-v1` @ `c1935cff77246f97498400f5a0a7f430cfabbd55`（原 `hako-ui` 分支顶端附近的设计基线；分支已删除，tag 与 SHA 长期保留） |
 | **iPad / macOS UI 真值来源** | `upstream/dev` @ `089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85`（本 fork 的已审计 pin） |
 | **两者冲突时** | 技术方案让步。宁可更严格的隔离、局部重复代码、专用适配器，也不牺牲原版设计 |
 | **没有 Apple 编译条件时** | 如实标 `UNVERIFIED`，保留原版实现等待真机验证。**不是**重新发明界面的许可 |
@@ -52,7 +55,7 @@ python scripts/dev/audit_apple_ui_boundary.py --upstream-ref 089d35e
 ### 谁是谁：原版设计 与 本工程的适配层
 
 ```text
-hako-ui@c1935cf（原版 iPhone UI，唯一设计真值）
+archive/hako-design-v1 @ c1935cf（原版 iPhone UI，唯一设计真值）
         │
         │  机械移植：scripts/dev/port_*.py
         │    · 平台条件解析为 iOS
@@ -87,9 +90,10 @@ SFI/HakoPageContent.swift ──→ SFI/HakoPhoneRootView.swift
 ```text
                      SagerNet upstream/dev  @ 089d35e
                                 |
-                                |  集成分支从该固定 SHA 建立
+                                |  产品主线从该固定 SHA 建立
                                 v
-                     jiejiebox/integrated
+                              main
+                     （唯一 JiejieBox Apple 产品主线）
                                 |
         +-----------------------+-----------------------+
         |                                               |
@@ -291,39 +295,69 @@ python scripts/dev/test_audit_apple_ui_boundary.py                     # 14/14 �
 
 ## Branch Roles
 
+本仓库在收口轮之后只剩两条长期分支。**不要再为每个平台或每个施工阶段新建长期分支**：
+施工分支用完即删，阶段性成果用 tag 保存。
+
 | 分支 | 角色 | 状态 |
 |---|---|---|
-| `jiejiebox/integrated` | **集成分支**，从 `upstream/dev` @ `089d35e` 建立 | 当前开发线 |
-| `upstream/dev` | SagerNet 官方开发线，只 fetch 不推送 | 只读参考 |
-| `hako-ui` | 历史：最新 iPhone Hako UI（含 `c1935cf` 剩余流量） | **保全，不再作为主线** |
-| `ipad-upstream-ui` | 历史：曾恢复 iPad 官方根入口 | **保全**。它的 `SFIUIFamily` 思路已吸收；它的共享页面污染未解决 |
-| `fix/libbox-stringbox-callsites` | 历史：libbox `StringBox` 调用点修复 | **保全**。判定为 UNKNOWN，未采纳，见审计 §5.1 |
-| `fix/apple-notify-unknown` | 历史：屏幕状态观察者修复 | **保全**。已采纳为 `f77289f` |
-| `dev`（fork 默认） | 历史：上游历史 + 少量 fork 提交 | **保全**。**默认分支仍是它** |
-| `main` / `stable` | 上游历史 | 保全，不作为施工基线 |
+| `main` | **唯一 JiejieBox Apple 产品主线**，也是 GitHub 默认分支 | **当前开发线 / 发布线** |
+| `dev` | SagerNet 官方开发线的 fork 镜像，只 fetch 不推送 | 只读参考，不施工 |
 
-**历史分支只保全，不再开发。** 不要删除它们，也不要把它们 rebase 到新线上：
-其他工作可能仍在读取它们。
+历史施工分支（`hako-ui`、`ipad-upstream-ui`、`r8/*`、`fix/*`、`jiejiebox/integrated`、
+`jiejiebox/v0.1.6-hardening`、`jiejiebox/hako-ui-migration-wip`、`stable`）**已在本轮删除**。
+它们的内容由以下方式保存，需要考古时用 tag 或 SHA，**不要去 `git branch -r` 里找**：
+
+| 历史 | 保存方式 |
+|---|---|
+| 旧 `main`（收口前的产品线） | `archive/old-main-2026-10-11` |
+| 收口前的 `jiejiebox/integrated` | `archive/pre-consolidation-2026-10-11` |
+| iPhone Hako 设计基线 | `archive/hako-design-v1` @ `c1935cf` |
+| iPad upstream port 收口点 | `archive/ipad-upstream-port-final` |
+| Round-8 施工线收口点 | `archive/r8-final` |
+| 内核 hardening 线 | `archive/core-hardening-pre-consolidation-2026-10-11`（父仓库） |
+
+完整逐分支判定（含每个分支的 SHA、ahead/behind、patch 等价性与删除理由）见
+[`BRANCH-INVENTORY.md`](BRANCH-INVENTORY.md) 与
+[`REPOSITORY-CONSOLIDATION-REPORT.md`](REPOSITORY-CONSOLIDATION-REPORT.md)。
 
 ---
 
 ## Build and Validation Status
 
-本仓库目前在 **Windows** 上维护，这台机器上**没有 Xcode、没有 macOS、没有 Swift 工具链，
-并且 `Libbox.xcframework` 不存在**（`.gitignore` 排除了它，它来自父仓库内核的构建产物）。
-因此验证必须分成三层来看，**它们不可互相替代**：
+本仓库历史上在 **Windows** 上编辑，那台机器上**没有 Xcode、没有 macOS、没有 Swift 工具链**，
+因此早期文档把编译与 `swift test` 一律记为「不可能」。**这一点已经改变**：本轮收口在
+**macOS + Xcode 27** 上执行，产品构建、SwiftPM 测试与静态边界审计都真实跑过。
+下表是本轮在该主机上**实测**的结果，不是推断。
 
-| 层次 | 本机状态 | 如何表达 |
+| 层次 | 本机状态 | 结果 |
 |---|---|---|
-| Git + 静态完整性 | **可以运行，且已通过** | `PASS 9 / FAIL 0 / UNKNOWN 0` |
-| 审计的负例套件 | **可以运行，且已通过** | 14/14 按设计行为 |
-| Swift 编译 / Xcode 构建 | **不可能** | `UNVERIFIED: no Xcode, no macOS, no Libbox.xcframework` |
-| `swift test`（订阅流量包） | **不可能** | `UNVERIFIED: no Swift toolchain` |
-| iPhone / iPad / Mac 真机与模拟器 | **未执行** | `DEFERRED: 无 Apple 设备` |
-| NetworkExtension / Libbox 联调 | **未执行** | `DEFERRED: 需签名与设备` |
+| SFI（iOS）构建 | **已执行，通过** | `** BUILD SUCCEEDED **`（`generic/platform=iOS`，`CODE_SIGNING_ALLOWED=NO`） |
+| SFM（macOS）构建 | **已执行，通过** | `** BUILD SUCCEEDED **`（`generic/platform=macOS`，`CODE_SIGNING_ALLOWED=NO`） |
+| `swift test` — `HakoScreenState` | **已执行，通过** | 35 tests, 0 failures |
+| `swift test` — `HakoSubscriptionUsage` | **已执行，通过** | 24 tests, 0 failures |
+| UI 边界静态审计 | **已执行，通过** | `audit_apple_ui_boundary.py` → PASS 19 / FAIL 0 / UNKNOWN 0 |
+| iPhone 模拟器 UI 测试 | **未执行** | `ENVIRONMENT_BLOCKED`：本机 CoreSimulator 存储中有多个设备被标记为 `isDeleted`，`simctl boot` 报 `Unable to boot deleted device`。UI 测试用例**未被修改、也未被跳过** |
+| iPad / macOS 真机或模拟器验收 | **未执行** | `NEEDS_DEVICE`：本机无 iPad 与 Mac 设备验收条件 |
+| NetworkExtension / 真机联调 | **未执行** | `NEEDS_DEVICE`：需签名与设备 |
 
-**这份 README 不声称任何编译或真机结果。** 完整清单见
-[`docs/APPLE-DEVICE-ACCEPTANCE.md`](docs/APPLE-DEVICE-ACCEPTANCE.md)。
+**这份 README 只声称上表已执行一栏的内容。** 设备侧结论一律为 `NEEDS_DEVICE`，
+完整清单见 [`docs/APPLE-DEVICE-ACCEPTANCE.md`](docs/APPLE-DEVICE-ACCEPTANCE.md)。
+
+构建 SFI / SFM 的完整命令（含本机需要的两个开关）：
+
+```bash
+DISABLE_SWIFTLINT=1 xcodebuild -project sing-box.xcodeproj -scheme SFI \
+  -configuration Debug -destination 'generic/platform=iOS' \
+  CODE_SIGNING_ALLOWED=NO -skipPackagePluginValidation -skipMacroValidation build
+
+DISABLE_SWIFTLINT=1 xcodebuild -project sing-box.xcodeproj -scheme SFM \
+  -configuration Debug -destination 'generic/platform=macOS' \
+  CODE_SIGNING_ALLOWED=NO -skipPackagePluginValidation -skipMacroValidation build
+```
+
+`-skipPackagePluginValidation` 是必需的：`SwiftLintPlugin` 是传递依赖，而本机未安装
+`swiftlint`，Xcode 会在插件校验阶段失败并报 `Validate plug-in "SwiftLint"`，
+与代码无关。`DISABLE_SWIFTLINT=1` 只让插件不执行，不能跳过校验。
 
 ### 已完成的（源码层面）
 
@@ -333,15 +367,21 @@ python scripts/dev/test_audit_apple_ui_boundary.py                     # 14/14 �
 - 订阅流量链路（解析 → 获取 → 合并 → 持久化 → 取件行显示）完整可静态追踪，
   并有独立的 SwiftPM 测试包。
 - 可见产品名 overlay 为 `Jiejiebox`，身份 / 协议 / 签名面未动。
-- 屏幕状态观察者的上游缺陷已修复（失败的通知读取不再被当作解锁）。
+- **六个一级页面全部走手机自己的 Hako 页面**（`SFI/HakoPageContent.swift` 的 switch 无上游分支），
+  由 `audit_apple_ui_boundary.py --only hako-page-coverage` 读取并强制。
+- 屏幕状态观察者的上游缺陷已修复（失败的通知读取不再被当作解锁），
+  并有 35 个可执行测试覆盖，其中包含 `start()` 与 `cancel()` 的真实竞态。
+- **本轮的运行时硬化已并入主线**：NetworkExtension 的有意 teardown 不再被误判为 socket loss，
+  命令服务器的启动事务失败会回滚，屏幕状态观察者的 generation 与 token 现在同一临界区。
+  来源 SHA 见 [`REPOSITORY-CONSOLIDATION-REPORT.md`](REPOSITORY-CONSOLIDATION-REPORT.md) §3。
 
 ### 已知未完成
 
-- **手机的 Hako 页面本体尚未迁移**：手机当前得到的是「Hako 外壳 + 上游页面」。
-  功能不减，但视觉未达 Hako 目标。见 [`docs/pending/README.md`](docs/pending/README.md)。
-- **libbox `StringBox` 调用点未决**：无框架，无法判定，见
-  [`docs/APPLE-ARCHITECTURE-AUDIT.md`](docs/APPLE-ARCHITECTURE-AUDIT.md) §5.1。
-- **全部 Apple 平台验证未执行**，见上一节。
+- **设备侧验收全部未执行**：iPad 与 macOS 无真机 / 模拟器验收条件（`NEEDS_DEVICE`），
+  iPhone 模拟器 UI 测试因本机 CoreSimulator 环境故障未能运行（`ENVIRONMENT_BLOCKED`）。
+  见上一节与 [`docs/APPLE-DEVICE-ACCEPTANCE.md`](docs/APPLE-DEVICE-ACCEPTANCE.md)。
+- **手机 Hako 页面的视觉验收未做**：静态保全审计只给 `STATIC_PARITY_EVIDENCE`，
+  永不等于像素级一致。见 [`docs/APPLE-HAKO-VISUAL-ACCEPTANCE.md`](docs/APPLE-HAKO-VISUAL-ACCEPTANCE.md)。
 
 ---
 
