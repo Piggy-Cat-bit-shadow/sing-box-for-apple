@@ -13,12 +13,12 @@ is recorded in §11 rather than modified.
 | | |
 |---|---|
 | **Apple canonical branch** | `main` |
-| **Apple final SHA** | `48bd4b7672109611d2852ebec59c58d2184eba53` |
+| **Apple final SHA** | `1f94cdbd80c2a419bca55316fb5df0ce5aef8a18` |
 | **Apple default branch** | `main` (was `dev`) |
 | **Apple remaining branches** | `main`, `dev` |
 | **Core canonical branch** | `testing` (not modified this round — see §11) |
 | **Core final SHA** | `origin/testing` = `d4241e1685f2139eee9680791a7be16e7fbe4430`, unmodified by this round |
-| **Parent Apple pin** | `clients/apple` = `48bd4b7672109611d2852ebec59c58d2184eba53` (**MATCH = YES**) |
+| **Parent Apple pin** | `clients/apple` = `1f94cdbd80c2a419bca55316fb5df0ce5aef8a18` (**MATCH = YES**) |
 | **Old branches deleted** | 15 remote branches |
 | **Archive tags created** | 7 |
 | **Commits added** | Apple: `f8f978c` (hardening port), `39e30a4` (branch roles / README / metadata), `48bd4b7` (this report). Parent: `414295fe7` |
@@ -60,10 +60,10 @@ Tags before this round: `iphone-hako-ui-freeze-v1`, `libbox-stringbox-abi-1`,
 
 ```text
 sing-box-for-apple
-├── main    48bd4b767   (JiejieBox Apple product line; GitHub default branch)
+├── main    1f94cdbd8   (JiejieBox Apple product line; GitHub default branch)
 │           Reached as f8f978c (hardening port) -> 39e30a4 (branch roles, README, metadata)
-│           -> a09194e -> 48bd4b7 (this report and its SHA correction). 48bd4b767 is the
-│           final value quoted in §1; every earlier value in this report is superseded.
+│           -> a09194e -> 48bd4b7 -> 1f94cdbd8. 1f94cdbd8 is the value quoted in §1; every
+│           earlier value in this report is superseded. See §8, "Reading the pinned SHA".
 └── dev     d1224bb50   (upstream synchronisation / reference; read-only)
 ```
 
@@ -76,11 +76,11 @@ archive/pre-consolidation-2026-10-11            3a550d0de
 archive/ipad-upstream-port-final                816600ab3
 archive/r8-final                                2a189686a
 archive/hardening-wip-2026-10-11                052f06b19
-archive/apple-consolidated-candidate-2026-10-11 48bd4b767
+archive/apple-consolidated-candidate-2026-10-11 1f94cdbd8
 ```
 
 `archive/apple-consolidated-candidate-2026-10-11` was first cut at `39e30a4fe` and moved forward to
-the final `48bd4b767` once this report was added, so it names the validated end state rather than
+the final `1f94cdbd8` once this report was added, so it names the validated end state rather than
 an intermediate one.
 
 ---
@@ -224,7 +224,7 @@ Deletions were issued in five small batches rather than one command, after
 | `archive/ipad-upstream-port-final` | `816600ab3` | iPad upstream port line final tip |
 | `archive/r8-final` | `2a189686a` | Round-8 construction line final tip; covers `r8/a-generator`, `r8/b-boundary`, `r8/c-platform`, `r8/d-reach` (all ancestors of it) |
 | `archive/hardening-wip-2026-10-11` | `052f06b19` | The parked Hako-migration WIP tip, which **contains** the hardening tip `ff849cc` |
-| `archive/apple-consolidated-candidate-2026-10-11` | `48bd4b767` | The validated canonical candidate. **Not a release tag** |
+| `archive/apple-consolidated-candidate-2026-10-11` | `1f94cdbd8` | The validated canonical candidate. **Not a release tag** |
 
 All seven verified pushed with `git ls-remote --tags origin`.
 
@@ -301,8 +301,8 @@ Not run this round (§4).
 ## 8. Parent pin verification
 
 ```text
-parent clients/apple gitlink:  48bd4b7672109611d2852ebec59c58d2184eba53
-Apple main:                    48bd4b7672109611d2852ebec59c58d2184eba53
+parent clients/apple gitlink:  1f94cdbd80c2a419bca55316fb5df0ce5aef8a18
+Apple main:                    1f94cdbd80c2a419bca55316fb5df0ce5aef8a18
 MATCH = YES
 ```
 
@@ -310,16 +310,16 @@ Independently confirmed through the repository's own tooling rather than by eye:
 
 ```text
 $ scripts/ci/apple-client-source.sh sha ios
-48bd4b7672109611d2852ebec59c58d2184eba53
+1f94cdbd80c2a419bca55316fb5df0ce5aef8a18
 $ scripts/ci/apple-client-source.sh sha macos
-48bd4b7672109611d2852ebec59c58d2184eba53
+1f94cdbd80c2a419bca55316fb5df0ce5aef8a18
 $ scripts/ci/apple-client-source.sh assert-shared-source
-PASS: iOS and macOS share Apple source 48bd4b7672109611d2852ebec59c58d2184eba53
+PASS: iOS and macOS share Apple source 1f94cdbd80c2a419bca55316fb5df0ce5aef8a18
 ```
 
 **Source selection is still one repository / one SHA / two products.** No per-platform Apple SHA
 was reintroduced. `scripts/ci/check-libbox-abi.sh` layer 5 now reports
-`PASS: apple gitlink is the verified revision (48bd4b767210)`.
+`PASS: apple gitlink is the verified revision (1f94cdbd80c2)`.
 
 The parent's submodule checkout was aligned to the new pin; the parent working tree carries no
 tracked modification to `clients/apple`.
@@ -330,20 +330,16 @@ tracked modification to `clients/apple`.
 an `git update-index --cacheinfo` performed first. The first attempt therefore committed the *old*
 revision while its message described the new one. Caught by re-reading the commit with
 `git ls-tree HEAD clients/apple`, and fixed by re-running `update-index` and amending with
-`git commit --amend` **without** a trailing `git add`. The recorded pin is now `48bd4b767210`, as
+`git commit --amend` **without** a trailing `git add`. The recorded pin is now `1f94cdbd80c2`, as
 the message states.
 
 ### Why the pin was restated more than once
 
 This report is itself a commit on `main`, so writing it moved `main` and invalidated the pin that
-had just been set — twice, because moving the pin moves the parent commit that records it. The
-sequence was: pin to `39e30a4fe`, add the report (`a09194e`), re-pin and move the candidate tag,
-correct the SHA values it quoted (`48bd4b7`), re-pin again. The values quoted in §1, §6 and §8 are
-the state **after** the last of those steps.
-
-The recursion terminates because §1 and §8 quote the SHA of the commit that carries this text,
-not a SHA computed afterwards: `48bd4b767` is the commit a reader gets when they resolve `main`.
-No further Apple commit is required to make the report true.
+had just been set — and moving the pin moves the parent commit that records it. The sequence was:
+pin to `39e30a4fe`, add the report (`a09194e`), re-pin and move the candidate tag, correct the SHA
+values it quoted (`48bd4b7`), re-pin again, correct them once more (`1f94cdbd8`). The values quoted
+in §1, §6 and §8 are the state after the last of those steps.
 
 The dependency chain is worth stating plainly, because it is the thing that makes this kind of
 round error-prone:
@@ -351,12 +347,45 @@ round error-prone:
 ```text
 Apple main changes  ->  parent clients/apple gitlink must change
                     ->  check-libbox-abi.sh VERIFIED_APPLE_SHA must change with it
-                    ->  editing either file is a new parent commit, not a new Apple commit
+                    ->  editing either file is a NEW PARENT COMMIT, not a new Apple commit
 ```
 
-An Apple-side *documentation* commit therefore costs three coordinated updates. That is why the
-last step in this round is a pin update with no further Apple content, and why the parent pin is
-stated with both its SHA and the evidence that it agrees with the Apple tree.
+An Apple-side *documentation* commit therefore costs three coordinated updates, and a report that
+quotes the branch tip it is itself part of can never be finished by rewriting it — each rewrite
+moves the tip.
+
+### Reading the pinned SHA
+
+Because of that recursion, **a literal SHA in this report is a snapshot, not the authority.** The
+authority is the repository state, and it is one command away:
+
+```bash
+# the Apple revision the parent builds, and the only authority for it
+git -C /Users/jie/Desktop/其他文件/sing-box ls-tree HEAD clients/apple
+
+# the same value through the repository's own tooling - these must agree
+cd /Users/jie/Desktop/其他文件/sing-box
+scripts/ci/apple-client-source.sh sha ios
+scripts/ci/apple-client-source.sh sha macos
+scripts/ci/apple-client-source.sh assert-shared-source
+
+# the value the ABI contract asserts, which must equal the two above
+grep '^VERIFIED_APPLE_SHA=' scripts/ci/check-libbox-abi.sh
+```
+
+At the time of writing, the values are:
+
+```text
+Apple main / parents clients/apple gitlink / VERIFIED_APPLE_SHA
+  = 1f94cdbd80c2a419bca55316fb5df0ce5aef8a18
+  = the commit that carries this report, i.e. the tip of main
+```
+
+If a later commit is added to `main`, that literal becomes stale while everything above stays
+true — which is exactly why the commands, not the literal, are what a reader should trust.
+
+An Apple-side *documentation* commit therefore costs three coordinated updates, and the last step
+of this round is a pin update carrying no further Apple content.
 
 ---
 
@@ -367,7 +396,7 @@ stated with both its SHA and the evidence that it agrees with the Apple tree.
 | `README.md` | Branch roles rewritten (`main` product, `dev` reference); the seven-branch construction table replaced by the archive tags that now carry that content; every `hako-ui` reference repointed to `archive/hako-design-v1` + SHA; **Build and Validation Status rewritten** from "maintained on Windows, Xcode and `swift test` impossible" to the measured results above, with `NEEDS_DEVICE` for the device axis; "known incomplete" list corrected (the Hako page migration and the StringBox question are both closed); build commands now carry `-skipPackagePluginValidation` with the reason |
 | `BRANCH-INVENTORY.md` | **New.** Every remote branch with head, date, ancestry, ahead/behind, patch-equivalence count and disposition; the tag retention dependency; the method used |
 | `release/apple-client-refs.env` | `APPLE_CLIENT_BRANCH` `jiejiebox/integrated` → `main`. `IOS_APPLE_BRANCH=hako-ui` **deleted** and replaced by `HAKO_DESIGN_BASELINE_TAG=archive/hako-design-v1`. The variable was already dead — `platform_branch` answers with `APPLE_CLIENT_BRANCH` for both platforms and deliberately does not fall back to it |
-| `scripts/ci/check-libbox-abi.sh` | `VERIFIED_APPLE_SHA` `2a189686ae38` → `48bd4b767210`, so layer 5 asserts agreement with the pin this round set |
+| `scripts/ci/check-libbox-abi.sh` | `VERIFIED_APPLE_SHA` `2a189686ae38` → `1f94cdbd80c2`, so layer 5 asserts agreement with the pin this round set |
 | `docs/SCREEN-STATE-FACTS.md` | Updated by the ported `ff849cc` content (§4.4 verdict corrected, §4.5 rewritten) |
 
 ### Stale-reference sweep
