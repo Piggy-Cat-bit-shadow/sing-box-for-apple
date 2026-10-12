@@ -4,8 +4,8 @@ SagerNet 官方 [sing-box-for-apple](https://github.com/SagerNet/sing-box-for-ap
 面向 iPhone 的 Hako 界面分支。**这是非官方客户端**，与 SagerNet 无隶属关系；
 内核来自 [jiejiebox 的 sing-box 分支](https://github.com/Piggy-Cat-bit-shadow/sing-box)。
 
-本 README 是**本项目架构的权威说明**。它是给人和 AI 协作者读的：
-读完这一页就能知道哪段代码归谁、新功能该写在哪里、哪些东西绝对不能碰。
+本 README 是产品与开发入口。面向 AI 的可复核架构、provenance、验收边界和增量阅读规则见
+[KNOWLEDGE/README.md](KNOWLEDGE/README.md)；源码与 Git 在与历史报告冲突时优先。
 
 > **产品主线：`main`。** 它指向经本轮验证的唯一 Apple 产品 SHA。
 > `dev` 是上游同步 / 参考线（只 fetch 不推送）。
