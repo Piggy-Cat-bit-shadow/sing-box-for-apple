@@ -3,7 +3,7 @@
 ## Scope
 
 All three `PacketTunnelProvider` classes are four-line subclasses of one shared type, so
-every lifecycle rule lives in `Library/Network/ExtensionProvider.swift`:
+every lifecycle rule lives in `Library/Network/ExtensionProvider.swift` (575 lines):
 
 | Target file | Declaration |
 |---|---|
@@ -25,7 +25,8 @@ private let serviceLifecycleLock = NSLock()
 ```
 
 `startService()` holds it across `startOrReloadService(...)` — which is what triggers the
-core's monitor install:
+core's monitor install — and **not** across the macOS `locationManager` block that follows,
+which touches no shared resource and would only widen the region:
 
 ```swift
 serviceLifecycleLock.lock()
@@ -35,10 +36,11 @@ guard let commandServer else {
 }
 ```
 
-The `guard`, not `commandServer!`, is deliberate: the property is reachable as `nil`
-when a stop ran between the caller's read and this line, and a force-unwrap would turn
-that into a process-killing trap instead of a message the caller already knows how to
-surface.
+The `guard`, not `commandServer!`, is deliberate and the header names both reachable paths:
+`stopTunnel` nils the property while `tunnelOptions` survives, and `startTunnel` sets
+`tunnelOptions` before it creates the server. A force-unwrap there would turn an ordinary
+"the server is gone" into a process-killing trap — which on device is indistinguishable from
+"the tunnel stopped working".
 
 `stopService()` takes the same lock and is single-entry:
 
@@ -51,10 +53,12 @@ func stopService() {
 }
 ```
 
-Why this lock exists at all — the header states the reachability explicitly: the core
+Why the lock exists at all — the header states the reachability explicitly: the core
 reaches `stopService()` **synchronously from a gRPC handler goroutine**, not from a
 NetworkExtension entry point, because `ExtensionPlatformInterface.serviceStop()` calls
-`tunnel.stopService()` on whatever thread runs the handler.
+`tunnel.stopService()` on whatever thread runs the handler. Nothing serialised that against
+`stopTunnel`'s own call, and `stopService()` ends in `platformInterface.reset()`, which
+cancels and nils the monitor a concurrent start has just installed and is still waiting on.
 
 `reloadService()` is a re-start inside the same server (`reasserting = true`,
 `try await startService()`), and it **must not** re-register the screen-state observer:
@@ -64,6 +68,47 @@ device axis.
 `handleAppMessage` is the app→extension reload channel: decode → `applyStartOptions` →
 `persistStartOptions` → `await reloadService()`, returning the error description as
 UTF-8 on failure.
+
+## The start transaction: a failure unwinds what it created
+
+`startTunnel` now wraps everything after the command server exists in a `do/catch`, and the
+catch calls `unwindFailedStart()`:
+
+```swift
+do {
+    try await startTunnel0()          // start server, resume XPC, startService, start observer
+    ...
+} catch {
+    #if os(macOS)
+        if Variant.useSystemExtension { xpcService.markServiceNotReady(error) }
+    #endif
+    unwindFailedStart()
+    throw error
+}
+```
+
+`unwindFailedStart()` releases in **`stopTunnel`'s order**, and clears `commandServer` last so
+the closing calls can still reach it:
+
+```swift
+private func unwindFailedStart() {
+    #if os(iOS)
+        stopScreenStateObserver()
+    #endif
+    stopService()
+    commandServer?.close()
+    commandServer = nil
+}
+```
+
+This closed a real leak rather than a theoretical one: previously every failure below the
+server's creation threw **without releasing anything**, leaving `commandServer` created and
+listening on `command.pb`, the Go-side power-report worker and OOM recorder running with
+nothing to stop them, and on macOS an already-resumed XPC listener pointing at a server whose
+service never started. `8d06a99` fixed it; `f8f978c` absorbed the companion runtime fixes.
+
+The `do/catch` is used rather than `defer` plus a flag because the successful path must not
+unwind, and a `catch` says that in the shape of the code rather than in a boolean.
 
 ## Teardown: fence the observer before releasing the server
 
@@ -93,8 +138,14 @@ if let server = commandServer {
     try? await Task.sleep(nanoseconds: 100 * NSEC_PER_MSEC)
     let serverIsStillCurrent = commandServer === server
     server.close()
-    if serverIsStillCurrent { commandServer = nil }
-    else { Self.logger.info("stopTunnel: a new command server was installed during the stop; releasing the previous one only") }
+    if serverIsStillCurrent {
+        commandServer = nil
+        #if os(macOS)
+            if Variant.useSystemExtension { /* markServiceNotReady, invalidate listener, clear registry */ }
+        #endif
+    } else {
+        Self.logger.info("stopTunnel: a new command server was installed during the stop; releasing the previous one only")
+    }
 }
 ```
 
@@ -104,42 +155,45 @@ the new, healthy server and leave the tunnel running with a server nobody owns. 
 comparison is made **after** the sleep because a check before it proves nothing about
 this window.
 
-The macOS XPC teardown mirrors the rule: it invalidates the listener and clears the XPC
-service only when `commandServer == nil`, i.e. only when no new server landed.
+The macOS XPC teardown is now **inside** the same `if serverIsStillCurrent` branch, for the
+same reason: `xpcListener.invalidate()`, `xpcService = nil` and the registry clear are all
+"tear down the surface I owned", so they may only run when the server this call captured is
+still the current one. An earlier comment claimed the ordering was safe for macOS *because*
+the stop runs first; that is only true when nothing started in between.
 
 `f4a9859` fixed this and a companion race (a reload cancelling its own live monitor).
 "Simplifying" either back to the unconditional form reopens the fault.
 
-## Failed start: an unresolved edge
-
-`startTunnel` resolves paths, resolves and applies start options, builds
-`LibboxSetupOptions`, calls `LibboxSetup`, creates and starts the command server, then:
+## `pause()` / `wake()` and the observer's resume hook
 
 ```swift
-do { try await startService() }
-catch {
-    #if os(macOS)
-        if Variant.useSystemExtension { xpcService.markServiceNotReady(error) }
+override open func sleep() async { if let commandServer { commandServer.pause() } }
+
+override open func wake() {
+    if let commandServer { commandServer.wake() }
+    #if os(iOS)
+        screenStateObserver?.resync()
     #endif
-    throw error
 }
 ```
 
-The failure path rethrows **without** closing the command server it just created and
-started, and without calling `platformInterface.reset()`. Whether NetworkExtension
-invokes `stopTunnel` afterwards — which would perform that cleanup — cannot be
-established from this checkout.
+`pause()` publishes the sleep EDGE and then the LEVEL. `wake()` is an EDGE only on iOS: the
+platform resumes the extension for every push and background task, and letting a resume lift
+the device pause would release health checks, probes and statistics for a phone in a pocket.
+`resync()` is the other half of `wake()` — a resume is the one moment the process knows it was
+suspended, and Darwin notifications are not delivered to a suspended process.
 
-```text
-code shape        VERIFIED_SOURCE
-liveness outcome  UNKNOWN -> EXTERNAL_CHECK_REQUIRED
-                  (NEPacketTunnelProvider.startTunnel failure contract)
-```
+The observer is created once per tunnel process in `startTunnel` (via `startTunnel0`) and torn
+down once in `stopTunnel`. `startScreenStateObserver()` guards on `screenStateObserver == nil`
+and **reports** a registration failure rather than swallowing it, because without the
+notifications the device axis falls back to sleep/wake alone, which on iOS enters the pause and
+never lifts it.
 
 ## AI cautions
 
 - The identity check after the sleep is not defensive coding; it is the fix. Do not
-  "simplify" it.
+  "simplify" it, and do not move the macOS XPC teardown back out of that branch.
+- Do not replace the `guard let commandServer` in `startService()` with a force-unwrap.
 - `pause()` and `wake()` **bypass** `serviceLifecycleLock` — they call
   `commandServer.pause()` / `wake()` directly. The lock's docstring talks about
   serializing "the service lifecycle", so a reader reasonably assumes it covers them.
@@ -148,12 +202,15 @@ liveness outcome  UNKNOWN -> EXTERNAL_CHECK_REQUIRED
 - Do not treat a `reset()` landing during a start as harmless: that is the race the
   lock exists for, and the file header describes the resulting
   "nwMonitor not started" state with nothing to repair it.
-- The first-path wait in the default-interface monitor has **no timeout** and runs while
-  this lock is held — see `networking.md`.
+- The first-path wait in the default-interface monitor is now **bounded** (2 s) and
+  generation-guarded — see `networking.md`. Do not reintroduce an unbounded wait.
+- A failed start must unwind. Adding a new `throw` inside `startTunnel0` is safe; adding one
+  *outside* the `do/catch` is not.
 
 ## Evidence
 
-`VERIFIED_SOURCE` for all code above and for the diff of `f4a9859`.
+`VERIFIED_SOURCE` for all code above, re-read at `5cab4ec`.
+`VERIFIED_SOURCE` for the diffs of `f4a9859`, `8d06a99` and `f8f978c`.
 `NEEDS_DEVICE`: a real tunnel start/stop, sleep/wake, no-path recovery, and
 signed-extension behaviour. This checkout cannot build (no `Libbox.xcframework`), so
 even `VERIFIED_BUILD` is unavailable.

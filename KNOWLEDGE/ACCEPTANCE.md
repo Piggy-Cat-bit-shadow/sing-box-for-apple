@@ -2,15 +2,13 @@
 
 ## Read this before any evidence claim
 
-This knowledge base describes a **frozen audit line**. Every result below is a result
-about that line, not about the shipping product. The fork's default branch
-`origin/main` is 63 commits ahead and has fixed defects still present here — see
-`BASELINE.md`.
+This knowledge base now describes the **live product line** (`main` @ `5cab4ec`), not a frozen
+audit line. The previous revision of this file opened with the opposite warning; the lines were
+merged and the warning is retired — see `BASELINE.md`.
 
-Gate counts quoted in `docs/*` are historical and differ for the same command
-(9 → 12 → 15 → 18 → 19 across this history; `HAKO-ROUND9-HANDOFF.md` says 19 in one
-place and 18 in another). Trust `FAIL` and `UNKNOWN`, not `PASS n`, and never edit code
-to make a count match a document.
+Everything below was re-measured at this refresh on **2026-10-12**, against the working tree at
+`331a676`. Where a result is unchanged from the previous baseline it is marked so, because
+"unchanged" and "re-run" are different facts.
 
 ## Environment
 
@@ -24,28 +22,34 @@ to make a count match a document.
 | Python | a working CPython 3.12 is available through the harness runtime; `python` on `PATH` is a 0-byte Windows Store stub that exits 9009 |
 | Swift | a 6.3.3 toolchain is installed on this host, but see below |
 
-The Stage-1 report's statement that "`python` is unavailable" is a **misdiagnosis of the
-PATH stub**, not a property of the machine: the documented static gate runs and passes —
-see the executed results below.
+SwiftPM packages are **not** runnable here regardless of toolchain: the test-package sources are
+git symlinks (mode `120000`, 11 of them) which materialise as one-line text files on a checkout
+without symlink support, so `swift test` fails at compile. `scripts/link-test-sources.sh` would fix
+that but needs `bash`, `ln` and a POSIX Python.
 
-SwiftPM packages are **not** runnable here regardless of toolchain: 10 of the test-package
-sources are git symlinks (mode `120000`) which materialise as one-line text files on a
-checkout without symlink support, so `swift test` fails at compile.
-`scripts/link-test-sources.sh` would fix that but needs `bash`, `ln` and a POSIX Python.
-
-## Executed at this review (2026-10-12)
+## Executed at this refresh (2026-10-12)
 
 | Command | Result | Level |
 |---|---|---|
-| `audit_apple_ui_boundary.py --root <repo> --upstream-ref 089d35e6…` | `PASS 19 FAIL 0 UNKNOWN 0 UNDECIDABLE 0`, exit 0 | `VERIFIED_STATIC` |
-| `audit_hako_lossless_parity.py --root <repo>` | 6 of 6 pages compared, design system 9 of 9, lost UI tokens 0, verdict `STATIC_LOSSLESS_PORT_READY_FOR_APPLE_ACCEPTANCE`, exit 0 | `VERIFIED_STATIC` |
-| `test_fail_closed_exit_codes.py` | 3 passed, 0 failed | `VERIFIED_STATIC` |
-| `test_platform_gates.py` | 0 failing cases of 19 | `VERIFIED_STATIC` |
-| `test_audit_reverse_routing.py` | 29 cases executed, 1 skipped, every case failed the audit as designed | `VERIFIED_STATIC` |
-| `check_generated_headers.py`, `check_platform_structure.py`, `check_swift_structure.py`, `check_hako_macos_parse.py --platform ios`, `check_swift_test_sources.py`, `dup_module_scope.py`, `check_commit_messages.py` | see `modules/tests-audits.md` | `VERIFIED_STATIC` |
+| `audit_apple_ui_boundary.py --root <repo> --upstream-ref 089d35e6… --strict` | **`PASS 20 FAIL 0 UNKNOWN 0 UNDECIDABLE 0`**, exit 0 | `VERIFIED_STATIC` |
+| `audit_hako_lossless_parity.py --root <repo>` | `coverage: 4 of 6 page(s)`, design system 9 of 9, **`lost UI tokens: 2`**, verdict `PARTIAL`, exit 1 | `VERIFIED_STATIC` — **red, and the reason is an intentional key rename, not a lost UI.** See `modules/tests-audits.md` |
+| `check_hako_macos_parse.py --platform ios` | `checked=54 errors=0 undecidable=0`, exit 0 | `VERIFIED_STATIC` |
+| `check_hako_macos_parse.py --platform tvos` | 54 files `NOT CHECKED`, exit 1 | `VERIFIED_STATIC` — red by decision, no tvOS condition table |
+| `gate_hako_platform_imports.py --check` | `checked=54 errors=0 undecidable=62`, exit 1 | `VERIFIED_STATIC` — red by decision (was 61) |
+| `report_hako_platform_api.py --check` | same counts, exit 1 | `VERIFIED_STATIC` — red by decision |
+| `check_platform_structure.py` | exit 0 | `VERIFIED_STATIC` |
+| `check_swift_structure.py ApplicationLibrary/Views/HakoStyle` | "all 1 target(s) structurally balanced", exit 0 | `VERIFIED_STATIC` |
+| `check_generated_headers.py` | 33 portable headers, 0 naming a missing path, exit 0 | `VERIFIED_STATIC` |
+| `dup_module_scope.py` | exit 0, 0 module-scope names in the shared tree | `VERIFIED_STATIC` — the previous baseline's 18-finding false red is gone |
+| `check_commit_messages.py` | exit 0 **having scanned 0 commits** | **`BLOCKED_BY_ENVIRONMENT`** — proves nothing |
+| `check_localization.py` | printed `PASS` over **0 of 56** files | **`BLOCKED_BY_ENVIRONMENT`** — a Windows false green |
+| `test_fail_closed_exit_codes.py` | 3 passed | `VERIFIED_STATIC` |
+| `test_platform_gates.py` | 0 failing of 19 cases | `VERIFIED_STATIC` |
+| `test_audit_reverse_routing.py` | 29 cases, every case failed the audit as designed | `VERIFIED_STATIC` |
 
 Re-run recipes and the caveats that make a run meaningless are in
-`modules/tests-audits.md`.
+`modules/tests-audits.md`. Two of the rows above **printed a pass while examining nothing**; read
+the counts, not the exit status.
 
 ## Required before any claim of release readiness
 
@@ -66,8 +70,25 @@ baseline exists**: no archive or upload has been run or verified on this line.
 | iPad official UI, incl. Split View / Slide Over / Stage Manager | `NEEDS_DEVICE` |
 | macOS official UI | `NEEDS_DEVICE` |
 | NetworkExtension tunnel lifecycle on hardware | `NEEDS_DEVICE` |
+| **Airplane-mode startup no longer hangs** | `NEEDS_DEVICE` — the bound is `VERIFIED_SOURCE`, its *effect* is not. The off-device seam cannot be built here |
+| **The screen-state policy is correct** | `VERIFIED_SOURCE` for the six rules. The suite reports 33 of 33 historically, but it **cannot be executed here** — do not quote it as `VERIFIED_UNIT` |
 | ScreenState sleep/resume against real Darwin notifications | `NEEDS_DEVICE` — the two notification names are non-public API and delivery per iOS release is `EXTERNAL_CHECK_REQUIRED` |
 | "Static parity" ⇒ pixel parity | **never** — the parity audit compares token sets and 9 byte-identical files |
-| A green UI test run ⇒ correct data path | **never** — the suites launch with a screenshot-mode fixture that substitutes data in 23 files |
-| `ScreenStatePolicyTests` is green | **false at this baseline** — 8 of 9; see `modules/screen-state.md` |
+| **The parity audit being red ⇒ the UI lost something** | **never** — at this baseline its 2 "lost tokens" are an intentional rename to upstream keys. See `modules/tests-audits.md` |
+| A green gate ⇒ it checked anything | **never** — `check_localization.py` prints `PASS` over 0 files on Windows |
+| A green UI test run ⇒ correct data path | **never** — the suites launch with a screenshot-mode fixture that substitutes data |
 | iPad/macOS builds pass | `BLOCKED_BY_ENVIRONMENT` |
+
+## What changed in this column, and what did not
+
+Three rows moved because the underlying defect was fixed, and the previous revision's "must not be
+upgraded" list would now be misleading if left alone:
+
+- `ScreenStatePolicyTests` was **false (8 of 9)** and is now reported **33 of 33**; the policy class
+  itself is 9 of 9 (`891c6cb`). *The claim that moves is the test result; the evidence level is
+  still not `VERIFIED_UNIT`, because the suite cannot run here.*
+- The unbounded interface wait is now **bounded** (`15d3a72`). *The level moves from "known defect"
+  to `NEEDS_DEVICE` for the behaviour.*
+- A failed `startTunnel` now **unwinds** (`8d06a99`). *The liveness outcome moves from
+  `EXTERNAL_CHECK_REQUIRED` to `VERIFIED_SOURCE` for the code path; the runtime outcome is
+  `NEEDS_DEVICE`.*

@@ -1,112 +1,122 @@
 # Baseline
 
-## Read this first: the knowledge base describes a frozen audit line, not live `main`
+## Read this first: the knowledge base now describes the live product line
 
-The single most important fact in this file. Verified 2026-10-12 with a live
-`git ls-remote` and a non-destructive `git fetch --tags origin`.
+**Refreshed 2026-10-12** by an explicit Knowledge Refresh (`REFRESH.md`). Verified with a live
+`git ls-remote` and a non-destructive fetch.
+
+This file previously opened with the opposite statement — that the knowledge base described a
+*frozen audit line* and that live `main` was a different, un-reviewed line 63 commits ahead. That
+was true when it was written and is **no longer true**. The knowledge line was merged into `main`
+(`5ada085`), `main` then absorbed the remaining work, and the two are now **one line**. The old
+warning is retired deliberately, not by drift; the change is the single most important thing this
+refresh records.
 
 ```text
-upstream/dev @ 089d35e6   (SagerNet/sing-box-for-apple, 2026-10-09)
+upstream/dev @ 089d35e6   (SagerNet/sing-box-for-apple, 2026-10-09)   <- fixed upstream reference pin
       |
-      `-- 2a18968        (r8/main, 2026-10-10 — the common base)
+      `-- 2a18968        (r8/main; also archive/r8-final)
              |
-             +-- f4a9859 -> ... -> HEAD of jiejiebox/ne-p3-code-closure   <- THIS knowledge base
-             |   (4 commits: the production fix + stage-1, stage-1 clarification, stage-2)
+             +-- 3a550d0                            (archive/pre-consolidation-2026-10-11)
+             |                                       the previous integration line
              |
-             +-- 3a550d0                            <- 37 commits (archive/pre-consolidation-2026-10-11)
-             |   (was jiejiebox/integrated)            the previous integration line
-             |
-             `-- d0524912                           <- 63 commits  (LIVE origin/main, default branch)
-                 (fork main)                            contains the Hako product AND newer fixes
+             `-- f4a9859 -> 82c9807 -> aa1e982 -> 3e9ab50      <- the OLD knowledge line + its 3 docs commits
+                    |
+                    `-- 5ada085  Merge branch 'jiejiebox/ne-p3-code-closure' into main
+                           |
+                           +-- 90a0e9a  Merge branch 'jiejiebox/p1c-iphone-device-closure' into main
+                                  |
+                                  +-- d052491, 5cab4ec, ...   <- LIVE origin/main, default branch
+                                         (fork main: Hako product AND this knowledge base)
 ```
 
-At the Stage-2 review point (production baseline + 3 docs commits):
+What changed in one sentence: **the knowledge baseline `f4a9859` is an ancestor of live `main`, not
+a sibling of it.** `git merge-base --is-ancestor f4a9859 origin/main` exits 0. So this was a
+*refresh on the same product line* (`REFRESH.md` §7), and the "different lines" framing — not the
+measurements — was the stale part.
 
-| Comparison | Ahead | Behind |
-|---|---|---|
-| `HEAD` vs `upstream/dev@089d35e6` | 88 | 0 |
-| `HEAD` vs `3a550d0` (*integrated* line) | 3 | **37** |
-| `HEAD` vs `d0524912` (**live `main`**) | 3 | **63** |
-| `HEAD` vs `upstream/main@e232aaf2` | 91 | 0 |
+## The five baselines, and the four that are not interchangeable
 
-The fork remote's **default branch is `main`**, not `dev`, and `main` **is** the Hako
-product: it carries all 54 `ApplicationLibrary/Views/HakoStyle/*.swift` files and
-`SFI/HakoPhoneRootView.swift`. It does **not** carry `KNOWLEDGE/` or `AGENTS.md` — the
-knowledge base and the live product line are different lines.
+| # | Baseline | Value | How to re-verify |
+|---|---|---|---|
+| 1 | **Production implementation baseline** | `5cab4ec5bcb405265e077f8bdb6e287101af4405` | `git log -1 5cab4ec` — "fix(ios): align network tool text colors". The newest commit on `main` whose diff is production source |
+| 2 | Knowledge line HEAD | the docs commit carrying `KNOWLEDGE/` | `git log -1 --format='%h %ad' --date=short -- KNOWLEDGE/` — **deliberately not a constant**; re-derive it |
+| 3 | **Live product line HEAD** | `origin/main` @ `331a67640` at this refresh | `git ls-remote --symref origin HEAD` |
+| 4 | Upstream Apple baseline | `089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85` (tip of `upstream/dev`) | `git rev-parse upstream/dev` |
+| 5 | Hako design/reference baseline | `c1935cff77246f97498400f5a0a7f430cfabbd55` (`hako-ui`, via tag `archive/hako-design-v1`) | `git rev-parse archive/hako-design-v1^{}` |
 
-**Consequence for any reader:** behaviour read out of this baseline is the behaviour of
-a frozen audit line, not of the shipping product. Before asserting anything about
-current behaviour, run:
+Baselines 1 and 3 differ only by docs commits at this refresh. **A docs-only commit does not move
+baseline 1.** Do not chase the knowledge base's own SHA.
 
-```bash
-git log --oneline HEAD..origin/main            # 63 commits at Stage 2
-git diff --stat  HEAD..origin/main
-```
-
-### Defects that this baseline has and live `main` has already fixed
-
-Found by this review and confirmed against `origin/main`. Do not re-derive these; do not
-report baseline behaviour as the product's.
-
-| Baseline defect | Evidence here | Fixed on `origin/main` by |
-|---|---|---|
-| `ScreenStatePolicy.decide` publishes `.unlocked` from an unknown lock state, which lifts the device pause. The baseline's **own test fails** (`ScreenStatePolicyTests.testTheWholeTruthTable`, "an unlock was published without a transition"). | `ScreenStateObserver.swift:233-250` has rules 1–4 only; test at `ScreenStateObserverTests.swift:242` requires `last == 1` | `891c6cb` (rule 5) — **verified present**: `git show origin/main:Library/Network/ScreenStateObserver.swift` contains `if fact == .unlocked, lastObserved != 1`. Also `987134b` "deliver a current-state read as a level, never a sleep edge" |
-| `startDefaultInterfaceMonitor` waits on a `DispatchSemaphore` with **no timeout**, while the service lifecycle lock is held — airplane mode can hang startup indefinitely. | `ExtensionPlatformInterface.swift` `semaphore.wait()` | `15d3a72` "bound the first interface-path wait, so airplane mode cannot hang startup" (+ `628644d`, its off-device test seam) |
-| Three localization keys the phone asks for (`%lld groups`, `%lld active`, `%lld unread`) are missing from `Localizable.xcstrings`, so those labels ship English. | `Localizable.xcstrings` at HEAD | `467f8ea` "reuse upstream localization for Hako UI" — key present on `origin/main` |
-| A failed `startTunnel` rethrows without closing the command server it just created. | `ExtensionProvider.swift` `catch` block | `8d06a99` "serialise the service lifecycle, so a teardown cannot land inside a start" adds `unwindFailedStart()` — **verified present on `origin/main`** |
-
-The baseline's `ExtensionProvider.swift` is 23,254 bytes; `origin/main`'s is 27,192.
-
-## Four different things that must not be confused
-
-| Field | Value | How to re-verify |
-|---|---|---|
-| **Production implementation baseline** | `f4a98590e9edaefc4a231b7f30d5b81a30917b66` | `git log -1 f4a9859` — "fix(ne): the stop window could drop a live command server, and a reload could cancel its own monitor". The last commit on this line whose diff is production code |
-| Knowledge document revision | **deliberately not recorded as a constant.** Run `git log -1 --format='%h %ad' --date=short -- KNOWLEDGE/` | docs only; **not** a product SHA. A hardcoded value here is stale the moment the knowledge base is committed — which is exactly the failure this file exists to prevent |
-| Branch carrying both | `jiejiebox/ne-p3-code-closure` | `git rev-parse --abbrev-ref HEAD` |
-| Working tree at Stage-2 review | clean at review start | `git status --porcelain` |
+Also separate, and never collapse:
 
 ```text
-f4a9859  production baseline
-   |-- 82c9807  docs(apple): add stage 1 knowledge baseline
-   |-- aa1e982  docs(apple): clarify knowledge evidence boundaries
-   `-- (stage 2) docs(apple): reinforce the knowledge base for stage 2
+parent/core gitlink        the parent repository's clients/apple pointer
+libbox/core artifact       what an Apple build actually links (recorded nowhere — see below)
+Runestone gitlink          Frameworks/Runestone
+release/TestFlight state   no release baseline exists
 ```
 
-**Do not chase the knowledge base's own commit SHA.** A docs-only commit after the
-baseline does not move it and is not a runtime change. The stage-2 commit is
-deliberately not quoted by hash for that reason: re-derive it with
-`git log --oneline f4a9859..HEAD`.
+## The delta this refresh absorbed
 
-**Release baseline: none recorded.** No archive/export/upload has been run or verified on
-this line. `origin/main` carries newer work but is itself unreviewed by this knowledge
-base. See `ACCEPTANCE.md`.
+`f4a9859..main` = **69 commits, 99 files, +10643/-470** (two merges; 33 docs, 20 fix, 13 test,
+1 chore).
 
-## The product line was re-founded, not continued
+The production-relevant part, grouped by theme rather than listed flat:
 
-- `git merge-base HEAD upstream/dev` = `089d35e6…`, which **is** the tip of
-  `upstream/dev`, not merely an older common ancestor. The fork point is exactly
-  upstream's tip; there is **no divergence** (`HEAD..upstream/dev` = 0).
-- The older Hako lines — `hako-ui` (tip `d5b2c31e`), the freeze tag's commit `fc7f77b`,
-  and `2b23330d` — fork from `2b1763a8` (2026-09-14) and are **not ancestors of HEAD**:
-  `git merge-base --is-ancestor fc7f77b HEAD` → exit 1. They are **source material**.
+| Theme | Commits | What it settled |
+|---|---|---|
+| Screen-state delivery semantics | `891c6cb`, `987134b`, `c58b1f7`, `37798ea`, `ee428f7` | rule 5 (an unlock needs an observed lock); a current-state read is delivered as a **LEVEL**, never a sleep edge; the suite became buildable and reached 33 of 33 |
+| NetworkExtension start transaction | `8d06a99`, `f8f978c` | the service lifecycle is serialised and a failed start **unwinds** what it created |
+| Interface-monitor startup bound | `15d3a72`, `628644d` | airplane mode can no longer hang startup; the bound has an off-device seam |
+| Hako ↔ upstream localization | `467f8ea`, `8fe8e79` | the zh-Hans interface stopped being half English; a new gate exists |
+| Hako generated-page repairs | `9adb1f8`, `f03efe6`, `631c4fc`, `5855501`, `7b7d638`, `49a9275`, `2f0024c` | the migration's platform-condition damage, repaired |
+| Import presentation | `6240a74`, `747a5d8` | the phone's profile import route left the modal form |
+| iOS version / appearance | `d052491`, `48b5030`, `5cab4ec` | toolbar placement requires iOS 16; report badges and network-tool colors |
+| Audit honesty | `6a1d175`, `ff24e4b`, `5794092`, `2f0024c` | a red boundary check whose default run reported green |
+| UI suite closure | `3220019`, `a8ac1ea`, `d331977`, `26ff51a`, `d6f5d99`, `492f61d`, `543da17` | the snapshot suite reached 28 of 28 with per-case fixture states |
+
+### Defects this baseline HAD and main has now fixed
+
+These four were recorded as open defects by the previous baseline. **All four are verified fixed at
+the current baseline.** The previous text is kept as the historical statement; the evidence column
+is new and re-read at `5cab4ec`.
+
+| Defect as previously recorded | Evidence at the current baseline | Commit |
+|---|---|---|
+| `ScreenStatePolicy.decide` published `.unlocked` from an unknown lock state, lifting the device pause; the repository's own test failed | `Library/Network/ScreenStateObserver.swift` contains `if fact == .unlocked, lastObserved != 1 {` — rule 5 present | `891c6cb` |
+| `startDefaultInterfaceMonitor` waited on a `DispatchSemaphore` with **no timeout** while the service lifecycle lock was held — airplane mode could hang startup indefinitely | `ExtensionPlatformInterface.swift` now seeds from `monitor.currentPath`, then `semaphore.wait(timeout: .now() + InterfaceMonitorStartup.firstUpdateTimeout)` (= 2 s) | `15d3a72`, `628644d` |
+| Three localization keys the phone asked for (`%lld groups`, `%lld active`, `%lld unread`) were missing, so those labels shipped English | all three keys present in `Localizable.xcstrings`; the real defect was wider — 112 strings, now 240 resolving with 0 pending | `8fe8e79`, `467f8ea` |
+| A failed `startTunnel` rethrew without closing the command server it had just created | `startTunnel` is now a `do/catch` transaction calling `unwindFailedStart()`, which stops the observer, the service and the server in `stopTunnel`'s order | `8d06a99` |
+
+`ScreenStateObserver.swift` is now 731 lines (was 527 at the old baseline) and
+`ExtensionProvider.swift` is 575.
 
 ## Ref and pin inventory
 
 | Field | Value | Evidence |
 |---|---|---|
 | Repository | `Piggy-Cat-bit-shadow/sing-box-for-apple` | `origin` remote |
-| **Live default branch** | `origin/main` → `d052491215144f209b4726bbcf374649881defa3` | `git ls-remote --symref origin HEAD` |
-| Live remote heads | `dev` → `d1224bb`; `jiejiebox/ne-p3-code-closure` → `aa1e982`; `main` → `d0524912` | `git ls-remote --heads origin` |
+| **Live default branch** | `origin/main` → `331a676404abec8340b850fa1600beed6c984963` | `git ls-remote --symref origin HEAD` |
+| **Live remote heads** | `main` **only** | `git ls-remote --heads origin` |
 | Upstream | `SagerNet/sing-box-for-apple` | remote |
 | **Upstream product reference pin** | `089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85` | tip of `upstream/dev`; the fork point |
-| Runestone gitlink | `baeb3cbf8332d26b4f7b4c175a01f288ebbf3e7f` | `git ls-tree HEAD Frameworks/Runestone` (submodule not initialized) |
-| Hako freeze tag | `iphone-hako-ui-freeze-v1` → `fc7f77b` | annotated tag `b7d830ea`; **not an ancestor of HEAD** |
+| Runestone gitlink | `baeb3cbf8332d26b4f7b4c175a01f288ebbf3e7f` | `git ls-tree HEAD Frameworks/Runestone` (submodule not initialized); confirmed identical to `089d35e6` by `audit_apple_ui_boundary.py` check `repository-hygiene` |
+| Hako design pin | `c1935cff77246f97498400f5a0a7f430cfabbd55` | tag `archive/hako-design-v1` |
+| Hako freeze tag | `iphone-hako-ui-freeze-v1` → `fc7f77b` | annotated tag `b7d830ea`; **not an ancestor of `main`** |
+
+### `dev` is gone, and this knowledge base should say so
+
+At the previous baseline the fork's remote carried `dev` as its **default branch**, alongside
+`jiejiebox/*`, `r8/*` and others. All of them have been deleted. The remote now carries `main`
+alone, and `main` is the default. `dev` → `d1224bb` was audited before deletion: 19 unique commits,
+13 patch-identical to commits already on `main` and 6 superseded. See
+`modules/repository-history.md` for the retained reasoning.
+
+Everything previously reachable only through those branches is preserved either by ancestry on
+`main` or by a tag — which is exactly what the tag table below exists to prove.
 
 ### Archive tags are the recovery path for deleted branches
-
-Branches that once existed are **gone from the remote**. Their content survives only as
-remote tags and as local remote-tracking refs. Verified mapping:
 
 | Tag | Commit | What it preserves |
 |---|---|---|
@@ -115,20 +125,37 @@ remote tags and as local remote-tracking refs. Verified mapping:
 | `archive/r8-final` | `2a18968` | the round-8 merge line |
 | `archive/hardening-wip-2026-10-11` | `052f06b` | the Hako migration WIP |
 | `archive/ipad-upstream-port-final` | `816600a` | the iPad upstream UI line |
-| `archive/old-main-2026-10-11` | `ab33c3f` | the fork's previous `main` |
+| `archive/old-main-2026-10-11` | `ab33c3f` | the fork's previous `main`; also the only tag anchoring a `dev`-unique commit |
 | `archive/apple-consolidated-candidate-2026-10-11` | `bb5309b4` | a consolidated candidate |
+| `iphone-hako-ui-freeze-v1` | `fc7f77b` | a reviewed freeze of the *old* phone surface |
+| `libbox-stringbox-abi-1` | `8599039` | historical ABI marker (lightweight tag) |
+| `libbox-stringbox-abi-2` | `2b23330` | historical ABI marker (lightweight tag) |
 
-### AI caution: never prune this clone
+Verified count at this refresh: **10 tags**, 8 annotated + 2 lightweight.
 
-`git fetch --prune`, `git remote prune` and an aggressive `git gc` would delete the
-local `origin/*` refs that are the **only** remaining pointers to several lines; the
-remote no longer has those branches. Fetch with `git fetch --tags origin` (the
-`archive/*` tags are the remote-preserved copies), never with `--prune`.
+### AI caution: do not prune this clone (re-audited, still true, narrower)
+
+`REFRESH.md` §31 requires re-auditing this warning rather than carrying it forever, because it was
+written for a topology that has since changed. Re-audited **2026-10-12**:
+
+- The remote now carries **one** branch. Every other fork line exists **only** as a local branch
+  (`jiejiebox/*`, `r8/*`), a local remote-tracking ref, or a tag.
+- The `archive/*` tags **are** on the remote, so the tagged commits survive a fresh clone. The
+  *untagged* commits on those local lines do not.
+- Local branches at this refresh: `jiejiebox/integrated`, `jiejiebox/v0.1.6-hardening`,
+  `jiejiebox/hako-ui-migration-wip`, `r8/a-generator`, `r8/b-boundary`, `r8/c-platform`,
+  `r8/d-reach`, `r8/e-redteam`, `r8/main`.
+
+So the warning **survives, with a narrower reason**: `git fetch --prune` / `git remote prune` no
+longer risks anything on `main`'s ancestry — `main` is the remote — but it would still drop the
+local pointers to the untagged rounds whose archaeology has not been fully absorbed. Prefer
+`git fetch --tags origin` (no `--prune`). Re-audit again at the next refresh; do not treat this
+paragraph as permanent.
 
 ## Parent/core linkage: three recorded values, and one genuine unknown
 
-The parent repository `Piggy-Cat-bit-shadow/sing-box` carries `clients/apple` as a
-gitlink. Three different values are recorded in-repo:
+The parent repository `Piggy-Cat-bit-shadow/sing-box` carries `clients/apple` as a gitlink. Three
+values are recorded in-repo, and **none of them can be re-checked from this repository**:
 
 | Recorded in | Value | Date |
 |---|---|---|
@@ -136,17 +163,15 @@ gitlink. Three different values are recorded in-repo:
 | `docs/HAKO-ROUND8-HANDOFF.md:16` | `2b23330d489b9f6b45e98f903f458842e8961594` | round 8 |
 | `docs/pending/HAKO-OWNERSHIP.md:41` | `5911580a6366da78e6b4b5b4459596e5a2cf1eb4` | earlier; the file itself flags a discrepancy with the submodule worktree |
 
-The **most recent and locally checkable** value is `2a189686`, which is exactly the
-`r8/main` tip / `archive/r8-final` — i.e. the commit this branch descends from. The
-parent-side current value is therefore `EXTERNAL_CHECK_REQUIRED`, but it is **not**
-unrecorded.
+The parent-side current value is `EXTERNAL_CHECK_REQUIRED`. This refresh did **not** change it: the
+parent repository is not checked out here, and inventing a value would be worse than recording the
+gap.
 
-What *is* genuinely unknown is different and more important: **nothing in this
-repository records which core/libbox build an Apple build links.** `Libbox.xcframework`
-is project-referenced, absent, and gitignored (`.gitignore:2`); no core SHA, branch or
-version appears anywhere in the tracked tree. This is the sharpest structural difference
-from the Android sibling repository, which pins its core in
-`version.properties:coreCommit` and verifies the pin against the shipped binary. See
+What *is* genuinely unknown, and more important: **nothing in this repository records which
+core/libbox build an Apple build links.** `Libbox.xcframework` is project-referenced, absent, and
+gitignored (`.gitignore:2`); no core SHA, branch or version appears anywhere in the tracked tree.
+This is the sharpest structural difference from the Android sibling repository, which pins its core
+in `version.properties:coreCommit` and verifies the pin against the shipped binary. See
 `modules/build-signing-testflight.md`.
 
 ## Design provenance: two references that are not interchangeable
@@ -160,7 +185,7 @@ from the Android sibling repository, which pins its core in
 Files whose headers name `Hako-Client`/`62aa2f2f`: `HakoTheme`, `HakoSurface`, `HakoRow`,
 `HakoCard`, `HakoStatus`, `HakoEmptyState`, `HakoData`, `HakoHomeView`,
 `HakoPrimaryShell`. Files whose provenance is recorded against `hako-ui@c1935cf`: the
-migration and parity tooling, plus the ~30 ported/generated files.
+migration and parity tooling, plus the ported/generated files.
 
 ### AI caution: the freeze tag cannot be used as a regression baseline
 
