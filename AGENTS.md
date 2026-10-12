@@ -19,3 +19,6 @@
    clone.** Several fork lines now exist only as local `origin/*` refs — the remote
    branches are gone. Fetch with `git fetch --tags origin`; the `archive/*` tags are the
    remote-preserved copies (see `KNOWLEDGE/BASELINE.md`).
+10. Normal development must not update `KNOWLEDGE/` in real time. Only an explicit
+    Knowledge Refresh / Re-baseline runs `KNOWLEDGE/REFRESH.md`, which is the procedure
+    for moving the knowledge baseline.

@@ -69,6 +69,8 @@ static token/byte parity ≠ pixel parity; a simulator ≠ a physical device; an
 
 - Normal feature work **must not** refresh this directory. Refresh it only in an
   explicit Knowledge Refresh task.
+- **Explicit Knowledge Refresh / Re-baseline only:** run `REFRESH.md`. Normal
+  development does not update this directory in real time.
 - Do not add a file per finding. Correct and compress first; add a file only when an
   existing structure cannot express a subsystem.
 - Every SHA, path and claim added here must cite where it was verified.
