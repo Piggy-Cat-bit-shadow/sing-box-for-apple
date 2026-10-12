@@ -1,21 +1,82 @@
 # Networking and default-interface monitoring
 
-## Scope and ownership
+## Ownership — three monitors, not two
 
-`Library/Network/ExtensionPlatformInterface.swift` owns the packet-tunnel platform interface and its default-interface monitor. `ExtensionProvider` owns the service lifecycle that calls it. `ApplicationLibrary/Views/Tools/NetworkQualityViewModel.swift` has a separate UI-quality monitor; do not conflate it with the tunnel monitor.
+An earlier revision said there were two ownership domains. That was incomplete.
+Exhaustive search finds **three**, in three different processes:
 
-The surrounding network implementation is `UPSTREAM-INHERITED` unless a final fork diff identifies an exception. The `f4a9859` serialization change is `FORK-OWNED` lifecycle hardening around that interface, not a rewrite of networking policy.
+| # | Location | Process | Owner |
+|---|---|---|---|
+| 1 | `Library/Network/ExtensionPlatformInterface.swift` | the **tunnel** extension | `ExtensionProvider` via `platformInterface` |
+| 2 | `ApplicationLibrary/Views/Tools/NetworkQualityViewModel.swift` | the **app UI** | a one-shot local monitor inside `checkMeteredNetwork()` |
+| 3 | `HelperService/RootHelperService.swift` | the macOS **root helper** | `RootHelperService`, cancelled in `closeNeighborMonitorInternal()` |
 
-## Current design and hard boundaries
+They must not be conflated. In particular, do not "unify" the tunnel monitor with the
+Tools-UI monitor: different processes, different questions.
 
-`startDefaultInterfaceMonitor` installs `NWPathMonitor`, stores it in `nwMonitor`, and waits for its first handler invocation. `reset()` cancels and clears that monitor. A legal no-path state (including airplane mode) is an interface result, not proof that the service has crashed.
+The surrounding network implementation is upstream-inherited except for the `f4a9859`
+serialization hardening, which is fork-owned lifecycle work around the interface, not a
+rewrite of networking policy.
 
-The first-path wait has no timeout at this baseline. Do not add an unbounded second wait, remove the existing synchronization, or let a concurrent reset cancel a monitor that a start/reload has just installed. `ExtensionProvider.serviceLifecycleLock` exists specifically to serialize that start/reload/reset surface; see `network-extension.md` and `f4a9859`.
+## The tunnel monitor
 
-## Evidence and limits
+`startDefaultInterfaceMonitor` installs an `NWPathMonitor`, stores it in `nwMonitor`,
+and blocks on a `DispatchSemaphore` until the first handler invocation. The handler
+re-arms itself after that first delivery so the semaphore is signalled exactly once.
 
-Source locations: `Library/Network/ExtensionPlatformInterface.swift` (`startDefaultInterfaceMonitor`, `reset`) and `Library/Network/ExtensionProvider.swift` (`startService`, `stopService`). This is `VERIFIED_SOURCE`. It is not proof that `NWPathMonitor` delivery, no-path recovery, or packet-tunnel behavior works on a signed device; those remain `NEEDS_DEVICE`.
+- **First-update bound: there is none.** `semaphore.wait()` has no timeout.
+- The **install** path does not read `currentPath`; the **query** path does —
+  `getInterfaces()` reads `nwMonitor.currentPath`, returns an empty interface array when
+  `status == .unsatisfied`, and throws `"NWMonitor not started"` when no monitor exists.
+- **Generation guards: none.** No token, no epoch. The only protection is
+  `ExtensionProvider.serviceLifecycleLock` plus `reset()`.
+- Cancellation: `closeDefaultInterfaceMonitor(_:)` (called by the core) and `reset()`,
+  which cancels and clears `nwMonitor`.
+
+A legal no-path state — including airplane mode — is an interface result, not evidence
+that the service has crashed. Both the live-update path and the query path return an
+empty result rather than failing.
+
+### KNOWN DEFECT AT THIS BASELINE: the wait is unbounded
+
+`startDefaultInterfaceMonitor` is reached from `startService()` while
+`serviceLifecycleLock` is held. A monitor that never delivers therefore blocks the
+install **indefinitely**, and every subsequent `stopService()` (reachable from the
+core's gRPC handler goroutine) and `reloadService()` queues behind it. Airplane mode at
+startup is the concrete trigger: no path update is delivered, so startup hangs.
+
+```text
+code shape                    VERIFIED_SOURCE
+liveness consequence          INFERRED from the code shape (not observed on a device)
+```
+
+**Already fixed on the live product line, not here.** `origin/main` carries `15d3a72`
+"bound the first interface-path wait, so airplane mode cannot hang startup" plus
+`628644d`, which gives the bound an off-device test seam. Verified by reading
+`origin/main`'s `ExtensionProvider.swift`.
+
+Do not add a timeout here as a freelance "small fix" — the bound exists upstream of this
+baseline, and adding a second, differently-shaped one would fight it. Do not add a
+*second* unbounded wait either, and do not let a concurrent `reset()` cancel a monitor
+that a start/reload has just installed — that is the race the lock exists for.
+
+## The Tools-UI monitor
+
+Self-cancelling, and therefore needs no generation guard: it cancels itself inside the
+handler and resumes its continuation exactly once, returning whether the path is
+expensive or cellular.
 
 ## AI cautions
 
-Do not interpret a static audit, a fake monitor, or a simulator path callback as physical radio/airplane-mode evidence. Before changing monitor lifetime, inspect the full start/reload/stop sequence and verify on device.
+- A static audit, a fake monitor, or a simulator path callback is **not** physical radio
+  or airplane-mode evidence.
+- Before changing monitor lifetime, read the whole start/reload/stop sequence in
+  `network-extension.md`.
+- Do not interpret absence of a path as a lifecycle crash.
+
+## Evidence
+
+`VERIFIED_SOURCE` for the three-monitor census, the unbounded wait, the `currentPath`
+seeding and the cancellation paths, re-read at `aa1e982`.
+`NEEDS_DEVICE`: real `NWPathMonitor` delivery, no-path recovery, and packet-tunnel
+behaviour on a signed device.
