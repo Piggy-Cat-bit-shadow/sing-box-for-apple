@@ -480,13 +480,18 @@ public struct HakoHomeView: View {
     /// Upstream's `HTTPProxyCard` with upstream's initialiser. The toggle is sent through
     /// `OverviewViewModel.setSystemProxyEnabled`, the same method the card grid's own system-proxy
     /// card calls, so the page does not grow a second way to change the proxy.
+    ///
+    /// `surfaceStyle: .hako` is asked for here and only here: the card is shared with the
+    /// dashboard grid, and the card language on this page is this page's, so the phone opts in
+    /// rather than the card's default carrying HAKO into the iPad's and the desktop's cards.
     private var httpProxyCard: some View {
         HTTPProxyCard(
             systemProxyAvailable: $systemProxyAvailable,
             systemProxyEnabled: Binding(
                 get: { systemProxyEnabledLocal },
                 set: { systemProxyEnabledLocal = $0 }
-            )
+            ),
+            surfaceStyle: .hako
         ) { enabled in
             await coordinator.setSystemProxyEnabled(enabled, profile: profile)
         }
