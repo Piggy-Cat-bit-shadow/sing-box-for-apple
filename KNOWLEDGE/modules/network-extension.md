@@ -12,4 +12,4 @@ Target `PacketTunnelProvider` classes delegate to shared `ExtensionProvider`. It
 
 ## Evidence
 
-Final source plus commit diff are `VERIFIED_SOURCE`. Real tunnel, sleep/wake, no-path, and signed-extension evidence is `NEEDS_DEVICE`.
+Final source plus commit diff are `VERIFIED_SOURCE`. The `f4a9859` commit message records a parse check on its modified file, but that is historical commit evidence, not a fresh Stage 1 build result. Real tunnel, sleep/wake, no-path, and signed-extension evidence is `NEEDS_DEVICE`. For the monitor's first-path wait and reset semantics, also read `networking.md`.

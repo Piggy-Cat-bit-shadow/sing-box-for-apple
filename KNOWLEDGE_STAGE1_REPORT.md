@@ -21,7 +21,7 @@ The repository contains a governance distinction that must not be hidden: GitHub
 
 ## Modules and limitations
 
-The knowledge base records ownership, source/design provenance, shared profile/subscription data, screen-state/NetworkExtension races, signing/build contracts, gates and historical-document classifications. Parent/core pin and actual Libbox source are `EXTERNAL-CHECK-REQUIRED`. Windows lacks Xcode, Apple hardware and Libbox artifact, so build, simulator, device, signed tunnel and TestFlight outcomes are not claimed.
+The knowledge base records ownership, source/design provenance, shared profile/subscription data, screen-state/NetworkExtension races, default-interface monitor ownership, display-branding versus protocol identity, signing/build contracts, gates and historical-document classifications. It also records that an older README migration-status assertion is historical rather than current-source truth. Parent/core pin and actual Libbox source are `EXTERNAL-CHECK-REQUIRED`. Windows lacks Xcode, Apple hardware and Libbox artifact, so build, simulator, device, signed tunnel and TestFlight outcomes are not claimed.
 
 The Python-backed static gates were not run for this refresh because `python` is unavailable in the checked Windows environment (exit `9009`). `git diff --check` completed successfully; prior report pass counts remain historical evidence, not refresh evidence.
 

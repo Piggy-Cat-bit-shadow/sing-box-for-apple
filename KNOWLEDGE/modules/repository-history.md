@@ -17,3 +17,7 @@
 | root `APPLE-UI-MAC-VERIFICATION-REPORT.md` | ARCHIVE | evidence snapshot, not current design source |
 
 Nothing was deleted or moved in Stage 1; classification is deliberately semantic so links and forensic evidence remain intact.
+
+## Current-source override example
+
+README contains older phase material saying that Hako page bodies had not yet migrated. That statement conflicts with current source, where `SFI/HakoPageContent.swift` routes Hako page types under `ApplicationLibrary/Views/HakoStyle/`. Treat the README passage as `ARCHIVE-ONLY` historical progress, not a current shipping assertion; source and the selected-ref audit decide current routing.
