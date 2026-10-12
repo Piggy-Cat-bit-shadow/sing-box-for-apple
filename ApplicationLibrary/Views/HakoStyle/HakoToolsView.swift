@@ -292,6 +292,12 @@ public struct HakoToolsView: View {
                     tint: HakoAccentRole.neutral.color
                 )
             }
+            // The row's own button style, as every other `HakoNavigationRow` the phone pushes
+            // carries (`HakoSettingView.navigationRow`, the report rows below). Without it the
+            // link is a `Button` in its default style, which takes the accent colour for its
+            // label: the row's title and subtitle came out blue while the identical rows on the
+            // same page came out in the row's own `.primary`/`.secondary`.
+            .buttonStyle(HakoPushRowButtonStyle())
             .accessibilityIdentifier("hako.tools.networkQuality")
             HakoRowDivider()
             FormNavigationLink {
@@ -304,6 +310,8 @@ public struct HakoToolsView: View {
                     tint: HakoAccentRole.neutral.color
                 )
             }
+            // Same reason as the Network Quality row above.
+            .buttonStyle(HakoPushRowButtonStyle())
             .accessibilityIdentifier("hako.tools.stun")
         }
     }
