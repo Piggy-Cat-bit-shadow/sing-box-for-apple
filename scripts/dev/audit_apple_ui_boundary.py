@@ -3033,7 +3033,7 @@ def check_branding(root: str, upstream_ref: str | None = None) -> Check:
         others = sorted(set(settings) - set(BRANDED_TARGET_PLISTS))
         for plist in others:
             if BRAND_DISPLAY_NAME in set(settings[plist]):
-                problems.append(f"{plist} was branded; only the two app targets may be")
+                problems.append(f"{plist} was branded; only approved user-facing app targets may be")
         if others:
             evidence.append(
                 f"{len(others)} component plist(s) deliberately unbranded: "
@@ -3338,9 +3338,17 @@ def check_subscription_feature(root: str) -> Check:
     )
 
 
-#: The two build configurations' plists whose visible name is the product's. Kept as a list so the
-#: check and the negative suite read the same source.
-BRANDED_TARGET_PLISTS = ("SFI/Info.plist", "SFM/Info.plist")
+#: The plists whose visible name is the product's. Kept as a list so the check and the negative
+#: suite read the same source.
+#:
+#: `SFM.System` is here rather than among the deliberately unbranded components: the Makefile
+#: packages its product (`build/SFM.System-*/SFM.app`) into the DMG and the pkg and notarizes it
+#: with a `developer-id` export, so it is the macOS app a user installs, not an internal host.
+#: The earlier reading of it as "the standalone host, not the app the user launches" is what the
+#: brand overlay was kept away from, and the packaging chain is the evidence that overrules it.
+#: `SFT` (tvOS, out of scope), the two ShareExtensions (their names appear in the share sheet as
+#: destinations) and every extension plist stay unbranded.
+BRANDED_TARGET_PLISTS = ("SFI/Info.plist", "SFM/Info.plist", "SFM.System/Info.plist")
 
 
 def display_name_by_plist(pbxproj: str) -> dict[str, list[str]]:
