@@ -13,11 +13,14 @@ public extension Profile {
     /// `LibboxCheckConfig` all throw before the metadata is committed, so a refresh that did not
     /// actually succeed cannot touch what is stored.
     nonisolated func updateRemoteProfile() async throws {
-        try await refreshRemoteProfile()
+        // The real path supplies the real metadata probe. It is not a default of
+        // `refreshRemoteProfile` because that would put a live network request on the tests'
+        // path, which inject a canned response and must stay offline.
+        try await refreshRemoteProfile(metadataProbe: { try await RemoteProfileFetcher.captureMetadata($0) })
     }
 
-    /// The refresh above, with the fetch, the configuration check and the persistence call
-    /// injectable.
+    /// The refresh above, with the fetch, the configuration check, the metadata probe and the
+    /// persistence call injectable.
     ///
     /// The real entry point passes the real implementations; the tests pass a canned response and a
     /// recording store. Everything that decides what happens - the merge, the body comparison and
@@ -27,27 +30,39 @@ public extension Profile {
     nonisolated func refreshRemoteProfile(
         fetch: @escaping (String) async throws -> RemoteProfileResponse = { try await RemoteProfileFetcher.fetch($0) },
         validate: @escaping (String) async throws -> Void = { try await Profile.validateConfiguration($0) },
+        metadataProbe: ((String) async throws -> SubscriptionInfoCapture)? = nil,
         persist: ((Profile) async throws -> Void)? = nil
     ) async throws {
         if type != .remote {
             return
         }
         let url = remoteURL
-        let previous = subscriptionInfo
+        // Value and capture time are read and passed together, so a refresh that captures nothing
+        // carries the stored capture time forward instead of silently losing it.
+        let previous = SubscriptionSnapshot(info: subscriptionInfo, capturedAt: subscriptionInfoUpdatedAt)
         let currentBody = try? await readAsync()
+        // One instant for both facts this refresh may write, so `lastUpdated` and the quota's
+        // capture time cannot disagree about when "now" was.
+        let now = Date()
         let outcome = try await RemoteProfileRefresh.evaluate(
             remoteURL: url,
             previous: previous,
             currentBody: currentBody,
+            now: now,
             fetch: fetch,
-            validate: validate
+            validate: validate,
+            metadataProbe: metadataProbe
         )
         let persist = persist ?? { try await ProfileManager.update($0) }
         try await RemoteRefreshApplier.apply(
             outcome,
             applyMetadata: {
                 subscriptionInfo = outcome.subscriptionInfo
-                lastUpdated = Date()
+                subscriptionInfoUpdatedAt = outcome.subscriptionInfoUpdatedAt
+                // `lastUpdated` keeps its own meaning: the configuration refreshed successfully.
+                // It is not the quota's timestamp, and a refresh that captured no quota still
+                // legitimately advances it.
+                lastUpdated = now
             },
             persist: { try await persist(self) },
             writeBody: { try await writeAsync($0) },
@@ -85,6 +100,9 @@ public extension Profile {
             return
         }
         subscriptionInfo = nil
+        // Cleared with the value. A capture time without a quota would be a freshness claim about
+        // nothing, and it is the pairing - not either field alone - that the UI reads.
+        subscriptionInfoUpdatedAt = nil
     }
 
     nonisolated func onProfileUpdated() async throws {

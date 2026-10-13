@@ -819,11 +819,16 @@ private struct HakoProfilePickerRow: View {
     @ViewBuilder
     private var remainingTrafficInfo: some View {
         if let remainingBytes = profile.subscriptionInfo?.remainingBytes {
-            Text(verbatim: String(format: String(localized: "%@ left"), Int64.remainingTrafficText(remainingBytes)))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            Text(verbatim: quotaTrafficText(
+                remainingBytes: remainingBytes,
+                capturedAt: profile.subscriptionInfoUpdatedAt,
+                lastUpdated: profile.lastUpdated,
+                locale: locale
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
         }
     }
 
@@ -848,6 +853,11 @@ private struct HakoProfilePickerRow: View {
     private struct LegacyProfilePickerRow: View {
         @EnvironmentObject private var environments: ExtensionEnvironments
         @Environment(\.editMode) private var editMode
+        // Needed by `remainingTrafficInfo`, which states the quota's own capture age in the row's
+        // locale. `relativeFormat(forPickerRow:)` takes the locale explicitly because
+        // `RelativeDateTimeFormatter` otherwise defaults to the process locale rather than the one
+        // the view renders in.
+        @Environment(\.locale) private var locale
 
         let profile: ProfilePreview
         let isSelected: Bool
@@ -1116,17 +1126,57 @@ private struct HakoProfilePickerRow: View {
         @ViewBuilder
         private var remainingTrafficInfo: some View {
             if let remainingBytes = profile.subscriptionInfo?.remainingBytes {
-                Text(verbatim: String(format: String(localized: "%@ left"), Int64.remainingTrafficText(remainingBytes)))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                Text(verbatim: quotaTrafficText(
+                    remainingBytes: remainingBytes,
+                    capturedAt: profile.subscriptionInfoUpdatedAt,
+                    lastUpdated: profile.lastUpdated,
+                    locale: locale
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             }
         }
     }
     #endif
 
 // MARK: - Remaining traffic presentation
+
+/// The row's quota text: the remainder, and - only when it says something the row does not already
+/// say - when that remainder was captured.
+///
+/// The row carries the configuration's own relative time beside this item, and before this that was
+/// the *only* freshness on the line. A quota retained across a refresh that captured nothing was
+/// therefore rendered next to "just now" and read as freshly obtained. The quota has its own
+/// capture time now, and this states it.
+///
+/// The age is omitted when the quota was captured at the same instant the configuration last
+/// refreshed - the ordinary case for a panel that sends `subscription-userinfo` on every response.
+/// There the clock already says the true thing, and repeating it would cost width on a line this
+/// file measures in points.
+///
+/// One definition, used by both the current and the pre-iOS-26 row, because the two must not be
+/// able to disagree about what the row claims.
+func quotaTrafficText(
+    remainingBytes: Int64,
+    capturedAt: Date?,
+    lastUpdated: Date?,
+    locale: Locale
+) -> String {
+    let left = String(format: String(localized: "%@ left"), Int64.remainingTrafficText(remainingBytes))
+    // An unknown capture time - an older profile, or a panel that has never reported a parsable
+    // quota - shows the quota with no age claim at all, rather than with a guessed one.
+    guard let capturedAt else {
+        return left
+    }
+    // A second of tolerance: GRDB stores dates as a double, and the two are written from one
+    // instant, so anything inside a second is the same refresh rather than an older capture.
+    if let lastUpdated, abs(lastUpdated.timeIntervalSince(capturedAt)) < 1 {
+        return left
+    }
+    return "\(left) \u{00B7} \(capturedAt.relativeFormat(forPickerRow: locale))"
+}
 
 private extension Int64 {
     /// A quota remainder as the configuration row spells it.

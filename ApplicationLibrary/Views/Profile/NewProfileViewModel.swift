@@ -96,6 +96,8 @@ public final class NewProfileViewModel: BaseViewModel {
         var savePath = ""
         var remoteURL: String?
         var lastUpdated: Date?
+        var subscriptionInfo: SubscriptionInfo?
+        var subscriptionInfoUpdatedAt: Date?
 
         let profileName = await profileName
         let profileType = await profileType
@@ -163,6 +165,26 @@ public final class NewProfileViewModel: BaseViewModel {
             savePath = "configs/config_\(nextProfileID).json"
             remoteURL = remotePath
             lastUpdated = .now
+            // The Libbox transport cannot see response headers: its `HTTPResponse` binding exposes
+            // only the body (see `RemoteProfileFetcher`). The quota therefore cannot come from the
+            // request that produced `remoteContent`, and without a second request a freshly added
+            // subscription shows no quota at all until its first scheduled refresh - up to an hour
+            // away, or never when the profile is not set to auto-update.
+            //
+            // So the quota is fetched separately, from the same URL, by the one transport that can
+            // read the header. It is allowed to fail: a subscription that imports correctly must
+            // not be rejected over a missing quota, and a failure leaves both facts unknown, which
+            // the row renders as "no quota" rather than as a fresh one.
+            //
+            // Note this request deliberately does not reuse `remoteContent`: the probe sends a
+            // Clash-compatible User-Agent, so the panel may answer it with a different *format*.
+            // Only its header is read and the body is discarded.
+            if let capture = try? await RemoteProfileFetcher.captureMetadata(remotePath),
+               case let .updated(info) = capture
+            {
+                subscriptionInfo = info
+                subscriptionInfoUpdatedAt = .now
+            }
         }
 
         let uniqueProfileName = try await ProfileManager.uniqueName(profileName)
@@ -175,7 +197,9 @@ public final class NewProfileViewModel: BaseViewModel {
             remoteURL: remoteURL,
             autoUpdate: autoUpdate,
             autoUpdateInterval: autoUpdateInterval,
-            lastUpdated: lastUpdated
+            lastUpdated: lastUpdated,
+            subscriptionInfo: subscriptionInfo,
+            subscriptionInfoUpdatedAt: subscriptionInfoUpdatedAt
         )
         try await ProfileManager.create(profile)
 
