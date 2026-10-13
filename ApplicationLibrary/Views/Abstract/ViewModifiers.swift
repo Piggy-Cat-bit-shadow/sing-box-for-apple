@@ -188,6 +188,46 @@ public extension View {
     }
 }
 
+/// Which surface a `DashboardCardView` draws on.
+///
+/// This exists because `cardStyle()` draws *a material whose colour depends on the release and on
+/// how much content the card happens to hold*, which is fine for the dashboard grid that has always
+/// used it and wrong for a page that has its own card language: on the phone's Home page the
+/// status/connections pair rendered as a much darker panel than the upload/download pair and than
+/// every other card on the page.
+///
+/// The same class of problem was already met and fixed once, for `HTTPProxyCard` - see that type's
+/// `SurfaceStyle`, which is what this mirrors.
+///
+/// It is opt-in per card rather than set by the page, because the page's correct tone is the one
+/// its cards already show: a card that is already right must not be restyled to fix a card that is
+/// not. A container that sets it declares the tone for everything inside it, so a caller is free to
+/// scope it to the cards that need it.
+public enum DashboardCardSurfaceStyle: Sendable {
+    /// `cardStyle()` - what the dashboard grid has always drawn, and the default everywhere.
+    case standard
+    /// The page's own card tone, taken from `HakoProductPalette.system.card`.
+    case hako
+}
+
+private struct DashboardCardSurfaceStyleKey: EnvironmentKey {
+    static let defaultValue: DashboardCardSurfaceStyle = .standard
+}
+
+public extension EnvironmentValues {
+    var dashboardCardSurfaceStyle: DashboardCardSurfaceStyle {
+        get { self[DashboardCardSurfaceStyleKey.self] }
+        set { self[DashboardCardSurfaceStyleKey.self] = newValue }
+    }
+}
+
+public extension View {
+    /// Declares the surface every `DashboardCardView` inside this view draws on.
+    func dashboardCardSurfaceStyle(_ style: DashboardCardSurfaceStyle) -> some View {
+        environment(\.dashboardCardSurfaceStyle, style)
+    }
+}
+
 private struct CardStyleModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
