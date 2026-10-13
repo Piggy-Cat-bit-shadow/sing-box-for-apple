@@ -651,6 +651,16 @@
         }
       }
     },
+    "Recent logs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近日志"
+          }
+        }
+      }
+    },
     "Tunnel output" : {
       "localizations" : {
         "zh-Hans" : {

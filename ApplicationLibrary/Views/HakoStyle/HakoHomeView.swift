@@ -197,6 +197,17 @@ public struct HakoHomeView: View {
         .onReceive(environments.commandClient.statusPublisher) { status in
             liveConnectionCount = Int(status?.connectionsIn ?? 0)
         }
+        // The count is this page's own copy of a live figure, and the row that shows it is gated on
+        // the tunnel being connected. Clearing it the moment the tunnel stops is what keeps a
+        // reconnecting page from showing the previous session's number: `status` turns connected
+        // before the new status stream has delivered anything, so for that moment the row would
+        // otherwise come back carrying the count from the session before it. The stream itself is
+        // still the only thing that ever raises it.
+        .onChangeCompat(of: profile.status) { status in
+            if !status.isConnected {
+                liveConnectionCount = 0
+            }
+        }
         .onChangeCompat(of: environments.commandClient.clashMode) { newValue in
             if !newValue.isEmpty {
                 localMode = newValue
@@ -521,18 +532,25 @@ public struct HakoHomeView: View {
                 )
                 HakoRowDivider()
             }
-            shortcutRow(
-                title: String(localized: "Connections"),
-                subtitle: connectionsSubtitle,
-                systemImage: "list.bullet.rectangle.portrait.fill",
-                tint: HakoAccentRole.neutral.color,
-                identifier: "hako.home.connections",
-                action: actions.showConnections
-            )
-            HakoRowDivider()
+            // Only while the tunnel is running. The row opens the live connection list and its
+            // subtitle counts live sessions, so with nothing connected it offered a way into an
+            // empty list and kept showing a count nothing was updating any more. The gate is the
+            // page's own - the same one the outbound-mode, traffic and kernel cards use - and the
+            // divider is inside it, so the card never ends on a rule of its own.
+            if showsConnectedCards {
+                shortcutRow(
+                    title: String(localized: "Connections"),
+                    subtitle: connectionsSubtitle,
+                    systemImage: "list.bullet.rectangle.portrait.fill",
+                    tint: HakoAccentRole.neutral.color,
+                    identifier: "hako.home.connections",
+                    action: actions.showConnections
+                )
+                HakoRowDivider()
+            }
             shortcutRow(
                 title: String(localized: "Logs"),
-                subtitle: String(localized: "Tunnel output"),
+                subtitle: logsSubtitle,
                 systemImage: "list.bullet.rectangle",
                 tint: HakoAccentRole.neutral.color,
                 identifier: "hako.home.logs",
@@ -671,5 +689,16 @@ public struct HakoHomeView: View {
         return count > 0
             ? String(localized: "\(count) active")
             : String(localized: "Current sessions")
+    }
+
+    /// What the logs row says it opens.
+    ///
+    /// With the tunnel up the log stream is the tunnel's own output. With it down there is no
+    /// stream to describe - the page opens what the client has already collected - so the
+    /// subtitle says that rather than promising output that is not arriving.
+    private var logsSubtitle: String {
+        showsConnectedCards
+            ? String(localized: "Tunnel output")
+            : String(localized: "Recent logs")
     }
 }

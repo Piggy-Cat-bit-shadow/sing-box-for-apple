@@ -737,13 +737,18 @@ public extension View {
     /// taller on a settings page than on 更多, which is the difference the review named on the
     /// three reset cards and the on-demand modes. This asks for the card's metric on the rows the
     /// review named, rather than changing the metric under every other page.
-    func hakoStandardRowMetric() -> some View {
+    /// - Parameter minHeight: the row's floor. Defaults to
+    ///   `HakoTheme.Layout.firstLevelRowHeight`, so every caller that says nothing keeps exactly
+    ///   the metric it had. A card whose rows are each a single short line - the core
+    ///   information card's version, data size and cache size - can ask for a tighter floor
+    ///   without pulling every other page's rows down with it.
+    func hakoStandardRowMetric(minHeight: CGFloat = HakoTheme.Layout.firstLevelRowHeight) -> some View {
         // The floor as well as the insets. The insets alone made a two-line row the height of
         // 更多's and left a one-line row thirteen points shorter - `Spacing.compact` above and
         // below is 16, and 更多's rows are 57 because their content is two lines. The review
         // measured the two side by side and asked for the lower one's rhythm; the floor is the
         // height 更多's rows actually come out at, which `firstLevelRowHeight` records.
-        frame(minHeight: HakoTheme.Layout.firstLevelRowHeight)
+        frame(minHeight: minHeight)
             .listRowInsets(EdgeInsets(
                 top: 0,
                 leading: HakoTheme.Spacing.standard,

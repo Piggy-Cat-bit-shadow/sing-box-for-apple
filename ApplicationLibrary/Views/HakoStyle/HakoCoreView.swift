@@ -132,16 +132,25 @@ public struct HakoCoreView: View {
         return size
     }
 
+    /// The floor the three information rows ask for.
+    ///
+    /// They are each a single short line - a label and a value - where the shared first-level
+    /// floor exists so a one-line row matches the *two-line* rows on the home page. Stacked three
+    /// deep in one card, that shared floor reads as slack rather than as rhythm. Only this
+    /// section asks for the tighter floor: the working-directory card below keeps the shared
+    /// metric, and so does every other page.
+    private static let infoRowHeight: CGFloat = 46
+
     private var versionSection: some View {
         HakoSettingsSection {
             HakoMetricRow(String(localized: "Version"), value: version, systemImage: "shippingbox.fill", tint: .neutral)
-                .hakoStandardRowMetric()
+                .hakoStandardRowMetric(minHeight: Self.infoRowHeight)
             dataSizeRow
             // The figure is read off disk, so the row says it is coming rather than showing an
             // empty value for the moment it takes - the same shape the data size row uses.
             if cacheSizeLoaded {
                 HakoMetricRow(String(localized: "Cache Size"), value: cacheSizeText, systemImage: "externaldrive.fill", tint: .neutral)
-                    .hakoStandardRowMetric()
+                    .hakoStandardRowMetric(minHeight: Self.infoRowHeight)
             } else {
                 HakoCardLineTrailing(
                     String(localized: "Cache Size"),
@@ -150,7 +159,7 @@ public struct HakoCoreView: View {
                 ) {
                     ProgressView()
                 }
-                .hakoStandardRowMetric()
+                .hakoStandardRowMetric(minHeight: Self.infoRowHeight)
             }
         }
     }
@@ -159,7 +168,7 @@ public struct HakoCoreView: View {
     private var dataSizeRow: some View {
         if let dataSize {
             HakoMetricRow(String(localized: "Data Size"), value: dataSize, systemImage: "internaldrive.fill", tint: .neutral)
-                .hakoStandardRowMetric()
+                .hakoStandardRowMetric(minHeight: Self.infoRowHeight)
         } else if !dataSizeLoaded {
             HakoCardLineTrailing(
                 String(localized: "Data Size"),
@@ -168,7 +177,7 @@ public struct HakoCoreView: View {
             ) {
                 ProgressView()
             }
-            .hakoStandardRowMetric()
+            .hakoStandardRowMetric(minHeight: Self.infoRowHeight)
         } else {
 
 
