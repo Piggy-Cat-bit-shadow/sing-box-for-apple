@@ -95,15 +95,12 @@ public class CommandClient: ObservableObject {
     private var connectTask: Task<Void, Never>?
     private var activeConnectionToken: UInt64 = 0
     private var isConnecting = false
-    private var suspended = false
-    /// Whether a subscription is wanted at all: raised by `startConnection()`, lowered by
-    /// `disconnect()`. It is what tells an unexpected loss apart from a teardown this object asked
-    /// for, so a disconnect we meant cannot start a reconnect.
-    private var wantsConnection = false
-    /// Set when an unexpected loss has already been recovered from once, and cleared by a
-    /// connection that actually succeeded. It bounds the automatic recovery to one attempt per
-    /// loss, so a tunnel that is genuinely gone cannot produce a retry loop.
-    private var recoveryAttempted = false
+    /// The subscription's lifecycle: whether one is wanted, whether it is parked for the
+    /// background, and whether a loss has already been recovered from.
+    ///
+    /// All three decisions live in `CommandSubscriptionRecovery`, which is Foundation-only on
+    /// purpose so that the tests compile the file that ships rather than a re-implementation of it.
+    private var recovery = CommandSubscriptionRecovery()
     private var cancellables = Set<AnyCancellable>()
     @Published public var isConnected: Bool
     @Published public private(set) var isReconnecting = false
@@ -203,7 +200,7 @@ public class CommandClient: ObservableObject {
     }
 
     public func connect() {
-        if isConnected || isConnecting || suspended {
+        guard recovery.acceptsConnect(isConnected: isConnected, isConnecting: isConnecting) else {
             return
         }
         startConnection()
@@ -214,7 +211,7 @@ public class CommandClient: ObservableObject {
             try? commandClient.disconnect()
             self.commandClient = nil
         }
-        wantsConnection = true
+        recovery.connectionRequested()
         isConnecting = true
         activeConnectionToken &+= 1
         let token = activeConnectionToken
@@ -224,12 +221,10 @@ public class CommandClient: ObservableObject {
     }
 
     public func disconnect() {
-        suspended = false
-        isReconnecting = false
         // A teardown this object asked for: no loss to recover from, and the next explicit
         // `connect()` starts from a clean slate.
-        wantsConnection = false
-        recoveryAttempted = false
+        recovery.teardownRequested()
+        isReconnecting = false
         closeConnection()
         if isConnected {
             isConnected = false
@@ -246,15 +241,19 @@ public class CommandClient: ObservableObject {
     /// later, and nothing else is watching for it: without this, the status stream stays dead and
     /// every card that reads `status` stops updating until the app is relaunched.
     ///
+    /// The decision itself - whether a subscription is still wanted, whether the connection is
+    /// parked, and whether this loss has already been recovered from - is
+    /// `CommandSubscriptionRecovery.recoverIfNeeded(wasLive:)`, which is where the bound to one
+    /// attempt per loss lives.
+    ///
     /// It goes through `connect()`, which is already the idempotent entry point - it refuses while
     /// connected, connecting or suspended, and `startConnection()` bumps the generation token so
     /// the previous stream can no longer publish. So this adds no second owner of the subscription
     /// and cannot produce a duplicate one.
-    private func recoverFromUnexpectedLoss() {
-        guard wantsConnection, !suspended, !recoveryAttempted else {
+    private func recoverFromUnexpectedLoss(wasLive: Bool) {
+        guard recovery.recoverIfNeeded(wasLive: wasLive) else {
             return
         }
-        recoveryAttempted = true
         connect()
     }
 
@@ -276,14 +275,14 @@ public class CommandClient: ObservableObject {
             return
         }
         closeConnection()
-        suspended = true
+        recovery.suspend()
     }
 
     private func resume() {
-        guard suspended else {
+        guard recovery.isSuspended else {
             return
         }
-        suspended = false
+        recovery.resume()
         isReconnecting = true
         startConnection()
     }
@@ -465,7 +464,7 @@ public class CommandClient: ObservableObject {
                 // A connection that actually came up re-arms the recovery, so a later loss can be
                 // recovered from in its turn. This is what keeps the bound to "one attempt per
                 // loss" rather than "one attempt per process".
-                commandClient.recoveryAttempted = false
+                commandClient.recovery.connectionEstablished()
                 if commandClient.startedAt != nil {
                     commandClient.startedAt = nil
                     commandClient.loadStartedAt()
@@ -487,7 +486,7 @@ public class CommandClient: ObservableObject {
                 commandClient.isReconnecting = false
                 commandClient.startedAt = nil
                 if wasLive {
-                    commandClient.recoverFromUnexpectedLoss()
+                    commandClient.recoverFromUnexpectedLoss(wasLive: wasLive)
                 }
             }
             if let message {

@@ -190,21 +190,23 @@ public extension View {
 
 /// Which surface a `DashboardCardView` draws on.
 ///
-/// This exists because `cardStyle()` renders a *material whose appearance depends on the release
-/// and on the card's own content*, which is fine for the dashboard grid that has always used it and
-/// wrong for a page that has its own card language: on the 26 releases `cardStyle()` is a glass
-/// effect, while the phone's pages paint `HakoCardSurface`, and the two disagree visibly. The same
-/// disagreement was already found and fixed once, for `HTTPProxyCard` - see that type's
-/// `SurfaceStyle`, which is what this mirrors. The four statistic cards on the phone's Home page
-/// were simply never migrated to it.
+/// This exists because `cardStyle()` draws *a material whose colour depends on the release and on
+/// how much content the card happens to hold*, which is fine for the dashboard grid that has always
+/// used it and wrong for a page that has its own card language: on the phone's Home page the
+/// status/connections pair rendered as a much darker panel than the upload/download pair and than
+/// every other card on the page.
 ///
-/// A container sets it once for everything it draws, the way `\.hakoContainerDrawsDisclosure`
-/// works, rather than each card naming a surface for itself: that is what makes it impossible for
-/// two cards on one page to end up on different surfaces.
+/// The same class of problem was already met and fixed once, for `HTTPProxyCard` - see that type's
+/// `SurfaceStyle`, which is what this mirrors.
+///
+/// It is opt-in per card rather than set by the page, because the page's correct tone is the one
+/// its cards already show: a card that is already right must not be restyled to fix a card that is
+/// not. A container that sets it declares the tone for everything inside it, so a caller is free to
+/// scope it to the cards that need it.
 public enum DashboardCardSurfaceStyle: Sendable {
-    /// `cardStyle()` - what the dashboard grid has always drawn.
+    /// `cardStyle()` - what the dashboard grid has always drawn, and the default everywhere.
     case standard
-    /// `HakoCardSurface` - the phone pages' painted card language.
+    /// The page's own card tone, taken from `HakoProductPalette.system.card`.
     case hako
 }
 
@@ -220,7 +222,7 @@ public extension EnvironmentValues {
 }
 
 public extension View {
-    /// Declares the surface every `DashboardCardView` inside this container draws on.
+    /// Declares the surface every `DashboardCardView` inside this view draws on.
     func dashboardCardSurfaceStyle(_ style: DashboardCardSurfaceStyle) -> some View {
         environment(\.dashboardCardSurfaceStyle, style)
     }

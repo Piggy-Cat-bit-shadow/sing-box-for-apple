@@ -186,11 +186,6 @@ public struct HakoHomeView: View {
                 runtimeSection
             }
         }
-        // The four statistic cards draw on the phone pages' card surface, the one every other card
-        // on this page already uses, instead of `cardStyle()`'s release-dependent material. Set
-        // once here rather than per card so the two pairs cannot end up on different surfaces -
-        // which is what the upload/download pair and the status/connections pair looked like.
-        .dashboardCardSurfaceStyle(.hako)
         .onAppear {
             localMode = environments.commandClient.clashMode
             liveGroupCount = environments.commandClient.groups?.count ?? 0
@@ -442,6 +437,10 @@ public struct HakoHomeView: View {
     }
 
     /// The kernel's own figures, under one heading rather than as the page's skeleton.
+    ///
+    /// Both cards are given the page's card tone explicitly. The traffic pair above is the
+    /// reference for how a card on this page looks, and it is deliberately left exactly as it was:
+    /// these two were the pair rendering as a much darker panel, so only they change.
     @ViewBuilder
     private var runtimeSection: some View {
         let showsStatus = enabledCards.contains(.status)
@@ -462,12 +461,14 @@ public struct HakoHomeView: View {
     private var statusCard: some View {
         StatusCard()
             .environmentObject(environments.commandClient)
+            .dashboardCardSurfaceStyle(.hako)
             .frame(maxWidth: .infinity, alignment: .top)
     }
 
     private var connectionsCard: some View {
         ConnectionsCard()
             .environmentObject(environments.commandClient)
+            .dashboardCardSurfaceStyle(.hako)
             .frame(maxWidth: .infinity, alignment: .top)
     }
 

@@ -31,14 +31,16 @@ public struct DashboardCardView<Content: View>: View {
             .cardStyle()
     }
 
-    /// The phone pages' card *tone*, at this card's own geometry.
+    /// The page's own card *tone*, at this card's own geometry.
     ///
     /// Only the fill changes. The radius stays this card's own 16 - the same number `cardStyle()`
-    /// draws with - and the hairline `HakoCardSurface` can draw is suppressed, because the two
-    /// cards that already looked right have neither a different radius nor a border, and a tone
-    /// mismatch is not a reason to introduce one. The point is that all four cards end up on one
-    /// fill colour, chosen from the page's palette rather than from a material whose appearance
-    /// depends on the release and on how much content the card happens to hold.
+    /// draws with - and the hairline `HakoCardSurface` can draw is suppressed, because the cards
+    /// that already look right have neither a different radius nor a border, and a tone mismatch is
+    /// not a reason to introduce one.
+    ///
+    /// The fill is the token the page's other cards use, so an opted-in card matches those whatever
+    /// `cardStyle()` happens to draw on this release. A card that is not opted in keeps exactly what
+    /// it drew before - which is what leaves the reference pair untouched.
     private var hakoSurface: some View {
         HakoCardSurface(
             fill: HakoProductPalette.system.card,

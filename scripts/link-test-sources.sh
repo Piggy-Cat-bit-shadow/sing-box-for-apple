@@ -24,6 +24,7 @@ root="$(cd "$here/.." && pwd)"
 package="$root/Tests/HakoSubscriptionUsage"
 screen_state_package="$root/Tests/HakoScreenState"
 startup_package="$root/Tests/HakoInterfaceStartup"
+command_package="$root/Tests/HakoCommandSubscription"
 
 core=(
     "Library/Network/SubscriptionInfo.swift"
@@ -46,6 +47,13 @@ policy=(
 #: package - see `Tests/HakoInterfaceStartup/Package.swift` for why the adapter is not here.
 startup=(
     "Library/Network/InterfaceMonitorStartup.swift"
+)
+#: The command client's subscription-recovery policy: whether a subscription is still wanted when a
+#: connection ends on its own, whether the connection is parked for the background, and how many
+#: times one loss may be recovered from. Foundation only, so it compiles into its own package - see
+#: `Tests/HakoCommandSubscription/Package.swift` for why the client itself is not here.
+command=(
+    "Library/Network/CommandSubscriptionRecovery.swift"
 )
 
 # Relative targets, so the checkout stays where it is put: a link recorded against an absolute
@@ -74,5 +82,8 @@ done
 for source in "${startup[@]}"; do
     link "$source" "$startup_package/Sources/Policy/$(basename "$source")"
 done
+for source in "${command[@]}"; do
+    link "$source" "$command_package/Sources/Policy/$(basename "$source")"
+done
 
-echo "linked ${#core[@]} core, ${#profile[@]} profile, ${#policy[@]} screen-state policy and ${#startup[@]} interface-startup policy source(s) into the test packages"
+echo "linked ${#core[@]} core, ${#profile[@]} profile, ${#policy[@]} screen-state policy, ${#startup[@]} interface-startup policy and ${#command[@]} command-subscription policy source(s) into the test packages"
