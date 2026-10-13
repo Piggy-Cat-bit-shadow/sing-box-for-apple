@@ -96,6 +96,14 @@ public class CommandClient: ObservableObject {
     private var activeConnectionToken: UInt64 = 0
     private var isConnecting = false
     private var suspended = false
+    /// Whether a subscription is wanted at all: raised by `startConnection()`, lowered by
+    /// `disconnect()`. It is what tells an unexpected loss apart from a teardown this object asked
+    /// for, so a disconnect we meant cannot start a reconnect.
+    private var wantsConnection = false
+    /// Set when an unexpected loss has already been recovered from once, and cleared by a
+    /// connection that actually succeeded. It bounds the automatic recovery to one attempt per
+    /// loss, so a tunnel that is genuinely gone cannot produce a retry loop.
+    private var recoveryAttempted = false
     private var cancellables = Set<AnyCancellable>()
     @Published public var isConnected: Bool
     @Published public private(set) var isReconnecting = false
@@ -206,6 +214,7 @@ public class CommandClient: ObservableObject {
             try? commandClient.disconnect()
             self.commandClient = nil
         }
+        wantsConnection = true
         isConnecting = true
         activeConnectionToken &+= 1
         let token = activeConnectionToken
@@ -217,11 +226,36 @@ public class CommandClient: ObservableObject {
     public func disconnect() {
         suspended = false
         isReconnecting = false
+        // A teardown this object asked for: no loss to recover from, and the next explicit
+        // `connect()` starts from a clean slate.
+        wantsConnection = false
+        recoveryAttempted = false
         closeConnection()
         if isConnected {
             isConnected = false
         }
         startedAt = nil
+    }
+
+    /// Re-establish the subscription after a connection that was live ended on its own.
+    ///
+    /// This is the one case the foreground ensure cannot see. `scenePhase` becoming active calls
+    /// `ExtensionEnvironments.connect()`, which only connects when `!isConnected` - and at that
+    /// instant the loss has usually not been observed yet, so `isConnected` is still `true` and
+    /// that call returns without doing anything. The observation then arrives here, a moment
+    /// later, and nothing else is watching for it: without this, the status stream stays dead and
+    /// every card that reads `status` stops updating until the app is relaunched.
+    ///
+    /// It goes through `connect()`, which is already the idempotent entry point - it refuses while
+    /// connected, connecting or suspended, and `startConnection()` bumps the generation token so
+    /// the previous stream can no longer publish. So this adds no second owner of the subscription
+    /// and cannot produce a duplicate one.
+    private func recoverFromUnexpectedLoss() {
+        guard wantsConnection, !suspended, !recoveryAttempted else {
+            return
+        }
+        recoveryAttempted = true
+        connect()
     }
 
     private func closeConnection() {
@@ -428,6 +462,10 @@ public class CommandClient: ObservableObject {
                 commandClient.lastError = nil
                 commandClient.isConnected = true
                 commandClient.isReconnecting = false
+                // A connection that actually came up re-arms the recovery, so a later loss can be
+                // recovered from in its turn. This is what keeps the bound to "one attempt per
+                // loss" rather than "one attempt per process".
+                commandClient.recoveryAttempted = false
                 if commandClient.startedAt != nil {
                     commandClient.startedAt = nil
                     commandClient.loadStartedAt()
@@ -441,9 +479,16 @@ public class CommandClient: ObservableObject {
                 if let message {
                     commandClient.lastError = message
                 }
+                // Whether this was a live subscription ending, as opposed to an attempt that never
+                // established one. Only the former is a loss the user can see as "the cards
+                // stopped"; the latter already reports through `lastError`.
+                let wasLive = commandClient.isConnected
                 commandClient.isConnected = false
                 commandClient.isReconnecting = false
                 commandClient.startedAt = nil
+                if wasLive {
+                    commandClient.recoverFromUnexpectedLoss()
+                }
             }
             if let message {
                 logger.debug("client disconnected: \(message)")

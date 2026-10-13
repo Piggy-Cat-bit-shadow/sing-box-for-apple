@@ -186,6 +186,11 @@ public struct HakoHomeView: View {
                 runtimeSection
             }
         }
+        // The four statistic cards draw on the phone pages' card surface, the one every other card
+        // on this page already uses, instead of `cardStyle()`'s release-dependent material. Set
+        // once here rather than per card so the two pairs cannot end up on different surfaces -
+        // which is what the upload/download pair and the status/connections pair looked like.
+        .dashboardCardSurfaceStyle(.hako)
         .onAppear {
             localMode = environments.commandClient.clashMode
             liveGroupCount = environments.commandClient.groups?.count ?? 0

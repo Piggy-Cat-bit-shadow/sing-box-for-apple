@@ -188,6 +188,44 @@ public extension View {
     }
 }
 
+/// Which surface a `DashboardCardView` draws on.
+///
+/// This exists because `cardStyle()` renders a *material whose appearance depends on the release
+/// and on the card's own content*, which is fine for the dashboard grid that has always used it and
+/// wrong for a page that has its own card language: on the 26 releases `cardStyle()` is a glass
+/// effect, while the phone's pages paint `HakoCardSurface`, and the two disagree visibly. The same
+/// disagreement was already found and fixed once, for `HTTPProxyCard` - see that type's
+/// `SurfaceStyle`, which is what this mirrors. The four statistic cards on the phone's Home page
+/// were simply never migrated to it.
+///
+/// A container sets it once for everything it draws, the way `\.hakoContainerDrawsDisclosure`
+/// works, rather than each card naming a surface for itself: that is what makes it impossible for
+/// two cards on one page to end up on different surfaces.
+public enum DashboardCardSurfaceStyle: Sendable {
+    /// `cardStyle()` - what the dashboard grid has always drawn.
+    case standard
+    /// `HakoCardSurface` - the phone pages' painted card language.
+    case hako
+}
+
+private struct DashboardCardSurfaceStyleKey: EnvironmentKey {
+    static let defaultValue: DashboardCardSurfaceStyle = .standard
+}
+
+public extension EnvironmentValues {
+    var dashboardCardSurfaceStyle: DashboardCardSurfaceStyle {
+        get { self[DashboardCardSurfaceStyleKey.self] }
+        set { self[DashboardCardSurfaceStyleKey.self] = newValue }
+    }
+}
+
+public extension View {
+    /// Declares the surface every `DashboardCardView` inside this container draws on.
+    func dashboardCardSurfaceStyle(_ style: DashboardCardSurfaceStyle) -> some View {
+        environment(\.dashboardCardSurfaceStyle, style)
+    }
+}
+
 private struct CardStyleModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
