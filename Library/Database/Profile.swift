@@ -30,7 +30,23 @@ public class Profile: Record, Identifiable, ObservableObject {
     /// below in agreement with the `add_subscription_info` migration in `Database.swift`.
     @Published public var subscriptionInfo: SubscriptionInfo?
 
-    public init(id: Int64? = nil, name: String, order: UInt32 = 0, type: ProfileType, path: String, remoteURL: String? = nil, autoUpdate: Bool = false, autoUpdateInterval: Int32 = 0, lastUpdated: Date? = nil, subscriptionInfo: SubscriptionInfo? = nil) {
+    /// When `subscriptionInfo` was last genuinely captured from a remote response, or `nil` when
+    /// that is unknown.
+    ///
+    /// Deliberately separate from `lastUpdated`. `lastUpdated` answers "when did the configuration
+    /// last refresh successfully", which is a fact about the body: a panel's YAML commonly stays
+    /// byte-identical for days while its usage counter moves on every request, and a refresh can
+    /// also succeed while the panel sends no `subscription-userinfo` at all. Using one field for
+    /// both made a retained quota indistinguishable from a fresh one, so a quota of unknown age
+    /// was rendered beside a "just now" timestamp.
+    ///
+    /// `nil` is meaningful and must never be filled in with the current time: it means no capture
+    /// time is known, which is the ordinary state for a subscription stored before this field
+    /// existed, and for one whose panel has never reported a parsable quota. The UI shows the
+    /// quota without an age claim in that case rather than inventing one.
+    @Published public var subscriptionInfoUpdatedAt: Date?
+
+    public init(id: Int64? = nil, name: String, order: UInt32 = 0, type: ProfileType, path: String, remoteURL: String? = nil, autoUpdate: Bool = false, autoUpdateInterval: Int32 = 0, lastUpdated: Date? = nil, subscriptionInfo: SubscriptionInfo? = nil, subscriptionInfoUpdatedAt: Date? = nil) {
         self.id = id
         self.name = name
         self.order = order
@@ -41,6 +57,7 @@ public class Profile: Record, Identifiable, ObservableObject {
         self.autoUpdateInterval = autoUpdateInterval
         self.lastUpdated = lastUpdated
         self.subscriptionInfo = subscriptionInfo
+        self.subscriptionInfoUpdatedAt = subscriptionInfoUpdatedAt
         super.init()
     }
 
@@ -51,6 +68,7 @@ public class Profile: Record, Identifiable, ObservableObject {
     enum Columns: String, ColumnExpression {
         case id, name, order, type, path, remoteURL, autoUpdate, autoUpdateInterval, lastUpdated, userAgent
         case subscriptionUpload, subscriptionDownload, subscriptionTotal, subscriptionExpire
+        case subscriptionInfoUpdatedAt
     }
 
     required init(row: Row) throws {
@@ -74,6 +92,11 @@ public class Profile: Record, Identifiable, ObservableObject {
         } else {
             subscriptionInfo = nil
         }
+        // Read independently of the four quota columns, and never synthesised. A row written
+        // before `add_subscription_info_updated_at`, or one whose panel never reported a parsable
+        // quota, reads back as `nil` - "capture time unknown", which the UI must not turn into
+        // "captured just now".
+        subscriptionInfoUpdatedAt = row[Columns.subscriptionInfoUpdatedAt] ?? nil
         try super.init(row: row)
     }
 
@@ -92,6 +115,10 @@ public class Profile: Record, Identifiable, ObservableObject {
         container[Columns.subscriptionDownload] = subscriptionInfo?.download
         container[Columns.subscriptionTotal] = subscriptionInfo?.total
         container[Columns.subscriptionExpire] = subscriptionInfo?.expire
+        // Written even when the quota is absent: a capture time with no quota is impossible by
+        // construction (see `RemoteProfileRefresh.evaluate`), but encoding it unconditionally
+        // keeps this column's round trip independent of the four above.
+        container[Columns.subscriptionInfoUpdatedAt] = subscriptionInfoUpdatedAt
     }
 
     override public func didInsert(_ inserted: InsertionSuccess) {
@@ -113,6 +140,10 @@ public struct ProfilePreview: Identifiable, Hashable {
     /// Mirrored so the phone's profile rows can read the panel's traffic from the snapshot they
     /// already hold, without reaching back to `origin` for it.
     public let subscriptionInfo: SubscriptionInfo?
+    /// The quota's own capture time, mirrored for the same reason as `subscriptionInfo`: the row
+    /// must be able to say *when* the quota it is showing was captured, and that is not
+    /// `lastUpdated`.
+    public let subscriptionInfoUpdatedAt: Date?
     public let origin: Profile
 
     public init(_ profile: Profile) {
@@ -126,6 +157,7 @@ public struct ProfilePreview: Identifiable, Hashable {
         autoUpdateInterval = profile.autoUpdateInterval
         lastUpdated = profile.lastUpdated
         subscriptionInfo = profile.subscriptionInfo
+        subscriptionInfoUpdatedAt = profile.subscriptionInfoUpdatedAt
         origin = profile
     }
 }

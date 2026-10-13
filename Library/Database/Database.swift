@@ -83,6 +83,19 @@ enum Database {
                     t.add(column: "subscriptionExpire", .integer)
                 }
             }
+            migrator.registerMigration("add_subscription_info_updated_at") { db in
+                // When the quota in the four columns above was actually captured, kept apart from
+                // `lastUpdated` (which means "the configuration last refreshed successfully").
+                //
+                // One nullable column, deliberately with no default and no backfill. An existing
+                // row genuinely does not know when its quota was captured, so it reads back as
+                // NULL - "unknown" - and the UI withholds the age claim rather than inventing one.
+                // Backfilling `lastUpdated` here would fabricate exactly the false freshness this
+                // column exists to prevent.
+                try db.alter(table: "profiles") { t in
+                    t.add(column: "subscriptionInfoUpdatedAt", .datetime)
+                }
+            }
             try migrator.migrate(database)
             return database
         } catch {

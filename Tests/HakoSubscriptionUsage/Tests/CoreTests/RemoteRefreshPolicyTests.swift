@@ -60,21 +60,29 @@ final class RemoteRefreshPolicyTests: XCTestCase {
     private struct FetchFailure: Error {}
 
     /// Run one refresh and report what happened.
+    ///
+    /// `previous` stays a bare `SubscriptionInfo?` so the existing cases read as they did; the
+    /// capture time is supplied separately by the cases that care about freshness.
     private func run(
         remoteURL: String? = "https://panel.example.invalid/sub",
         previous: SubscriptionInfo?,
+        previousCapturedAt: Date? = nil,
         currentBody: String?,
         response: RemoteProfileResponse,
-        validatorFails: Bool = false
+        now: Date = Date(timeIntervalSince1970: 2_000_000),
+        validatorFails: Bool = false,
+        metadataProbe: ((String) async throws -> SubscriptionInfoCapture)? = nil
     ) async throws -> (outcome: RemoteRefreshOutcome, recorder: Recorder) {
         let recorder = Recorder()
         var applied = false
         let outcome = try await RemoteProfileRefresh.evaluate(
             remoteURL: remoteURL,
-            previous: previous,
+            previous: SubscriptionSnapshot(info: previous, capturedAt: previousCapturedAt),
             currentBody: currentBody,
+            now: now,
             fetch: { _ in response },
-            validate: { _ in if validatorFails { throw FetchFailure() } }
+            validate: { _ in if validatorFails { throw FetchFailure() } },
+            metadataProbe: metadataProbe
         )
         try await RemoteRefreshApplier.apply(
             outcome,
@@ -195,7 +203,10 @@ final class RemoteRefreshPolicyTests: XCTestCase {
         do {
             _ = try await RemoteProfileRefresh.evaluate(
                 remoteURL: "https://panel.example.invalid/sub",
-                previous: SubscriptionInfo(upload: 1, download: 1, total: 1, expire: 1),
+                previous: SubscriptionSnapshot(
+                    info: SubscriptionInfo(upload: 1, download: 1, total: 1, expire: 1),
+                    capturedAt: nil
+                ),
                 currentBody: yamlA,
                 fetch: { _ in throw FetchFailure() },
                 validate: { _ in }
@@ -210,7 +221,7 @@ final class RemoteRefreshPolicyTests: XCTestCase {
         do {
             _ = try await RemoteProfileRefresh.evaluate(
                 remoteURL: nil,
-                previous: nil,
+                previous: .empty,
                 currentBody: nil,
                 fetch: { _ in XCTFail("must not fetch without a URL"); return self.response("", userInfo: nil) },
                 validate: { _ in }

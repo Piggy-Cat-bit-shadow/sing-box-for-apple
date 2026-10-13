@@ -19,6 +19,30 @@ public class HTTPClient {
         return userAgent
     }
 
+    /// The marker a panel looks for when deciding whether to send `subscription-userinfo`.
+    ///
+    /// Panels commonly withhold that header from clients they do not recognise as Clash-family,
+    /// and the app's own identity above carries no such marker - the header is then never sent and
+    /// no quota is ever captured, which is why the quota can appear frozen at whatever value was
+    /// last obtained by some other client.
+    ///
+    /// The marker is a separate value rather than a change to `Variant.applicationName`, which
+    /// this repository's `branding` and `subscription-feature` audits assert must stay `SFI`/
+    /// `SFM`/`SFT`: that name is a release contract (bundle identity, VPN profile description,
+    /// Siri phrases), not display copy.
+    public static let clashCompatibleMarker = "clash-verge/v2.5.0"
+
+    /// The User-Agent used **only** by the secondary metadata probe.
+    ///
+    /// Deliberately not used for the request that fetches the configuration body. A panel is
+    /// entitled to choose the subscription *format* by User-Agent, so asking for the body as a
+    /// Clash client risks receiving Clash YAML where sing-box JSON is required - a far worse
+    /// failure than a stale quota. The probe discards the body and keeps only the header, which
+    /// lets the body-producing request keep the identity that keeps the format correct.
+    public static var subscriptionMetadataUserAgent: String {
+        userAgent + " " + clashCompatibleMarker
+    }
+
     private let client: any LibboxHTTPClientProtocol
 
     public init() {

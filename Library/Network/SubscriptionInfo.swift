@@ -89,3 +89,49 @@ extension SubscriptionInfo {
         return max(0, total - usedBytes)
     }
 }
+
+// MARK: - What one response said
+
+/// The outcome of looking for `subscription-userinfo` in one response.
+///
+/// The three cases are kept apart rather than collapsed into `SubscriptionInfo?` because they
+/// drive different writes. `updated` is the only case allowed to advance the quota's own
+/// freshness; `missing` and `malformed` both retain the last-known-good value **and its capture
+/// time**. Collapsing them into a single `nil` is what previously made "the panel sent nothing"
+/// and "the panel sent a usable quota" indistinguishable to every caller, which is what let a
+/// retained quota be presented as freshly refreshed.
+public enum SubscriptionInfoCapture: Equatable, Sendable {
+    case updated(SubscriptionInfo)
+    case missing
+    case malformed
+
+    /// The quota this capture carries, if any. `nil` for both non-capturing cases.
+    public var info: SubscriptionInfo? {
+        if case let .updated(info) = self { return info }
+        return nil
+    }
+
+    /// Whether this capture carries a quota, and so whether freshness may advance.
+    public var didCapture: Bool {
+        if case .updated = self { return true }
+        return false
+    }
+}
+
+extension SubscriptionInfo {
+    /// Classify the raw header of one response.
+    ///
+    /// - Absent, or present but blank, is `.missing`: the panel said nothing about traffic.
+    /// - Present, non-blank, but yielding no parsable `key=value` pair is `.malformed`: the panel
+    ///   said something this client could not read.
+    ///
+    /// Both retain the stored value, so the distinction is not about the write; it exists so the
+    /// two are separately observable and separately testable - "this panel never sends the header"
+    /// and "this panel changed its header format" are different problems with different fixes.
+    public static func capture(header: String?) -> SubscriptionInfoCapture {
+        guard let header else { return .missing }
+        guard !header.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .missing }
+        guard let info = parse(header: header) else { return .malformed }
+        return .updated(info)
+    }
+}

@@ -9,9 +9,21 @@
 import Foundation
 
 public enum HTTPClient {
+    /// Mirrors the real marker in `Library/Network/HTTPClient.swift`. Duplicated because this stub
+    /// stands in for the app symbol rather than sharing code with it; if the real value changes,
+    /// this one has to change with it.
+    public static let clashCompatibleMarker = "clash-verge/v2.5.0"
+
     /// Matches the shape of the real value: application name, version, language.
     public static var userAgent: String {
         "HakoTest (sing-box stub; language en_US)"
+    }
+
+    /// Mirrors the real `subscriptionMetadataUserAgent`: the identity above plus the
+    /// Clash-compatibility marker the metadata probe needs. The probe's request is asserted
+    /// against this value, so the marker being present is testable here.
+    public static var subscriptionMetadataUserAgent: String {
+        userAgent + " " + clashCompatibleMarker
     }
 }
 
