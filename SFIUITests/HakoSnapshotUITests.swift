@@ -73,36 +73,43 @@ final class HakoSnapshotUITests: XCTestCase {
         return app.tabBars.firstMatch.buttons.element(boundBy: index)
     }
 
-    /// Relaunch the app, setting `SCREENSHOT_STATE`.
+    /// Relaunch the app, selecting one named fixture state for the new launch.
     ///
-    /// # This does not select a state, and four cases depend on it as though it did
+    /// # The state reaches the fixture, and it had to be given a channel to reach it
     ///
-    /// The suite launches once in `setUp` with no state, and the intent here was that a case
-    /// needing another state starts the app again rather than navigating to it. **The app does
-    /// not read `SCREENSHOT_STATE`.** It appears nowhere outside the test files:
+    /// The suite launches once in `setUp` with no state, and the intent here is that a case
+    /// needing another state starts the app again rather than navigating to it. `launch()`
+    /// therefore writes `SCREENSHOT_STATE` into `launchEnvironment`, and it survives the relaunch
+    /// because the three arguments `setUp` established - `-FASTLANE_SNAPSHOT` and `-ui_testing`
+    /// from `SnapshotHelper.setLaunchArguments`, and the fixed language from `setUp` itself - are
+    /// held on `XCUIApplication` rather than consumed by the first launch.
     ///
-    ///     grep -rn 'SCREENSHOT_STATE' --include=*.swift .   # two hits, both test files
+    /// The app reads it in `Variant.uiTestFixtureState`, behind **two** conditions: `-ui_testing`
+    /// must be present *and* `SCREENSHOT_STATE` must be non-empty. Nothing else reads the variable,
+    /// so the name is interpreted in exactly one place. A production launch carries neither flag
+    /// and therefore answers `nil`, which is what leaves every default path unchanged.
     ///
-    /// What the app's fixture actually reads is this, and nothing else:
+    /// The earlier revision of this comment said the opposite - that the app did not read
+    /// `SCREENSHOT_STATE` at all, so the four cases below were asserting against states the app had
+    /// never been put into. That was true when it was written; it stopped being true when the
+    /// fixture grew per-case states, and the comment was not updated with them. The consumers are:
     ///
-    ///     -FASTLANE_SNAPSHOT        -> `Variant.screenshotMode`, set by `setupSnapshot` in setUp
-    ///     SCREENSHOT_PAGE           -> the page to open on, in `HakoPhoneRootView`/`MainView`
-    ///     SCREENSHOT_LANGUAGE       -> `ScreenshotLocalization`
-    ///     SCREENSHOT_LOCALE         -> `ScreenshotLocalization`
+    ///     Variant.uiTestFixtureState
+    ///         "noClashModes"  -> CommandClient.setupMockData installs no modes
+    ///         "profileError"  -> ExtensionEnvironments.reload() reports an unreadable configuration
+    ///         "notInstalled"  -> Variant.usesMockTunnelProfile answers false
+    ///         "activity"      -> ConnectionListViewModel adds the dense activity fixture
     ///
-    /// So a relaunch through this helper is the same launch as the one `setUp` already made, and
-    /// the four cases that use it - `test14OutboundModeIsAbsentByDefault` (`"clashModes"`),
-    /// `test15ProfileLoadFailure` (`"profileError"`), `test18HomeWithoutATunnel`
-    /// (`"notInstalled"`) and `test43ActivityDataDensity` (`"activity"`) - assert against states
-    /// the app was never put into. That is why they fail, and it is not something the product can
-    /// be changed to fix: none of those states is reachable from a test.
+    /// The four cases that use this helper are the four above:
+    /// `test14OutboundModeIsAbsentByDefault` (`"noClashModes"`), `test15ProfileLoadFailure`
+    /// (`"profileError"`), `test18HomeWithoutATunnel` (`"notInstalled"`) and
+    /// `test43ActivityDataDensity` (`"activity"`).
     ///
-    /// `SCREENSHOT_APPEARANCE`, set in `setUp`, is ignored for the same reason: a capture's light
-    /// appearance comes from the simulator, not from that variable.
+    /// `SCREENSHOT_APPEARANCE`, set in `setUp`, is ignored: a capture's light appearance comes from
+    /// the simulator, not from that variable.
     ///
-    /// Kept rather than deleted because a case may still want a fresh launch; a real per-case
-    /// state needs the product to grow a selector for it, which is a decision about the fixture
-    /// model rather than a test fix. See `APPLE-UI-MAC-VERIFICATION-REPORT.md` §6c.
+    /// Whether each of the four now passes is a simulator result and is not asserted here. What is
+    /// asserted here is only that the channel exists and the product reads it.
     private func launch(state: String) {
         app.terminate()
         app.launchEnvironment["SCREENSHOT_STATE"] = state

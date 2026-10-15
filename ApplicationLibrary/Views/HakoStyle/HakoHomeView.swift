@@ -99,6 +99,16 @@ public struct HakoHomeView: View {
     @Environment(\.selection) private var selection
     /// The chosen outbound mode, held here until the core confirms it. See `selectClashMode`.
     @State private var localMode: String = ""
+    /// The mode the core last reported, which is the only value this page may fall back to.
+    ///
+    /// The core can only report a mode while the tunnel is running and the command client is
+    /// connected, so `commandClient.clashMode` stays empty on a cold launch with the tunnel stopped.
+    /// A row that waited for it instead of choosing optimistically would not move at all in that
+    /// state - which is why `localMode` exists. This field is the other half of that bargain: when a
+    /// switch is *refused* rather than merely unconfirmed, the optimistic value has to be given back,
+    /// and this is what it is given back to. It is written only from `commandClient.clashMode`, so
+    /// it never holds a value the core did not say.
+    @State private var confirmedMode: String = ""
     /// The counts the shortcut rows report.
     ///
     /// Held here rather than read from the client in `body`, because the client is a *nested*
@@ -187,7 +197,8 @@ public struct HakoHomeView: View {
             }
         }
         .onAppear {
-            localMode = environments.commandClient.clashMode
+            confirmedMode = environments.commandClient.clashMode
+            localMode = confirmedMode
             liveGroupCount = environments.commandClient.groups?.count ?? 0
             liveConnectionCount = Int(environments.commandClient.status?.connectionsIn ?? 0)
         }
@@ -210,6 +221,7 @@ public struct HakoHomeView: View {
         }
         .onChangeCompat(of: environments.commandClient.clashMode) { newValue in
             if !newValue.isEmpty {
+                confirmedMode = newValue
                 localMode = newValue
             }
         }
@@ -610,10 +622,23 @@ public struct HakoHomeView: View {
     /// labels into the width it was given, so this client carried a `GeometryReader`, two preference
     /// keys and a menu fallback for the case where they did not fit - machinery that no longer has a
     /// reason to exist.
+    ///
+    /// The list comes from the core, and only the core may decide what is in it: `clashmode`
+    /// derives it from the `clash_mode` values that appear in the configuration's route and DNS
+    /// rules (`experimental/clashmode/mode_list.go`), and the manager prepends the default mode, so
+    /// a configuration that declares none reports exactly one entry and this section stays hidden.
+    /// That gate is the reason the control has looked absent rather than merely unstyled: without a
+    /// `clash_mode` rule anywhere, there is no mode to offer and no mode for a switch to change.
+    ///
+    /// The values are reported exactly as the configuration spells them, and the conventional
+    /// configuration spells them `Rule`, `Global` and `Direct`. They are therefore never compared
+    /// against a lower-case literal here: a mode is recognised by the case-insensitive test the
+    /// core itself uses, and every string that reaches the core is a string the core sent - see
+    /// `selectClashMode`.
     @ViewBuilder
     private var modeSection: some View {
         let modes = environments.commandClient.clashModeList
-        let current = localMode.isEmpty ? environments.commandClient.clashMode : localMode
+        let current = currentMode(in: modes)
         if modes.count > 1 {
             HakoPageSection(String(localized: "Outbound Mode")) {
                 ForEach(Array(modes.enumerated()), id: \.offset) { index, mode in
@@ -623,7 +648,7 @@ public struct HakoHomeView: View {
                     HakoSelectionRow(
                         title: modeTitle(mode),
                         subtitle: modeExplanation(mode),
-                        isSelected: mode == current,
+                        isSelected: mode.caseInsensitiveCompare(current) == .orderedSame,
                         identifier: "hako.home.mode.\(mode)"
                     ) {
                         selectClashMode(mode)
@@ -633,18 +658,52 @@ public struct HakoHomeView: View {
         }
     }
 
-    /// The core names the modes `rule`, `global` and `direct`; a user reads words.
+    /// The mode the section marks as chosen: the local choice while one is pending, otherwise what
+    /// the core last reported.
+    ///
+    /// Matched against the core's own list case-insensitively, and returned in the core's own
+    /// spelling, so a core that reports `Rule` and a local choice of `rule` are the same mode
+    /// rather than two rows lit at once or none.
+    private func currentMode(in modes: [String]) -> String {
+        let candidate = localMode.isEmpty ? confirmedMode : localMode
+        return canonicalMode(candidate, in: modes)
+    }
+
+    /// The core's own spelling of `mode`, or `mode` itself when the list does not contain it.
+    ///
+    /// The list is read from the core, so its element is by construction a value the core accepts;
+    /// echoing it back is what keeps the display name and the value the core is sent from drifting
+    /// apart. `SetMode` normalises case itself, but normalising here means a switch sends the same
+    /// string the row is labelled with.
+    private func canonicalMode(_ mode: String, in modes: [String]) -> String {
+        modes.first { $0.caseInsensitiveCompare(mode) == .orderedSame } ?? mode
+    }
+
+    /// The name a reader sees for a core mode value, or the value itself when it is not one of the
+    /// three the product has words for.
+    ///
+    /// The core's values are not guaranteed lower-case: the list is whatever the configuration
+    /// declared, and the conventional spelling is `Rule`, `Global`, `Direct`. Matching the literal
+    /// lower-case names was a defect with two visible faces - a translated name was never used for a
+    /// conventional configuration, and a genuinely unknown future mode was echoed through
+    /// `capitalized`, which is a transformation rather than the value. Folding the case first fixes
+    /// the first and dropping the transformation fixes the second: an unrecognised mode is shown
+    /// exactly as the core named it, so a mode this client has never heard of still appears and is
+    /// still selectable.
     private func modeTitle(_ mode: String) -> String {
-        switch mode {
+        switch mode.lowercased() {
         case "rule": String(localized: "Rules")
         case "global": String(localized: "Global")
         case "direct": String(localized: "Direct")
-        default: mode.capitalized
+        default: mode
         }
     }
 
+    /// The reason the mode exists, for a mode the product has a reason for. `nil` for any other,
+    /// which is what the reference does with a mode it has no copy for: the row keeps its name and
+    /// grows no explanation rather than wearing one borrowed from a different mode.
     private func modeExplanation(_ mode: String) -> String? {
-        switch mode {
+        switch mode.lowercased() {
         case "rule": String(localized: "Split traffic by the profile's rules")
         case "global": String(localized: "Send every connection through the proxy")
         case "direct": String(localized: "Send every connection out directly")
@@ -658,9 +717,20 @@ public struct HakoHomeView: View {
     /// this replaced did: the core can only report a mode back while it is running, so a row
     /// that waited for it would not move at all with the tunnel stopped. The published value
     /// reconciles the local one whenever the core does report.
+    ///
+    /// The optimistic half needs the other half to be complete, and it was not: a switch that
+    /// *failed* - the tunnel stopped between the row being drawn and the row being pressed, a mode
+    /// the core's list does not accept - raised its alert and left the chosen row lit over a core
+    /// that had never moved, because a failure is not a report and nothing else writes `localMode`.
+    /// The refusal is therefore given back to the last value the core did report. That value is
+    /// `confirmedMode`, never a fresh read of `commandClient.clashMode`: when the client is
+    /// disconnected that property is empty, and falling back to it would silently move the
+    /// selection again instead of restoring what the reader had.
     private func selectClashMode(_ mode: String) {
+        let modes = environments.commandClient.clashModeList
+        let requested = canonicalMode(mode, in: modes)
         withAnimation {
-            localMode = mode
+            localMode = requested
         }
         // The fixture runs no tunnel, so there is no command server to send to. Attempting
         // it raises a blocking alert with an IPC error over the very page a snapshot exists
@@ -670,9 +740,12 @@ public struct HakoHomeView: View {
         }
         Task {
             do {
-                try CommandTarget.standaloneClient().setClashMode(mode)
+                try CommandTarget.standaloneClient().setClashMode(requested)
             } catch {
                 alert = AlertState(action: "set clash mode", error: error)
+                withAnimation {
+                    localMode = confirmedMode
+                }
             }
         }
     }
