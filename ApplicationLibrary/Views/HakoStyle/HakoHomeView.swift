@@ -614,14 +614,18 @@ public struct HakoHomeView: View {
         Variant.screenshotMode || environments.commandClient.groups?.isEmpty == false
     }
 
-    /// The outbound mode, as the reference presents it.
+    /// The outbound mode, in one of the two shapes the list can honestly take.
     ///
-    /// A painted section of selection rows with the reason each mode exists, which is what
-    /// the reference's Home shows: its mode card is a vertical list where the chosen row
-    /// carries the explanation, not a segmented control. A segmented control also had to fit its
-    /// labels into the width it was given, so this client carried a `GeometryReader`, two preference
-    /// keys and a menu fallback for the case where they did not fit - machinery that no longer has a
-    /// reason to exist.
+    /// The conventional three modes are a quick choice, and the home page draws them the way it
+    /// draws a quick choice: one row, three equal thirds, the chosen third marked. Anything else
+    /// keeps the reference's shape - a painted section of selection rows, each carrying the reason
+    /// its mode exists - because a mode the product has no words for is a setting, and the list
+    /// that renders whatever the core sent is the only one that cannot drop it.
+    ///
+    /// This was a `Picker` with `.segmented` once, and it had to fit its labels into the width it
+    /// was given: the client carried a `GeometryReader`, two preference keys and a menu fallback
+    /// for the case where they did not fit. Neither shape below measures anything, so none of that
+    /// machinery is coming back with the row.
     ///
     /// The list comes from the core, and only the core may decide what is in it: `clashmode`
     /// derives it from the `clash_mode` values that appear in the configuration's route and DNS
@@ -635,25 +639,125 @@ public struct HakoHomeView: View {
     /// against a lower-case literal here: a mode is recognised by the case-insensitive test the
     /// core itself uses, and every string that reaches the core is a string the core sent - see
     /// `selectClashMode`.
+    ///
+    /// # Why the section no longer wears a caption
+    ///
+    /// The explanation each mode used to carry under its own name answers the question the three
+    /// words already answer. On a settings page that cost nothing; on the home page it was three
+    /// two-line rows - a caption, three subtitles and three selection marks - between the reader
+    /// and the shortcuts below, for a control whose whole content is "which of three". The
+    /// conventional configuration therefore gets one compact row, and the explanations stay where
+    /// they are still a setting's explanation: the fallback below, which serves the modes the
+    /// product has no words for.
+    ///
+    /// A configuration whose list is not exactly the conventional three keeps the list it had -
+    /// see `conventionalModes`. It is the only shape that could *lose* a mode, so it is the only
+    /// shape that must be allowed to be taller.
     @ViewBuilder
     private var modeSection: some View {
         let modes = environments.commandClient.clashModeList
         let current = currentMode(in: modes)
         if modes.count > 1 {
-            HakoPageSection(String(localized: "Outbound Mode")) {
-                ForEach(Array(modes.enumerated()), id: \.offset) { index, mode in
-                    if index > 0 {
-                        HakoRowDivider()
-                    }
-                    HakoSelectionRow(
-                        title: modeTitle(mode),
-                        subtitle: modeExplanation(mode),
-                        isSelected: mode.caseInsensitiveCompare(current) == .orderedSame,
-                        identifier: "hako.home.mode.\(mode)"
-                    ) {
-                        selectClashMode(mode)
+            if let conventionalModes = conventionalModes(in: modes) {
+                HakoPageSection {
+                    compactModePicker(modes: conventionalModes, current: current)
+                }
+            } else {
+                HakoPageSection(String(localized: "Outbound Mode")) {
+                    ForEach(Array(modes.enumerated()), id: \.offset) { index, mode in
+                        if index > 0 {
+                            HakoRowDivider()
+                        }
+                        HakoSelectionRow(
+                            title: modeTitle(mode),
+                            subtitle: modeExplanation(mode),
+                            isSelected: mode.caseInsensitiveCompare(current) == .orderedSame,
+                            identifier: "hako.home.mode.\(mode)"
+                        ) {
+                            selectClashMode(mode)
+                        }
                     }
                 }
+            }
+        }
+    }
+
+    /// The core's three conventional modes, in the order the picker shows them, or `nil` when the
+    /// list is anything else.
+    ///
+    /// `clash_mode` is not a closed set. `clashmode` builds its list from whatever values the
+    /// reader's own route and DNS rules declare, so a configuration may define a fourth mode this
+    /// client has never heard of, and upstream may define more later. A picker with three fixed
+    /// slots would drop that value - it would be missing from the screen and unreachable from it -
+    /// so the compact shape is offered only when the list is exactly `Rule`, `Global` and
+    /// `Direct`, and everything else falls back to the list that renders whatever it is given.
+    ///
+    /// The test is the core's own, case-insensitively: the configuration decides the spelling, and
+    /// `rule`, `GLOBAL`, `Direct` is as conventional as `Rule`, `Global`, `Direct`. The order the
+    /// core reports is not the test either - the list is a set of modes, and the picker's order is
+    /// the reading order of the three words, so a core that reports them reversed still gets the
+    /// same control. What is returned is the core's own spelling, because that is what the core
+    /// accepts and what `selectClashMode` must send back.
+    ///
+    /// Present-and-three is a complete answer: a list holding all three of three values holds no
+    /// others, and so holds no duplicates, which is why each returned element has exactly one
+    /// match in the list it came from.
+    private func conventionalModes(in modes: [String]) -> [String]? {
+        guard modes.count == 3 else {
+            return nil
+        }
+        let conventional = ["rule", "global", "direct"]
+        let matched = conventional.compactMap { name in
+            modes.first { $0.caseInsensitiveCompare(name) == .orderedSame }
+        }
+        return matched.count == conventional.count ? matched : nil
+    }
+
+    /// The three conventional modes as one row of equal thirds: the home page's shape for the
+    /// choice, where the reference's three rows are the settings page's shape for it.
+    ///
+    /// The row is `HakoTheme.Control.compactChoiceRowMinHeight` tall - the touch target - and the
+    /// chosen third is marked by a `HakoTheme.Control.segmentedTabHeight` capsule of the design
+    /// system's chosen-surface fill. The selected fill is the accent at
+    /// `HakoTheme.Opacity.selectedFill`, which is the same weight the page's other chosen surfaces
+    /// wear; the unselected thirds stay at full primary text, because a mode one may switch to is
+    /// not a disabled control. Nothing else is drawn: no icons, no captions, no selection marks,
+    /// and no dividers, which is what keeps one row one row.
+    ///
+    /// Equal thirds come from `maxWidth: .infinity` and a zero spacing, so the three labels sit in
+    /// one `HStack` and divide it. Nothing here measures text: the three words are two characters
+    /// each and the row is the page's width.
+    ///
+    /// Every one of the three is `hako.home.mode.<the core's spelling>`, the identifier the
+    /// fallback rows carry, so a test naming a mode names it the same way in either shape. Each
+    /// carries the selected trait the fallback row carries, for the same reason.
+    private func compactModePicker(modes: [String], current: String) -> some View {
+        HStack(spacing: 0) {
+            ForEach(modes, id: \.self) { mode in
+                let isSelected = mode.caseInsensitiveCompare(current) == .orderedSame
+                Button {
+                    selectClashMode(mode)
+                } label: {
+                    Text(modeTitle(mode))
+                        .font(isSelected
+                            ? HakoTheme.FontRole.rowPrimary.weight(.semibold)
+                            : HakoTheme.FontRole.rowPrimary)
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.horizontal, HakoTheme.Spacing.compact)
+                        .frame(height: HakoTheme.Control.segmentedTabHeight)
+                        .background(
+                            Capsule().fill(isSelected
+                                ? Color.accentColor.opacity(HakoTheme.Opacity.selectedFill)
+                                : Color.clear)
+                        )
+                        .frame(maxWidth: .infinity, minHeight: HakoTheme.Control.compactChoiceRowMinHeight)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(HakoCompactChoiceButtonStyle())
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                .accessibilityIdentifier("hako.home.mode.\(mode)")
             }
         }
     }
@@ -773,5 +877,25 @@ public struct HakoHomeView: View {
         showsConnectedCards
             ? String(localized: "Tunnel output")
             : String(localized: "Recent logs")
+    }
+}
+
+/// The press feedback of one third of the compact mode picker.
+///
+/// A plain `Button` inside a card has no highlight on touch platforms, which is why the page's
+/// rows carry `HakoPushRowButtonStyle`; this is that style for a control whose shape is a
+/// capsule rather than a row - the same `HakoTheme.Opacity.pressedFill` weight, on the third
+/// the finger is on rather than on the whole card. The chosen third's own mark is drawn by the
+/// label, so this never competes with it.
+private struct HakoCompactChoiceButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                Capsule().fill(
+                    configuration.isPressed
+                        ? Color.primary.opacity(HakoTheme.Opacity.pressedFill)
+                        : Color.clear
+                )
+            )
     }
 }
