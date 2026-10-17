@@ -51,6 +51,7 @@ import re
 import stat
 import subprocess
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable
 from original_type_names import ORIGINAL_TYPE_NAMES
@@ -240,12 +241,20 @@ UPSTREAM_REACHABLE_PAGES = (
     MAC_ROOT_FILE,
 )
 
-#: The one brand override this fork is allowed to make. `INFOPLIST_KEY_CFBundleDisplayName` is the
-#: smallest safe lever: it changes what SpringBoard, the Dock and Spotlight show and nothing else.
+#: The one brand override this fork is allowed to make to a display setting.
+#: `INFOPLIST_KEY_CFBundleDisplayName` is the smallest safe lever: it changes what SpringBoard, the
+#: Dock and Spotlight show and nothing else.
 BRAND_DISPLAY_NAME = "Jiejiebox"
 
+#: The one product rename this fork makes. `PRODUCT_NAME` is the bundle directory's name, so the
+#: SFM target built `sing-box.app` and collided with the official client in /Applications. The
+#: rename is scoped to SFM and to this exact value; every other target keeps upstream's value.
+BRANDED_PRODUCT_NAME = "JiejieBox"
+BRANDED_PRODUCT_TARGET = "SFM"
+
 #: Settings that carry a user-visible name but must keep their upstream value, because they are
-#: identity, protocol or signing surface rather than presentation.
+#: identity, protocol or signing surface rather than presentation. `PRODUCT_NAME` is listed with the
+#: single documented exception above: only SFM may read `BRANDED_PRODUCT_NAME`.
 PROTECTED_NAME_SETTINGS = (
     "PRODUCT_NAME",
     "PRODUCT_BUNDLE_IDENTIFIER",
@@ -3002,7 +3011,7 @@ def check_project_membership(root: str, upstream_ref: str | None = None) -> Chec
 
 
 def check_branding(root: str, upstream_ref: str | None = None) -> Check:
-    """The visible name is Jiejiebox; identity, protocol and signing surface is untouched."""
+    """The visible name is Jiejiebox; the macOS product is JiejieBox.app; identity is untouched."""
     pbx = os.path.join(root, "sing-box.xcodeproj/project.pbxproj")
     text = read_text(pbx)
     if text is None:
@@ -3040,6 +3049,20 @@ def check_branding(root: str, upstream_ref: str | None = None) -> Check:
                 + ", ".join(os.path.basename(p) for p in others)
             )
 
+    # The macOS app product is renamed on purpose: Finder and /Applications show the bundle
+    # directory, and `sing-box.app` collides with the official client. The rename is scoped to SFM
+    # and to exactly one value, so anything else carrying it is still a defect.
+    renamed = product_names_by_target(text).get(BRANDED_PRODUCT_TARGET, [])
+    if sorted(renamed) != [BRANDED_PRODUCT_NAME] * 2:
+        problems.append(
+            f"{BRANDED_PRODUCT_TARGET} PRODUCT_NAME is {renamed}, expected exactly two "
+            f"configurations reading {BRANDED_PRODUCT_NAME!r}"
+        )
+    else:
+        evidence.append(
+            f"{BRANDED_PRODUCT_TARGET}: PRODUCT_NAME = {BRANDED_PRODUCT_NAME} in 2 configurations"
+        )
+
     # Identity surface must not carry the brand, and must still be upstream's value when the pinned
     # commit is available - a value that is merely plausible is not the same as an unchanged one.
     for setting in PROTECTED_NAME_SETTINGS:
@@ -3048,7 +3071,16 @@ def check_branding(root: str, upstream_ref: str | None = None) -> Check:
             for _, values in target_lines(text, setting)
             for value in values
         ]
+        # `PRODUCT_NAME` on SFM is the one permitted brand value; every other occurrence of it is
+        # caught below like any other setting.
+        permitted = (
+            sum(1 for value in local_values if value == BRANDED_PRODUCT_NAME)
+            if setting == "PRODUCT_NAME"
+            else 0
+        )
         for value in local_values:
+            if setting == "PRODUCT_NAME" and value == BRANDED_PRODUCT_NAME:
+                continue
             if BRAND_DISPLAY_NAME.lower() in value.lower():
                 problems.append(
                     f"{setting} carries the product name ({value}); the rename must not reach "
@@ -3063,6 +3095,23 @@ def check_branding(root: str, upstream_ref: str | None = None) -> Check:
                 f"{setting} appears {len(local_values)} times here and {len(upstream_values)} times "
                 f"at {upstream_ref}; a merge probably moved a build configuration"
             )
+        elif setting == "PRODUCT_NAME" and permitted:
+            # The only allowed difference: the SFM configurations read the brand where upstream
+            # reads `sing-box`. Removing that pair from both sides must leave the counters equal.
+            local_counter = +(Counter(local_values))
+            local_counter[BRANDED_PRODUCT_NAME] -= permitted
+            local_counter["sing-box"] += permitted
+            if local_counter != Counter(upstream_values):
+                problems.append(
+                    f"{setting} differs from {upstream_ref} beyond the {permitted} "
+                    f"{BRANDED_PRODUCT_NAME} rename: {sorted(local_values)} vs "
+                    f"{sorted(upstream_values)}"
+                )
+            else:
+                evidence.append(
+                    f"{setting}: {len(local_values)} occurrence(s), identical to {upstream_ref} "
+                    f"apart from {permitted} {BRANDED_PRODUCT_NAME} rename(s)"
+                )
         elif sorted(upstream_values) != sorted(local_values):
             problems.append(
                 f"{setting} differs from {upstream_ref}: {sorted(local_values)} vs "
@@ -3092,7 +3141,12 @@ def check_branding(root: str, upstream_ref: str | None = None) -> Check:
 
     if problems:
         return Check("branding", "FAIL", "; ".join(problems), evidence)
-    return Check("branding", "PASS", "the visible name is overlaid and nothing else moved", evidence)
+    return Check(
+        "branding",
+        "PASS",
+        "the visible name is overlaid, the macOS bundle is JiejieBox.app, and nothing else moved",
+        evidence,
+    )
 
 
 def target_lines(text: str, setting: str) -> list[tuple[str, list[str]]]:
@@ -3373,6 +3427,39 @@ def display_name_by_plist(pbxproj: str) -> dict[str, list[str]]:
         if plist and names:
             out.setdefault(plist.group(1).strip(), []).extend(
                 n.strip().strip('"') for n in names)
+    return out
+
+
+def product_names_by_target(pbxproj: str) -> dict[str, list[str]]:
+    """`PRODUCT_NAME` values grouped by the `PBXNativeTarget` that owns the configuration.
+
+    Read through each target's own `buildConfigurations` array rather than by counting occurrences:
+    the rename this check permits applies to one target, and a count cannot tell SFM from SFI,
+    which read `sing-box` upstream alike. Values are returned unquoted, so `"sing-box"` and `SFM`
+    are compared the way the project uses them.
+    """
+    out: dict[str, list[str]] = {}
+    for target in re.finditer(
+        r'Build configuration list for PBXNativeTarget "([^"]+)" \*/ = \{(.*?)\n\t\t\};',
+        pbxproj,
+        re.S,
+    ):
+        name, body = target.group(1), target.group(2)
+        array = re.search(r"buildConfigurations = \((.*?)\);", body, re.S)
+        if not array:
+            continue
+        for cid in re.findall(r"([0-9A-Fa-f]{24}) /\*", array.group(1)):
+            block = re.search(
+                rf'{re.escape(cid)} /\* \w+ \*/ = \{{\s*isa = XCBuildConfiguration;(.*?)\n\t\t\}};',
+                pbxproj,
+                re.S,
+            )
+            if not block:
+                continue
+            out.setdefault(name, []).extend(
+                value.strip().strip('"')
+                for value in re.findall(r"^\s*PRODUCT_NAME = ([^;\n]+);", block.group(1), re.M)
+            )
     return out
 
 

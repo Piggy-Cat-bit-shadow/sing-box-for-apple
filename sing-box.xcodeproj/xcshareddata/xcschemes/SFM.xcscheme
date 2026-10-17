@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "3AEC21082A459B1900A63465"
-               BuildableName = "sing-box.app"
+               BuildableName = "JiejieBox.app"
                BlueprintName = "SFM"
                ReferencedContainer = "container:sing-box.xcodeproj">
             </BuildableReference>
@@ -58,7 +58,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "3AEC21082A459B1900A63465"
-            BuildableName = "sing-box.app"
+            BuildableName = "JiejieBox.app"
             BlueprintName = "SFM"
             ReferencedContainer = "container:sing-box.xcodeproj">
          </BuildableReference>
@@ -75,7 +75,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "3AEC21082A459B1900A63465"
-            BuildableName = "sing-box.app"
+            BuildableName = "JiejieBox.app"
             BlueprintName = "SFM"
             ReferencedContainer = "container:sing-box.xcodeproj">
          </BuildableReference>
