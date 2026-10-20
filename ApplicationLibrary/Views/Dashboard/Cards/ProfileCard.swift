@@ -179,6 +179,9 @@ public struct ProfileCard: View {
                 if let profile = selectedProfile {
                     VStack(alignment: .leading, spacing: 12) {
                         profileInfo(for: profile)
+                        #if os(macOS)
+                        macOSSubscriptionQuotaInfo(for: profile)
+                        #endif
                         actionButtonsRow(for: profile)
                     }
                 }
@@ -425,6 +428,132 @@ public struct ProfileCard: View {
         }
     }
 
+    // MARK: - macOS subscription quota
+
+    #if os(macOS)
+        /// Whether the selected profile carries any quota figure worth a line.
+        ///
+        /// Presence is decided from the stored value alone, so a profile with no subscription
+        /// metadata (or a panel that never sent the header) adds no height to the card at all.
+        private func macOSHasSubscriptionQuota(_ profile: ProfilePreview) -> Bool {
+            guard profile.type == .remote, let info = profile.subscriptionInfo else { return false }
+            return info.total > 0 || info.usedBytes > 0 || info.expire > 0
+        }
+
+        /// The selected profile's subscription quota, under the profile metadata.
+        ///
+        /// Mirrors the Windows client's caption rather than inventing a Mac layout: a short
+        /// `remaining / total` (or `used` when the panel reported no quota), and the expiry date,
+        /// on one line when it fits and on two when it does not.
+        ///
+        /// A one-minute timeline re-evaluates only this subtree, because the caption must change
+        /// from "expires" to "expired" when the clock passes the date on a card that is left open.
+        @ViewBuilder
+        private func macOSSubscriptionQuotaInfo(for profile: ProfilePreview) -> some View {
+            if macOSHasSubscriptionQuota(profile) {
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    macOSSubscriptionQuotaLine(for: profile, now: context.date)
+                }
+            }
+        }
+
+        @ViewBuilder
+        private func macOSSubscriptionQuotaLine(for profile: ProfilePreview, now: Date) -> some View {
+            if let info = profile.subscriptionInfo {
+                macOSSubscriptionQuotaLine(info, profile: profile, now: now)
+            }
+        }
+
+        /// One line when the caption fits, two when it does not - the same wrapping rule the
+        /// Windows flex container gives, without clipping a number to keep a line short.
+        private func macOSSubscriptionQuotaLine(_ info: SubscriptionInfo, profile: ProfilePreview, now: Date) -> some View {
+            let usage = macOSSubscriptionUsageText(info, profile: profile)
+            let expiry = macOSSubscriptionExpiryText(info, now: now)
+            return ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    macOSSubscriptionUsageView(usage)
+                    macOSSubscriptionExpiryView(expiry)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    macOSSubscriptionUsageView(usage)
+                    macOSSubscriptionExpiryView(expiry)
+                }
+            }
+        }
+
+        @ViewBuilder
+        private func macOSSubscriptionUsageView(_ text: String?) -> some View {
+            if let text {
+                Text(verbatim: text)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+            }
+        }
+
+        @ViewBuilder
+        private func macOSSubscriptionExpiryView(_ text: (value: String, expired: Bool)?) -> some View {
+            if let text {
+                Text(verbatim: text.value)
+                    .font(.caption)
+                    .foregroundStyle(text.expired ? Color.red : Color.secondary)
+            }
+        }
+
+        /// The usage half of the caption.
+        ///
+        /// `remainingBytes` is only non-nil when the panel reported a positive total, and it is
+        /// already clamped at zero for an over-quota account, so no second subtraction lives here.
+        ///
+        /// With no total, `used > 0` is the only figure that can be stated: the stored model
+        /// defaults a MISSING upload/download to zero, so `used == 0` cannot be told apart from
+        /// "the panel said nothing" and must not be rendered as "used 0".
+        private func macOSSubscriptionUsageText(_ info: SubscriptionInfo, profile: ProfilePreview) -> String? {
+            if let remaining = info.remainingBytes {
+                var text = String(format: String(localized: "Remaining %@ / %@"),
+                                  macOSSubscriptionBytes(remaining),
+                                  macOSSubscriptionBytes(info.total))
+                // The quota's OWN capture time, when it is not the configuration refresh time shown
+                // above. Without it the "2 hours ago" beside the type would read as the quota's
+                // age, which is the misreading the Hako row already avoids the same way.
+                if let capturedAt = profile.subscriptionInfoUpdatedAt,
+                   let lastUpdated = profile.lastUpdated,
+                   abs(lastUpdated.timeIntervalSince(capturedAt)) >= 1
+                {
+                    text += " \u{00B7} " + capturedAt.relativeFormat
+                }
+                return text
+            }
+            guard info.usedBytes > 0 else { return nil }
+            return String(format: String(localized: "Used %@"),
+                          macOSSubscriptionBytes(info.usedBytes))
+        }
+
+        /// The expiry half of the caption, or nil when the panel reported no expiry.
+        ///
+        /// `expire` is a Unix timestamp in seconds and zero means "not reported"; it must never be
+        /// turned into a 1970 date.
+        private func macOSSubscriptionExpiryText(_ info: SubscriptionInfo, now: Date) -> (value: String, expired: Bool)? {
+            guard info.expire > 0 else { return nil }
+            let expiration = Date(timeIntervalSince1970: TimeInterval(info.expire))
+            let date = expiration.formatted(date: .numeric, time: .omitted)
+            if now >= expiration {
+                return (String(format: String(localized: "Expired on %@"), date), true)
+            }
+            return (String(format: String(localized: "Expires on %@"), date), false)
+        }
+
+        /// A byte count in the units the panels report against.
+        ///
+        /// `ByteCountFormatter` with the file style is decimal (1000-based), which is what the
+        /// Windows caption and the panels use; zero is spelled "0 B" rather than the formatter's
+        /// word for nothing.
+        private func macOSSubscriptionBytes(_ bytes: Int64) -> String {
+            let bytes = Swift.max(0, bytes)
+            guard bytes > 0 else { return "0 B" }
+            return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        }
+    #endif
     #if !os(tvOS)
         private var profilePickerSheet: some View {
             NavigationSheet(

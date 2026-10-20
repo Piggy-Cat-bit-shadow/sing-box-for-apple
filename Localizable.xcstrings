@@ -241,6 +241,38 @@
         }
       }
     },
+    "Expired on %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 已到期"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 已到期"
+          }
+        }
+      }
+    },
+    "Expires on %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 到期"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 到期"
+          }
+        }
+      }
+    },
     "From Apple TV" : {
       "localizations" : {
         "zh-Hans" : {
@@ -437,6 +469,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "代理分组"
+          }
+        }
+      }
+    },
+    "Remaining %@ / %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "剩余 %@ / %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "剩餘 %@ / %@"
           }
         }
       }
@@ -717,6 +765,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用客户端自带的默认值。"
+          }
+        }
+      }
+    },
+    "Used %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已用 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已用 %@"
           }
         }
       }
