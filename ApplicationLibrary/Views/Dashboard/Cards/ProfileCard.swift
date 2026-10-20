@@ -431,44 +431,41 @@ public struct ProfileCard: View {
     // MARK: - macOS subscription quota
 
     #if os(macOS)
-        /// Whether the selected profile carries any quota figure worth a line.
-        ///
-        /// Presence is decided from the stored value alone, so a profile with no subscription
-        /// metadata (or a panel that never sent the header) adds no height to the card at all.
-        private func macOSHasSubscriptionQuota(_ profile: ProfilePreview) -> Bool {
-            guard profile.type == .remote, let info = profile.subscriptionInfo else { return false }
-            return info.total > 0 || info.usedBytes > 0 || info.expire > 0
-        }
-
         /// The selected profile's subscription quota, under the profile metadata.
         ///
         /// Mirrors the Windows client's caption rather than inventing a Mac layout: a short
         /// `remaining / total` (or `used` when the panel reported no quota), and the expiry date,
-        /// on one line when it fits and on two when it does not.
+        /// on one line when it fits and on two when it does not. The decision of WHAT to state is
+        /// `SubscriptionQuotaCaption`'s, so it is testable without SwiftUI; this view only renders.
         ///
         /// A one-minute timeline re-evaluates only this subtree, because the caption must change
         /// from "expires" to "expired" when the clock passes the date on a card that is left open.
         @ViewBuilder
         private func macOSSubscriptionQuotaInfo(for profile: ProfilePreview) -> some View {
-            if macOSHasSubscriptionQuota(profile) {
+            if macOSSubscriptionQuotaContent(profile, now: .now) != nil {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
-                    macOSSubscriptionQuotaLine(for: profile, now: context.date)
+                    if let content = macOSSubscriptionQuotaContent(profile, now: context.date) {
+                        macOSSubscriptionQuotaLayout(content)
+                    }
                 }
             }
         }
 
-        @ViewBuilder
-        private func macOSSubscriptionQuotaLine(for profile: ProfilePreview, now: Date) -> some View {
-            if let info = profile.subscriptionInfo {
-                macOSSubscriptionQuotaLine(info, profile: profile, now: now)
-            }
+        private func macOSSubscriptionQuotaContent(_ profile: ProfilePreview, now: Date) -> SubscriptionQuotaCaption.Content? {
+            SubscriptionQuotaCaption.content(
+                isRemote: profile.type == .remote,
+                info: profile.subscriptionInfo,
+                capturedAt: profile.subscriptionInfoUpdatedAt,
+                lastUpdated: profile.lastUpdated,
+                now: now
+            )
         }
 
         /// One line when the caption fits, two when it does not - the same wrapping rule the
         /// Windows flex container gives, without clipping a number to keep a line short.
-        private func macOSSubscriptionQuotaLine(_ info: SubscriptionInfo, profile: ProfilePreview, now: Date) -> some View {
-            let usage = macOSSubscriptionUsageText(info, profile: profile)
-            let expiry = macOSSubscriptionExpiryText(info, now: now)
+        private func macOSSubscriptionQuotaLayout(_ content: SubscriptionQuotaCaption.Content) -> some View {
+            let usage = macOSSubscriptionUsageText(content)
+            let expiry = macOSSubscriptionExpiryText(content)
             return ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
                     macOSSubscriptionUsageView(usage)
@@ -502,42 +499,31 @@ public struct ProfileCard: View {
 
         /// The usage half of the caption.
         ///
-        /// `remainingBytes` is only non-nil when the panel reported a positive total, and it is
-        /// already clamped at zero for an over-quota account, so no second subtraction lives here.
-        ///
-        /// With no total, `used > 0` is the only figure that can be stated: the stored model
-        /// defaults a MISSING upload/download to zero, so `used == 0` cannot be told apart from
-        /// "the panel said nothing" and must not be rendered as "used 0".
-        private func macOSSubscriptionUsageText(_ info: SubscriptionInfo, profile: ProfilePreview) -> String? {
-            if let remaining = info.remainingBytes {
+        /// A stale quota states its own capture time, so the "2 hours ago" beside the profile type
+        /// cannot be read as the quota's age - the misreading the Hako row already avoids the same
+        /// way.
+        private func macOSSubscriptionUsageText(_ content: SubscriptionQuotaCaption.Content) -> String? {
+            switch content.usage {
+            case let .remaining(remaining, total):
                 var text = String(format: String(localized: "Remaining %@ / %@"),
                                   macOSSubscriptionBytes(remaining),
-                                  macOSSubscriptionBytes(info.total))
-                // The quota's OWN capture time, when it is not the configuration refresh time shown
-                // above. Without it the "2 hours ago" beside the type would read as the quota's
-                // age, which is the misreading the Hako row already avoids the same way.
-                if let capturedAt = profile.subscriptionInfoUpdatedAt,
-                   let lastUpdated = profile.lastUpdated,
-                   abs(lastUpdated.timeIntervalSince(capturedAt)) >= 1
-                {
+                                  macOSSubscriptionBytes(total))
+                if let capturedAt = content.capturedAt {
                     text += " \u{00B7} " + capturedAt.relativeFormat
                 }
                 return text
+            case let .used(used):
+                return String(format: String(localized: "Used %@"), macOSSubscriptionBytes(used))
+            case nil:
+                return nil
             }
-            guard info.usedBytes > 0 else { return nil }
-            return String(format: String(localized: "Used %@"),
-                          macOSSubscriptionBytes(info.usedBytes))
         }
 
-        /// The expiry half of the caption, or nil when the panel reported no expiry.
-        ///
-        /// `expire` is a Unix timestamp in seconds and zero means "not reported"; it must never be
-        /// turned into a 1970 date.
-        private func macOSSubscriptionExpiryText(_ info: SubscriptionInfo, now: Date) -> (value: String, expired: Bool)? {
-            guard info.expire > 0 else { return nil }
-            let expiration = Date(timeIntervalSince1970: TimeInterval(info.expire))
-            let date = expiration.formatted(date: .numeric, time: .omitted)
-            if now >= expiration {
+        /// The expiry half of the caption.
+        private func macOSSubscriptionExpiryText(_ content: SubscriptionQuotaCaption.Content) -> (value: String, expired: Bool)? {
+            guard let expiry = content.expiry else { return nil }
+            let date = expiry.date.formatted(date: .numeric, time: .omitted)
+            if expiry.expired {
                 return (String(format: String(localized: "Expired on %@"), date), true)
             }
             return (String(format: String(localized: "Expires on %@"), date), false)
@@ -554,6 +540,7 @@ public struct ProfileCard: View {
             return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
         }
     #endif
+
     #if !os(tvOS)
         private var profilePickerSheet: some View {
             NavigationSheet(
