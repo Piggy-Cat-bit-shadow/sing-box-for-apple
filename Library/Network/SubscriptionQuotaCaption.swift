@@ -9,9 +9,9 @@ import Foundation
 ///
 /// It reads the existing model and changes nothing about it: a missing upload/download is still
 /// indistinguishable from a reported zero, which is why `used` is only offered when it is positive.
-enum SubscriptionQuotaCaption {
+public enum SubscriptionQuotaCaption {
     /// The usage half of the caption.
-    enum Usage: Equatable {
+    public enum Usage: Equatable {
         /// A positive total: the remaining bytes and the total they are out of.
         case remaining(Int64, Int64)
         /// No total was reported, but a positive used amount proves the panel said something.
@@ -19,21 +19,32 @@ enum SubscriptionQuotaCaption {
     }
 
     /// The expiry half of the caption.
-    struct Expiry: Equatable {
-        let date: Date
-        let expired: Bool
+    public struct Expiry: Equatable {
+        public let date: Date
+        public let expired: Bool
+
+        public init(date: Date, expired: Bool) {
+            self.date = date
+            self.expired = expired
+        }
     }
 
     /// Everything the caption may render. An empty content means "show nothing at all", which is
     /// what keeps a profile without a quota from adding height to the card.
-    struct Content: Equatable {
-        let usage: Usage?
-        let expiry: Expiry?
+    public struct Content: Equatable {
+        public let usage: Usage?
+        public let expiry: Expiry?
         /// The quota's own capture time, present only when it differs from the configuration
         /// refresh time. Without that difference the nearby "2 hours ago" already describes it.
-        let capturedAt: Date?
+        public let capturedAt: Date?
 
-        var isEmpty: Bool { usage == nil && expiry == nil }
+        public var isEmpty: Bool { usage == nil && expiry == nil }
+
+        public init(usage: Usage?, expiry: Expiry?, capturedAt: Date?) {
+            self.usage = usage
+            self.expiry = expiry
+            self.capturedAt = capturedAt
+        }
     }
 
     /// The last instant this caption presents as a date: 9999-12-31T23:59:59Z.
@@ -41,14 +52,14 @@ enum SubscriptionQuotaCaption {
     /// A panel that reports milliseconds by mistake, or a hostile value, would otherwise render a
     /// year in the tens of thousands. The caption hides it instead of printing a date nobody can
     /// act on; the value is still on the server.
-    static let expiryLimit: Int64 = 253_402_300_799
+    public static let expiryLimit: Int64 = 253_402_300_799
 
     /// One second of tolerance between the two timestamps: both are written from one refresh, so
     /// anything inside a second is the same event rather than an older capture.
     private static let captureTolerance: TimeInterval = 1
 
     /// The caption content for one profile, or nil when there is nothing reliable to say.
-    static func content(
+    public static func content(
         isRemote: Bool,
         info: SubscriptionInfo?,
         capturedAt: Date?,
