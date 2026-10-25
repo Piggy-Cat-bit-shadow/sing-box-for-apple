@@ -273,7 +273,7 @@ public struct HakoHomeView: View {
     ///
     /// Structure, type and metrics are the reference's `profileAndPrimaryAction` at commit
     /// 62aa2f2f: a row of `HStack(spacing: Spacing.row)` holding a profile button and a fixed-size
-    /// primary action, with the profile's name at `title2.weight(.bold)`, the accessory beside it
+    /// primary action, with the profile's name at `title3.weight(.bold)`, the accessory beside it
     /// at `title3`, and the action a `Control.minimumHitTarget`-tall capsule 104pt wide, tinted by
     /// what it will do. The header is padding on the page's canvas, not a card.
     private var homeHeader: some View {
@@ -320,7 +320,7 @@ public struct HakoHomeView: View {
                     .accessibilityHidden(true)
 
                 Text(selectedProfileName ?? String(localized: "No profile selected"))
-                    .font(.title2.weight(.bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
