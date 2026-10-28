@@ -494,7 +494,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         // `commandServer == nil` and skip the cleanup entirely - leaking whatever the new start built.
         //
         // The same reasoning applies to the macOS block below: `xpcListener.invalidate()`,
-        // `xpcService = nil` and the registry clear are all "tear down the surface I owned", so they
+        // `xpcService = nil` and the command-server release are all "tear down the surface I owned", so they
         // are conditional on the server being the one this call captured. The earlier comment here
         // claimed this ordering was safe for macOS *because* the stop runs first; that is only true
         // when nothing started in between, which is exactly what cannot be assumed.
@@ -513,7 +513,6 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                         xpcListener = nil
                         xpcService.commandServer = nil
                         xpcService = nil
-                        UserServiceEndpointRegistry.shared.clear()
                     }
                 #endif
             } else {
