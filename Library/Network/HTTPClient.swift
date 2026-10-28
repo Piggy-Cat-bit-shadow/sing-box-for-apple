@@ -19,6 +19,14 @@ public class HTTPClient {
         return userAgent
     }
 
+    /// The User-Agent subscription *body* requests send on first import and on every refresh.
+    ///
+    /// Fixed rather than derived from `userAgent` above: panels identify subscription clients by
+    /// this stable string, while GitHub updates, rule-set downloads and every other request keep
+    /// the app's own identity. It deliberately carries no Clash marker, because a panel may choose
+    /// the subscription *format* by User-Agent and this response's body must stay sing-box JSON.
+    public static let subscriptionUserAgent = "sing-box/1.15.0"
+
     /// The marker a panel looks for when deciding whether to send `subscription-userinfo`.
     ///
     /// Panels commonly withhold that header from clients they do not recognise as Clash-family,
@@ -50,12 +58,16 @@ public class HTTPClient {
         client.modernTLS()
     }
 
-    public func getString(_ url: String?, headers: [String: String] = [:]) throws -> String {
+    public func getString(
+        _ url: String?,
+        headers: [String: String] = [:],
+        userAgent: String = HTTPClient.userAgent
+    ) throws -> String {
         #if DEBUG
             precondition(!Thread.isMainThread, "HTTPClient.getString(...) must not be called on the main thread")
         #endif
         let request = client.newRequest()!
-        request.setUserAgent(HTTPClient.userAgent)
+        request.setUserAgent(userAgent)
         for (key, value) in headers {
             request.setHeader(key, value: value)
         }
@@ -65,13 +77,13 @@ public class HTTPClient {
         return content.value
     }
 
-    public func getStringAsync(_ url: String?) async throws -> String {
-        try await Self.getStringAsync(url)
+    public func getStringAsync(_ url: String?, userAgent: String = HTTPClient.userAgent) async throws -> String {
+        try await Self.getStringAsync(url, userAgent: userAgent)
     }
 
-    public static func getStringAsync(_ url: String?) async throws -> String {
+    public static func getStringAsync(_ url: String?, userAgent: String = HTTPClient.userAgent) async throws -> String {
         try await BlockingIO.run {
-            try HTTPClient().getString(url)
+            try HTTPClient().getString(url, userAgent: userAgent)
         }
     }
 
