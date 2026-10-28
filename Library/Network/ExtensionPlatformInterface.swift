@@ -12,6 +12,13 @@ import UserNotifications
 
 public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, LibboxCommandServerHandlerProtocol {
     private static let logger = Logger(category: "ExtensionPlatformInterface")
+
+    /// The MTU iOS gives the Personal Hotspot bridge that carries a tethered client's traffic.
+    ///
+    /// It is the widest frame any peer behind that bridge can receive, so it is also the only
+    /// honest upper bound for an interface that may forward for those peers.
+    private static let hotspotBridgeMTU = 1500
+
     private let tunnel: ExtensionProvider
     private var networkSettings: NEPacketTunnelNetworkSettings?
 
@@ -41,7 +48,26 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         if options.getAutoRoute() {
-            settings.mtu = NSNumber(value: options.getMTU())
+            // The utun's MTU is not private to this device.
+            //
+            // `include_all_networks` is the one mode in which iOS also routes Personal Hotspot
+            // clients into this utun. In that mode the same interface fronts the 1500-byte
+            // hotspot bridge, and the NIC MTU becomes the MSS this stack offers to every peer
+            // behind it: a 9000-byte utun tells a client on a 1500-byte link to accept segments
+            // that link can never deliver intact, and every non-TCP or MSS-ignoring peer on it
+            // black-holes rather than negotiating around it. An interface that forwards for
+            // others must not promise more than the narrowest link it forwards for.
+            //
+            // The decision is taken from the start options rather than from hotspot state:
+            // iOS exposes no "I am serving a hotspot" signal, and the hotspot may be enabled
+            // long after `setTunnelNetworkSettings` has run, at which point this value can no
+            // longer be revised for the session.
+            let requestedMTU = Int(options.getMTU())
+            var effectiveMTU = requestedMTU > 0 ? requestedMTU : Self.hotspotBridgeMTU
+            if prefs.includeAllNetworks, effectiveMTU > Self.hotspotBridgeMTU {
+                effectiveMTU = Self.hotspotBridgeMTU
+            }
+            settings.mtu = NSNumber(value: effectiveMTU)
 
             var dnsSettings: NEDNSSettings?
             if options.getDNSMode()!.value != LibboxDNSModeDisabled {
@@ -213,6 +239,7 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
 
         networkSettings = settings
         try await tunnel.setTunnelNetworkSettings(settings)
+        logInstalledSettings(settings, autoRoute: options.getAutoRoute(), prefs: prefs)
 
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
             ret0_.pointee = tunFd
@@ -225,6 +252,33 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         } else {
             throw NSError(domain: "ExtensionPlatformInterface", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "Missing file descriptor")])
         }
+    }
+
+    /// Records the tunnel as the system received it, once per session.
+    ///
+    /// Nothing else in the client reports what was actually installed: the profile's options,
+    /// the platform's own decisions (`includeAllNetworks`, `excludeLocalNetworks`) and the
+    /// clamping above all end up as one `NEPacketTunnelNetworkSettings`, and a report of "the
+    /// tethered client has no connectivity" cannot be read without it.
+    private func logInstalledSettings(_ settings: NEPacketTunnelNetworkSettings, autoRoute: Bool, prefs: ExtensionProvider.OverridePreferences) {
+        let ipv4Included = settings.ipv4Settings?.includedRoutes?.count ?? 0
+        let ipv4Excluded = settings.ipv4Settings?.excludedRoutes?.count ?? 0
+        let ipv6Included = settings.ipv6Settings?.includedRoutes?.count ?? 0
+        let ipv6Excluded = settings.ipv6Settings?.excludedRoutes?.count ?? 0
+        let dnsServers = settings.dnsSettings?.servers.joined(separator: ",") ?? "none"
+        let matchDomains = settings.dnsSettings?.matchDomains?.joined(separator: ",") ?? "none"
+        let mtu = settings.mtu?.intValue ?? 0
+        let summary = [
+            "[tunnel] installed",
+            "mtu=\(mtu)",
+            "auto_route=\(autoRoute)",
+            "ipv4=\(ipv4Included)/\(ipv4Excluded)",
+            "ipv6=\(ipv6Included)/\(ipv6Excluded)",
+            "dns=\(dnsServers)",
+            "match_domains=\(matchDomains)",
+            "include_all_networks=\(prefs.includeAllNetworks)",
+        ].joined(separator: " ")
+        tunnel.writeMessage(summary, level: .info)
     }
 
     public func usePlatformAutoDetectControl() -> Bool {
