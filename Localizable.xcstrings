@@ -669,12 +669,12 @@
         }
       }
     },
-    "This client's repository" : {
+    "The source code of the core this client runs" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本客户端的代码仓库"
+            "value" : "本客户端所用内核的源码"
           }
         }
       }
