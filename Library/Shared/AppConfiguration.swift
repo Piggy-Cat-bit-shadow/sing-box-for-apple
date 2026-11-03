@@ -34,7 +34,7 @@ public enum AppConfiguration {
 
     public static var teamID: String {
         guard let dotIndex = appGroupID.firstIndex(of: ".") else {
-            return ""
+            fatalError("Invalid appGroupID format: \(appGroupID)")
         }
         return String(appGroupID[..<dotIndex])
     }
