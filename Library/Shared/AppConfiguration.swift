@@ -1,23 +1,40 @@
 import Foundation
 
 public enum AppConfiguration {
+    /// The identifier base the targets are built with.
+    ///
+    /// # Why a missing key is reported instead of terminating
+    ///
+    /// The value is baked into Info.plist from the `BasePackageIdentifier` build setting, so a
+    /// correctly built app always has it. A build whose signing or packaging pipeline rewrote or
+    /// dropped custom Info.plist keys used to kill the process before the first frame. The GUI
+    /// has a usable fallback - its own bundle identifier - and the tunnel will report a clear
+    /// error when it cannot derive its extension identifier, which is the better failure: the
+    /// user sees an app that opens and a tunnel that says why it will not.
     public static let packageName: String = {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: "BasePackageIdentifier") as? String else {
-            fatalError("Missing BasePackageIdentifier in Info.plist")
+        if let value = Bundle.main.object(forInfoDictionaryKey: "BasePackageIdentifier") as? String, !value.isEmpty {
+            return value
         }
-        return value
+        let fallback = Bundle.main.bundleIdentifier ?? "io.jiejiebox.app"
+        NSLog("[JiejieBox] BasePackageIdentifier missing from Info.plist; using the bundle identifier %@", fallback)
+        return fallback
     }()
 
+    /// The App Group the app and its extensions share.
+    ///
+    /// An empty value means "none available": the shared directory then falls back to a private
+    /// container (see FilePath) and capabilities that need the group report their own error.
     public static let appGroupID: String = {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String else {
-            fatalError("Missing AppGroupIdentifier in Info.plist")
+        if let value = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String, !value.isEmpty {
+            return value
         }
-        return value
+        NSLog("[JiejieBox] AppGroupIdentifier missing from Info.plist; no shared container is available")
+        return ""
     }()
 
     public static var teamID: String {
         guard let dotIndex = appGroupID.firstIndex(of: ".") else {
-            fatalError("Invalid appGroupID format: \(appGroupID)")
+            return ""
         }
         return String(appGroupID[..<dotIndex])
     }
