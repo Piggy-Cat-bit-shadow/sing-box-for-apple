@@ -39,9 +39,50 @@ public enum AppConfiguration {
         return String(appGroupID[..<dotIndex])
     }
 
+    /// The bundle identifier of the Packet Tunnel extension to ask the system for.
+    ///
+    /// # Why it is discovered rather than derived
+    ///
+    /// This used to be `packageName + ".extension"`, with `packageName` baked into Info.plist at
+    /// build time. A re-signing tool rewrites the bundle identifiers throughout the package -
+    /// that is how a sideloaded build is made to match its provisioning profile - but it does
+    /// not rewrite a custom Info.plist key that happens to hold the old base. The app then asked
+    /// the system for a tunnel provider that no longer existed, so the VPN silently never
+    /// started even though the GUI was fine.
+    ///
+    /// Enumerating the embedded PlugIns answers the question the system will actually ask: which
+    /// packet-tunnel extension is in THIS bundle, and what is its identifier. On a normally built
+    /// app that is exactly `packageName + ".extension"`, so the official build is unaffected.
     public static var extensionBundleID: String {
-        "\(packageName).extension"
+        if let discovered = embeddedPacketTunnelBundleID {
+            return discovered
+        }
+        return "\(packageName).extension"
     }
+
+    private static let embeddedPacketTunnelBundleID: String? = {
+        #if os(macOS)
+            return nil
+        #else
+            guard let pluginsURL = Bundle.main.builtInPlugInsURL,
+                  let entries = try? FileManager.default.contentsOfDirectory(at: pluginsURL, includingPropertiesForKeys: nil)
+            else {
+                return nil
+            }
+            for entry in entries where entry.pathExtension == "appex" {
+                guard let bundle = Bundle(url: entry),
+                      let identifier = bundle.bundleIdentifier,
+                      let extensionDictionary = bundle.object(forInfoDictionaryKey: "NSExtension") as? [String: Any],
+                      let pointIdentifier = extensionDictionary["NSExtensionPointIdentifier"] as? String,
+                      pointIdentifier == "com.apple.networkextension.packet-tunnel"
+                else {
+                    continue
+                }
+                return identifier
+            }
+            return nil
+        #endif
+    }()
 
     public static var systemExtensionBundleID: String {
         "\(packageName).system"
