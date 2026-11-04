@@ -11,6 +11,12 @@ import UserNotifications
 #endif
 
 public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, LibboxCommandServerHandlerProtocol {
+    /// Whether the core has ever asked the system to route through this tunnel.
+    ///
+    /// Set once, at the first successful `setTunnelNetworkSettings`. A tunnel that is connected
+    /// but never reached this point is the "connected, carries nothing" failure: the core
+    /// started without a tun inbound, or the TUN could not be opened.
+    public private(set) static var didApplyTunnelNetworkSettings = false
     private static let logger = Logger(category: "ExtensionPlatformInterface")
 
     /// The MTU iOS gives the Personal Hotspot bridge that carries a tethered client's traffic.
@@ -275,6 +281,11 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
 
         networkSettings = settings
         try await tunnel.setTunnelNetworkSettings(settings)
+        // Recorded because "the tunnel is up but carries nothing" looks identical to a working
+        // tunnel from the app: the NE session is connected, no error is thrown, and without an App
+        // Group the app cannot read this process's log. Whether the core ever asked the system to
+        // route through this interface is the one fact that separates the two.
+        Self.didApplyTunnelNetworkSettings = true
         logInstalledSettings(settings, autoRoute: options.getAutoRoute(), prefs: prefs)
 
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {

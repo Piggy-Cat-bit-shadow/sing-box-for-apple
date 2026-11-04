@@ -45,6 +45,14 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// correct mechanism is the one that adds no new lifecycle concept.
     private let serviceLifecycleLock = NSLock()
 
+    #if os(iOS)
+        /// The takeover check runs once, on the first start of this provider's life.
+        ///
+        /// A reload must not run it again: the TUN is already open, and a transient state during a
+        /// reload would turn a working tunnel into an error.
+        private var tunnelTakeoverChecked = false
+    #endif
+
     /// The address the switch asks the tunnel to answer for locally.
     ///
     /// One constant, in one place: the core merges whatever the platform lists, and the Apple
@@ -457,6 +465,26 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         } catch {
             throw ExtensionStartupError("(packet-tunnel) error: start service: \(error.localizedDescription)")
         }
+        #if os(iOS)
+            // A tunnel that started but never asked the system to route through it is connected and
+            // carries nothing, and nothing reports it: the NE session stays up, the start call
+            // returned without error, and the app has no shared container from which to read this
+            // process's log. The check costs at most a second on the first start and turns that
+            // silent state into an error the system shows the user.
+            if !tunnelTakeoverChecked {
+                tunnelTakeoverChecked = true
+                for _ in 0 ..< 30 where !ExtensionPlatformInterface.didApplyTunnelNetworkSettings {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+                if !ExtensionPlatformInterface.didApplyTunnelNetworkSettings {
+                    let hasTunInbound = configContent.contains("\"tun\"")
+                    throw ExtensionStartupError(
+                        "(packet-tunnel) the tunnel is connected but the core never took it over: no network settings were applied within 3s. "
+                            + "config mentions a tun inbound: \(hasTunInbound); config bytes: \(configContent.utf8.count)"
+                    )
+                }
+            }
+        #endif
         #if os(macOS)
             if !Variant.useSystemExtension, commandServer.needWIFIState() {
                 locationManager = CLLocationManager()
