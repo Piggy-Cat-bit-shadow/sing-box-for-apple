@@ -15228,6 +15228,55 @@
         }
       }
     }
+    ,
+    "Local Signing Loopback" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本地续签回环"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本地續簽回環"
+          }
+        }
+      }
+    },
+    "Support SideStore and LiveContainer's local loopback connection. Once enabled, 10.7.0.1 is used automatically." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支持 SideStore / LiveContainer 的本地回环连接，启用后自动使用 10.7.0.1。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支援 SideStore / LiveContainer 的本機回環連線，啟用後自動使用 10.7.0.1。"
+          }
+        }
+      }
+    },
+    "Answer for `10.7.0.1` inside the tunnel so a sideloaded build can refresh itself over a local connection. Off by default." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在隧道内应答 `10.7.0.1`，让侧载版本能通过本地连接自行续签；默认关闭。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在通道內應答 `10.7.0.1`，讓側載版本能透過本機連線自行續簽；預設關閉。"
+          }
+        }
+      }
+    }
   },
   "version" : "1.0"
 }

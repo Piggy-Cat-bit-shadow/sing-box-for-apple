@@ -260,6 +260,11 @@ public class ExtensionProfile: ObservableObject {
         options["excludeDefaultRoute"] = await NSNumber(value: SharedPreferences.excludeDefaultRoute.get())
         options["autoRouteUseSubRangesByDefault"] = await NSNumber(value: SharedPreferences.autoRouteUseSubRangesByDefault.get())
         options["excludeAPNsRoute"] = await NSNumber(value: SharedPreferences.excludeAPNsRoute.get())
+        #if os(iOS)
+            // Only the iOS/iPadOS build has the switch; every other platform sends the key with
+            // its stored default, which is false, so the extension applies nothing.
+            options["localSigningLoopback"] = await NSNumber(value: SharedPreferences.localSigningLoopback.get())
+        #endif
 
         #if !os(tvOS)
             options["includeAllNetworks"] = await NSNumber(value: SharedPreferences.includeAllNetworks.get())
