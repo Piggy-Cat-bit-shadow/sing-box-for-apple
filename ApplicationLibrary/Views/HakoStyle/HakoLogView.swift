@@ -452,6 +452,16 @@ private struct HakoLogContentInnerView: View {
                 .onAppear {
                     environments.connect()
                 }
+            } else if FilePath.isUsingProcessLocalDirectory {
+                // The command client cannot connect because this signature has no container shared
+                // with the tunnel - not because the service is stopped. Reporting "not started" here
+                // was wrong, and was read on a device as "the core never ran" while the tunnel was
+                // connected.
+                HakoEmptyState(
+                    symbol: "exclamationmark.triangle",
+                    title: "状态通道不可用",
+                    message: "这个签名没有与隧道共享的 App Group，日志与统计读不到；VPN 仍可能已连接。 / This signature grants no shared container, so logs and statistics are unavailable."
+                )
             } else {
                 HakoEmptyState(
                     symbol: "bolt.slash",
