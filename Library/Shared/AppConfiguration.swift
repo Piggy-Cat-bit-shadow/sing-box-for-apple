@@ -32,9 +32,19 @@ public enum AppConfiguration {
         return ""
     }()
 
+    /// The team prefix, taken from the App Group identifier.
+    ///
+    /// A re-signed build may carry no App Group at all - that is the degraded mode FilePath now
+    /// supports - so a missing or malformed identifier is a state to survive, not a programming
+    /// error. This used to `fatalError`, which would have crashed exactly the builds the fallback
+    /// exists for, and would have done it at a point unrelated to the missing group.
+    ///
+    /// An empty result makes the XPC requirements built from it unsatisfiable, so those
+    /// connections fail closed instead of matching a wrong peer. Nothing treats "" as a team.
     public static var teamID: String {
         guard let dotIndex = appGroupID.firstIndex(of: ".") else {
-            fatalError("Invalid appGroupID format: \(appGroupID)")
+            NSLog("[JiejieBox] no App Group identifier; team-scoped XPC requirements are unavailable")
+            return ""
         }
         return String(appGroupID[..<dotIndex])
     }
