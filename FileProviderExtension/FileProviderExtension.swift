@@ -5,15 +5,37 @@ class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     let domain: NSFileProviderDomain
 
     private static let appGroupID: String = {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String else {
-            fatalError("Missing AppGroupIdentifier in Info.plist")
+        // A missing key means the build did not bake the identifier into the extension's
+        // Info.plist. The File Provider still has a private container to serve files from, so
+        // this reports the configuration fault instead of terminating the extension.
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String,
+              !value.isEmpty
+        else {
+            NSLog("[JiejieBox] FileProviderExtension: AppGroupIdentifier missing from Info.plist; serving files from the private container")
+            return ""
         }
         return value
     }()
 
+    /// The directory the provider materialises the tunnel's working files in.
+    ///
+    /// The App Group is the intended location, because the working files are written by the
+    /// tunnel. A re-signed build whose profile does not grant that group gets nil from
+    /// `containerURL`; force-unwrapping it terminated the extension on its first use. Falling
+    /// back to the extension's own Application Support keeps the provider functional for its
+    /// own container, and the missing group is logged rather than fatal.
     private var workingDirectory: URL {
-        let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupID)!
-        return groupURL
+        let base: URL
+        if !Self.appGroupID.isEmpty,
+           let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupID)
+        {
+            base = groupURL
+        } else {
+            NSLog("[JiejieBox] FileProviderExtension: App Group '%@' unavailable; using the private container", Self.appGroupID)
+            base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? FileManager.default.temporaryDirectory
+        }
+        return base
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Caches", isDirectory: true)
             .appendingPathComponent("Working", isDirectory: true)
