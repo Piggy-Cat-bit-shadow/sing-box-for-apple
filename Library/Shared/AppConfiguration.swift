@@ -32,18 +32,32 @@ public enum AppConfiguration {
         return ""
     }()
 
-    /// The team prefix, taken from the App Group identifier.
+    /// The team identifier used in XPC and System Extension code-signing requirements.
     ///
-    /// A re-signed build may carry no App Group at all - that is the degraded mode FilePath now
-    /// supports - so a missing or malformed identifier is a state to survive, not a programming
-    /// error. This used to `fatalError`, which would have crashed exactly the builds the fallback
-    /// exists for, and would have done it at a point unrelated to the missing group.
+    /// # Where the value comes from
     ///
-    /// An empty result makes the XPC requirements built from it unsatisfiable, so those
-    /// connections fail closed instead of matching a wrong peer. Nothing treats "" as a team.
+    /// The build injects it as the `TeamIdentifier` Info.plist key; that is authoritative,
+    /// because the App Group's *name* cannot produce it: under the two conventions this project
+    /// uses, `group.io.example.app` would give `group` and `TEAMIDio.example.app` would give
+    /// `TEAMIDio`. The value is interpolated into
+    /// `certificate leaf[subject.OU] = "<teamID>"`, so a wrong one makes the requirement
+    /// unsatisfiable and every XPC connection is rejected at runtime - which reads as a
+    /// networking fault rather than an identity one.
+    ///
+    /// # Why a missing value is not fatal
+    ///
+    /// A re-signed build may carry no App Group at all - the degraded mode `FilePath` supports -
+    /// so an absent identifier is a state to survive, not a programming error. This used to
+    /// `fatalError`, which would have crashed exactly those builds, at a point unrelated to the
+    /// missing group. An empty result makes the requirements built from it unsatisfiable, so
+    /// those connections fail closed instead of matching a wrong peer.
     public static var teamID: String {
+        if let value = Bundle.main.object(forInfoDictionaryKey: "TeamIdentifier") as? String,
+           !value.isEmpty, !value.contains("$(") {
+            return value
+        }
         guard let dotIndex = appGroupID.firstIndex(of: ".") else {
-            NSLog("[JiejieBox] no App Group identifier; team-scoped XPC requirements are unavailable")
+            NSLog("[JiejieBox] no team identifier and no App Group identifier; team-scoped XPC requirements are unavailable")
             return ""
         }
         return String(appGroupID[..<dotIndex])
