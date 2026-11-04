@@ -22,6 +22,7 @@ public struct HakoProfileOverrideView: View {
     @State private var excludeDefaultRoute = false
     @State private var autoRouteUseSubRangesByDefault = false
     @State private var excludeAPNsRoute = false
+    @State private var localSigningLoopback = false
 
     public init() {}
 
@@ -88,6 +89,12 @@ public struct HakoProfileOverrideView: View {
                 explanation: "Keep Apple Push Notification traffic off the tunnel by bypassing its hosts.",
                 isOn: $excludeAPNsRoute
             ) { await SharedPreferences.excludeAPNsRoute.set($0) }
+
+            settingSection(
+                String(localized: "Local Signing Loopback"),
+                explanation: "Support SideStore and LiveContainer's local loopback connection. Once enabled, 10.7.0.1 is used automatically.",
+                isOn: $localSigningLoopback
+            ) { await SharedPreferences.localSigningLoopback.set($0) }
         }
     }
 
@@ -126,6 +133,7 @@ public struct HakoProfileOverrideView: View {
         excludeDefaultRoute = await SharedPreferences.excludeDefaultRoute.get()
         autoRouteUseSubRangesByDefault = await SharedPreferences.autoRouteUseSubRangesByDefault.get()
         excludeAPNsRoute = await SharedPreferences.excludeAPNsRoute.get()
+        localSigningLoopback = await SharedPreferences.localSigningLoopback.get()
         isLoading = false
     }
 }

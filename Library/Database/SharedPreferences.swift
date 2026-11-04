@@ -95,8 +95,22 @@ public enum SharedPreferences {
     public static let autoRouteUseSubRangesByDefault = Preference<Bool>("auto_route_use_sub_ranges_by_default", defaultValue: false)
     public static let excludeAPNsRoute = Preference<Bool>("exclude_apple_push_notification_services", defaultValue: false)
 
+    /// Makes the effective TUN answer for the local signing loopback address (10.7.0.1).
+    ///
+    /// # Why it is a preference and not an option in the configuration
+    ///
+    /// The address is a property of how this device is used (a sideloaded build refreshing
+    /// itself through a local connection), not of the proxy configuration the user imported.
+    /// Writing it into the profile would modify the user's file, follow that profile to other
+    /// devices, and have to be undone to remove the feature. A preference is global to the
+    /// device, survives profile switches, and turning it off injects nothing.
+    ///
+    /// Default false, and every platform reads false until the switch exists: on macOS the
+    /// switch is not rendered at all, and on Windows/Android/tvOS nothing reads it.
+    public static let localSigningLoopback = Preference<Bool>("local_signing_loopback", defaultValue: false)
+
     public static func resetProfileOverride() async {
-        try? await batchDelete([excludeDefaultRoute.name, autoRouteUseSubRangesByDefault.name, excludeAPNsRoute.name])
+        try? await batchDelete([excludeDefaultRoute.name, autoRouteUseSubRangesByDefault.name, excludeAPNsRoute.name, localSigningLoopback.name])
     }
 
     // Connections Filter

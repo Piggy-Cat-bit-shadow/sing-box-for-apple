@@ -113,6 +113,20 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
                 ipv4Routes.append(NEIPv4Route.default())
             }
 
+            // The addresses the core answers for itself (option `loopback_address`). A packet can
+            // only reach the core if the system routes it to this interface, so each one needs an
+            // explicit /32. They are appended regardless of which route shape was chosen above:
+            // with `excludeDefaultRoute` there is no default route to catch them, and in the
+            // sub-range shape the containing range is deliberately not the ones they fall in.
+            if let inet4LoopbackIterator = options.getInet4LoopbackAddress() {
+                while inet4LoopbackIterator.hasNext() {
+                    let address = inet4LoopbackIterator.next()
+                    if !ipv4Routes.contains(where: { $0.destinationAddress == address }) {
+                        ipv4Routes.append(NEIPv4Route(destinationAddress: address, subnetMask: "255.255.255.255"))
+                    }
+                }
+            }
+
             let inet4RouteExcludeAddressIterator = options.getInet4RouteExcludeAddress()!
             while inet4RouteExcludeAddressIterator.hasNext() {
                 let ipv4RoutePrefix = inet4RouteExcludeAddressIterator.next()!
@@ -171,6 +185,18 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
                     ipv6Routes.append(NEIPv6Route(destinationAddress: "8000::", networkPrefixLength: 1))
                 } else {
                     ipv6Routes.append(NEIPv6Route.default())
+                }
+
+                // The same host-route rule for IPv6. It is inside the `!ipv6Address.isEmpty`
+                // branch on purpose: an NEIPv6Settings without an address cannot deliver a
+                // packet, so advertising a /128 there would be a route to nowhere.
+                if let inet6LoopbackIterator = options.getInet6LoopbackAddress() {
+                    while inet6LoopbackIterator.hasNext() {
+                        let address = inet6LoopbackIterator.next()
+                        if !ipv6Routes.contains(where: { $0.destinationAddress == address }) {
+                            ipv6Routes.append(NEIPv6Route(destinationAddress: address, networkPrefixLength: 128))
+                        }
+                    }
                 }
 
                 let inet6RouteExcludeAddressIterator = options.getInet6RouteExcludeAddress()!

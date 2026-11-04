@@ -8,6 +8,9 @@ public struct ProfileOverrideView: View {
     @State private var excludeDefaultRoute = false
     @State private var autoRouteUseSubRangesByDefault = false
     @State private var excludeAPNsRoute = false
+    #if os(iOS)
+        @State private var localSigningLoopback = false
+    #endif
 
     public init() {}
     public var body: some View {
@@ -38,6 +41,13 @@ public struct ProfileOverrideView: View {
                         await SharedPreferences.excludeAPNsRoute.set(newValue)
                         await reloadService()
                     }
+
+                    #if os(iOS)
+                        FormToggle("Local Signing Loopback", "Answer for `10.7.0.1` inside the tunnel so a sideloaded build can refresh itself over a local connection. Off by default.", $localSigningLoopback) { newValue in
+                            await SharedPreferences.localSigningLoopback.set(newValue)
+                            await reloadService()
+                        }
+                    #endif
 
                     FormButton {
                         Task {
@@ -75,6 +85,9 @@ public struct ProfileOverrideView: View {
         excludeDefaultRoute = await SharedPreferences.excludeDefaultRoute.get()
         autoRouteUseSubRangesByDefault = await SharedPreferences.autoRouteUseSubRangesByDefault.get()
         excludeAPNsRoute = await SharedPreferences.excludeAPNsRoute.get()
+        #if os(iOS)
+            localSigningLoopback = await SharedPreferences.localSigningLoopback.get()
+        #endif
         isLoading = false
     }
 }

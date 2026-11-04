@@ -45,12 +45,22 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// correct mechanism is the one that adds no new lifecycle concept.
     private let serviceLifecycleLock = NSLock()
 
+    /// The address the switch asks the tunnel to answer for locally.
+    ///
+    /// One constant, in one place: the core merges whatever the platform lists, and the Apple
+    /// Network Extension installs a host route for the same list, so the two halves cannot drift
+    /// by editing one of them.
+    public static let localSigningLoopbackAddress = "10.7.0.1"
+
     public struct OverridePreferences {
         public var includeAllNetworks: Bool = false
         public var systemProxyEnabled: Bool = true
         public var excludeDefaultRoute: Bool = false
         public var autoRouteUseSubRangesByDefault: Bool = false
         public var excludeAPNsRoute: Bool = false
+        /// The local signing loopback switch. Startup options only: false for every build that
+        /// does not send the key, which is every non-iOS one.
+        public var localSigningLoopback: Bool = false
     }
 
     public var overridePreferences: OverridePreferences?
@@ -99,7 +109,8 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             systemProxyEnabled: (options["systemProxyEnabled"] as? NSNumber)?.boolValue ?? true,
             excludeDefaultRoute: (options["excludeDefaultRoute"] as? NSNumber)?.boolValue ?? false,
             autoRouteUseSubRangesByDefault: (options["autoRouteUseSubRangesByDefault"] as? NSNumber)?.boolValue ?? false,
-            excludeAPNsRoute: (options["excludeAPNsRoute"] as? NSNumber)?.boolValue ?? false
+            excludeAPNsRoute: (options["excludeAPNsRoute"] as? NSNumber)?.boolValue ?? false,
+            localSigningLoopback: (options["localSigningLoopback"] as? NSNumber)?.boolValue ?? false
         )
     }
 
@@ -126,6 +137,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 "excludeDefaultRoute": overridePreferences.excludeDefaultRoute,
                 "autoRouteUseSubRangesByDefault": overridePreferences.autoRouteUseSubRangesByDefault,
                 "excludeAPNsRoute": overridePreferences.excludeAPNsRoute,
+                "localSigningLoopback": overridePreferences.localSigningLoopback,
             ]
         }
         return PlatformMetadata.json(metadata)
@@ -405,6 +417,15 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         }
 
         let options = LibboxOverrideOptions()
+        #if os(iOS)
+            // The local signing loopback address is injected into this run's in-memory
+            // configuration, never into the profile file. Turning the switch off and reloading
+            // therefore leaves the user's configuration exactly as they wrote it, and the core
+            // only ever sees the address while the switch is on.
+            if overridePreferences?.localSigningLoopback == true {
+                options.loopbackAddress = [Self.localSigningLoopbackAddress].toStringIterator()
+            }
+        #endif
         // Held across `startOrReloadService` and the monitor install that follows it inside the core,
         // and NOT across the `locationManager` block below, which is macOS-only, touches no shared
         // resource and would only widen the region.
