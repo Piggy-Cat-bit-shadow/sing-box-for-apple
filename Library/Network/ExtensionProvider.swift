@@ -280,6 +280,19 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             throw ExtensionStartupError("(packet-tunnel): create command server error: \(error.localizedDescription)")
         }
 
+        // The App Group is what lets this process and the app share a container. A re-signed build
+        // whose profile does not grant it runs here with a private one: the tunnel and the VPN
+        // work (the configuration arrives in the start options), but the app's statistics and
+        // command channel cannot reach this process, and the command socket lives in this
+        // process's own temporary directory. Saying so is the difference between "the statistics
+        // are broken" and "this build's signature cannot give me statistics".
+        if FilePath.isUsingProcessLocalDirectory {
+            writeMessage(
+                "(packet-tunnel) the App Group is unavailable to this build; running with a private container. VPN traffic works, but the app's statistics and command channel cannot reach this process. Re-sign with a provisioning profile that grants the group to restore them.",
+                level: .info
+            )
+        }
+
         // Everything from here to the end of this function is the start TRANSACTION, and it is
         // wrapped so that a failure unwinds what it created instead of leaving it live.
         //
