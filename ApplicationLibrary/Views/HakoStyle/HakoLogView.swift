@@ -457,10 +457,15 @@ private struct HakoLogContentInnerView: View {
                 // with the tunnel - not because the service is stopped. Reporting "not started" here
                 // was wrong, and was read on a device as "the core never ran" while the tunnel was
                 // connected.
+                //
+                // The copy is a catalog key like every other state on this page. It was written as
+                // a Chinese title over a Chinese/English message, which is what a reader sees in
+                // every language - an English reader could not read the title at all. The catalog
+                // carries both translations now, so each locale gets its own sentence.
                 HakoEmptyState(
                     symbol: "exclamationmark.triangle",
-                    title: "状态通道不可用",
-                    message: "这个签名没有与隧道共享的 App Group，日志与统计读不到；VPN 仍可能已连接。 / This signature grants no shared container, so logs and statistics are unavailable."
+                    title: "Status Channel Unavailable",
+                    message: "This signature shares no App Group with the tunnel, so logs and statistics cannot be read; the VPN may still be connected."
                 )
             } else {
                 HakoEmptyState(

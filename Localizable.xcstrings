@@ -11,6 +11,16 @@
         }
       }
     },
+    "Add a rule to decide when the tunnel connects." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加规则以决定隧道何时连接。"
+          }
+        }
+      }
+    },
     "Add Configuration" : {
       "localizations" : {
         "zh-Hans" : {
@@ -413,6 +423,26 @@
         }
       }
     },
+    "No memory reports" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无内存报告"
+          }
+        }
+      }
+    },
+    "No power reports" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无耗电报告"
+          }
+        }
+      }
+    },
     "No profile selected" : {
       "localizations" : {
         "zh-Hans" : {
@@ -535,6 +565,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重置隧道设置"
+          }
+        }
+      }
+    },
+    "Route by subnet rather than taking over the default route. Fixes some HomeKit problems; on the Mac it stops Internet Sharing from working." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按子网路由，而不是接管默认路由。可解决部分 HomeKit 问题；在 Mac 上会导致“互联网共享”无法工作。"
+          }
+        }
+      }
+    },
+    "Route everything through the tunnel, except the system services the device needs to stay online." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "除维持设备在线所需的系统服务外，所有流量都走隧道。"
           }
         }
       }
@@ -685,6 +735,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本客户端的代码仓库"
+          }
+        }
+      }
+    },
+    "This report has no content." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此报告没有内容。"
+          }
+        }
+      }
+    },
+    "This signature shares no App Group with the tunnel, so logs and statistics cannot be read; the VPN may still be connected." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个签名没有与隧道共享的 App Group，日志与统计读不到；VPN 仍可能已连接。"
           }
         }
       }
@@ -1047,6 +1117,26 @@
         }
       }
     },
+    "A report is recorded for each service run." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每次服务运行都会记录一份报告。"
+          }
+        }
+      }
+    },
+    "A report is recorded when the device runs out of memory while the service is running." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务运行期间设备内存不足时，会记录一份报告。"
+          }
+        }
+      }
+    },
     "A report is saved for each service run" : {
       "localizations" : {
         "fa" : {
@@ -1071,6 +1161,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "每次服務運行都會儲存一份報告"
+          }
+        }
+      }
+    },
+    "A report is saved for each service run." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每次服务运行都会保存一份报告。"
           }
         }
       }
@@ -2514,6 +2614,26 @@
         }
       }
     },
+    "Changing any of these reloads the running service." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更改其中任何一项都会重载正在运行的服务。"
+          }
+        }
+      }
+    },
+    "Changing any of these restarts the tunnel." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更改其中任何一项都会重启隧道。"
+          }
+        }
+      }
+    },
     "Check Update" : {
       "localizations" : {
         "fa" : {
@@ -3291,6 +3411,16 @@
         }
       }
     },
+    "Connections appear here while the service routes traffic." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务转发流量时，连接会显示在这里。"
+          }
+        }
+      }
+    },
     "Content" : {
       "comment" : "Title for the terminal text selection sheet",
       "localizations" : {
@@ -3456,6 +3586,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "當機報告"
+          }
+        }
+      }
+    },
+    "Crash reports recorded on this device appear here." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备记录的崩溃报告会显示在这里。"
           }
         }
       }
@@ -4335,6 +4475,16 @@
     "DNS" : {
       "shouldTranslate" : false
     },
+    "DNS Search Domain" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DNS 搜索域"
+          }
+        }
+      }
+    },
     "DNS Search Domains" : {
       "localizations" : {
         "fa" : {
@@ -4387,6 +4537,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "DNS 服務器"
+          }
+        }
+      }
+    },
+    "DNS Server Address" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DNS 服务器地址"
           }
         }
       }
@@ -4499,6 +4659,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "不要顯示關於棄用功能使用的警告。"
+          }
+        }
+      }
+    },
+    "Do not warn about configuration that uses deprecated features. These options belong to a beta build and may change or disappear." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不要对使用已弃用功能的配置发出警告。这些选项属于测试版构建，可能会变化或消失。"
           }
         }
       }
@@ -7724,6 +7894,16 @@
     "IPv6" : {
       "shouldTranslate" : false
     },
+    "Keep Apple Push Notification traffic off the tunnel by bypassing its hosts." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通过绕过 Apple 推送通知的主机，使其流量不走隧道。"
+          }
+        }
+      }
+    },
     "Keep Menu Bar in Background" : {
       "localizations" : {
         "fa" : {
@@ -7748,6 +7928,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "將菜單欄保留在後臺"
+          }
+        }
+      }
+    },
+    "Keep the routes the tunnel does not carry on the current network interface, overriding the system routing table." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隧道不承载的路由保留在当前网络接口上，覆盖系统路由表。"
           }
         }
       }
@@ -8060,6 +8250,26 @@
         }
       }
     },
+    "Leave AirPlay, AirDrop, CarPlay and other local-network traffic outside the tunnel." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让 AirPlay、AirDrop、CarPlay 等局域网流量留在隧道外。"
+          }
+        }
+      }
+    },
+    "Leave Apple Push Notification traffic outside the tunnel, while Include All Networks is on." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在开启“包含所有网络”时，让 Apple 推送通知流量留在隧道外。"
+          }
+        }
+      }
+    },
     "Leave the VPN connection in its current state." : {
       "localizations" : {
         "fa" : {
@@ -8084,6 +8294,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保持 VPN 連接的當前狀態。"
+          }
+        }
+      }
+    },
+    "Leave traffic between this device and nearby devices outside the tunnel." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让本机与附近设备之间的流量留在隧道外。"
+          }
+        }
+      }
+    },
+    "Leave Wi-Fi Calling, MMS, SMS and Visual Voicemail outside the tunnel, while Include All Networks is on." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在开启“包含所有网络”时，让 Wi-Fi 通话、MMS、SMS 和可视语音信箱留在隧道外。"
           }
         }
       }
@@ -8365,6 +8595,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "日誌和配置檔案可能包含隱私內容，不應該被公開發佈。"
+          }
+        }
+      }
+    },
+    "Logs will appear here as the service writes them." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务写出日志后，日志会显示在这里。"
           }
         }
       }
@@ -9541,6 +9781,16 @@
         }
       }
     },
+    "No crash reports" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无崩溃报告"
+          }
+        }
+      }
+    },
     "No data" : {
       "localizations" : {
         "fa" : {
@@ -9656,6 +9906,16 @@
         }
       }
     },
+    "No group or node matches what you typed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有分组或节点与你输入的内容匹配。"
+          }
+        }
+      }
+    },
     "No local devices available" : {
       "localizations" : {
         "fa" : {
@@ -9684,6 +9944,16 @@
         }
       }
     },
+    "No matches" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无匹配结果"
+          }
+        }
+      }
+    },
     "No matching connections" : {
       "localizations" : {
         "fa" : {
@@ -9708,6 +9978,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "沒有匹配的連接"
+          }
+        }
+      }
+    },
+    "No proxies" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无代理"
+          }
+        }
+      }
+    },
+    "No rules yet" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无规则"
           }
         }
       }
@@ -10669,6 +10959,16 @@
         }
       }
     },
+    "Power reports recorded on this device appear here." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此设备记录的耗电报告会显示在这里。"
+          }
+        }
+      }
+    },
     "Preparing" : {
       "localizations" : {
         "fa" : {
@@ -10977,6 +11277,16 @@
         }
       }
     },
+    "Proxy groups appear here once the core has loaded a configuration that has them." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内核加载了包含代理分组的配置后，分组会显示在这里。"
+          }
+        }
+      }
+    },
     "QRS" : {
       "localizations" : {
         "fa" : {
@@ -11252,6 +11562,16 @@
         }
       }
     },
+    "Record a report for each service run." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每次服务运行都记录一份报告。"
+          }
+        }
+      }
+    },
     "Redo" : {
       "localizations" : {
         "fa" : {
@@ -11481,6 +11801,16 @@
         }
       }
     },
+    "Reports recorded when the device ran out of memory appear here." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设备内存不足时记录的报告会显示在这里。"
+          }
+        }
+      }
+    },
     "Required" : {
       "localizations" : {
         "fa" : {
@@ -11646,6 +11976,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢復"
+          }
+        }
+      }
+    },
+    "Returns every option on this page to its default." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将本页所有选项恢复为默认值。"
           }
         }
       }
@@ -12809,6 +13149,16 @@
     "SSID" : {
       "shouldTranslate" : false
     },
+    "SSID Match" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSID 匹配"
+          }
+        }
+      }
+    },
     "SSID: %@" : {
       "localizations" : {
         "fa" : {
@@ -12917,6 +13267,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "開機啟動"
+          }
+        }
+      }
+    },
+    "Start sing-box to see its logs." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启动 sing-box 后即可查看日志。"
           }
         }
       }
@@ -13089,6 +13449,16 @@
         }
       }
     },
+    "Status Channel Unavailable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "状态通道不可用"
+          }
+        }
+      }
+    },
     "Stop" : {
       "localizations" : {
         "fa" : {
@@ -13169,6 +13539,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "停止共享"
+          }
+        }
+      }
+    },
+    "Stop the system from showing its VPN badge, by excluding the addresses the badge probes." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通过排除 VPN 徽标探测的地址，让系统不再显示该徽标。"
           }
         }
       }
@@ -15020,6 +15400,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "啟用記憶體限制後，當服務記憶體超出限制時，您將會收到報告。您也可以手動觸發收集報告。"
+          }
+        }
+      }
+    },
+    "Where the core keeps its data, its caches and the configuration it is running." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内核保存数据、缓存以及当前运行配置的位置。"
           }
         }
       }

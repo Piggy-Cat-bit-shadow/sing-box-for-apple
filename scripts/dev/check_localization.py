@@ -99,6 +99,16 @@ VISIBLE_CALLS = (
 )
 
 
+#: Labelled arguments whose value is user-visible copy.
+#:
+#: A page's copy does not always arrive as the first argument: the settings pages write
+#: `settingSection(..., explanation: "…")` and `HakoSettingsSection(footnote: "…")`, and both
+#: parameters are `LocalizedStringKey`, so those literals are catalog keys exactly like a `Text`.
+#: Scanning only the call's first literal missed nine of them on the Tunnel and Profile Override
+#: pages, which therefore read English in the Chinese interface.
+LABELLED_COPY = re.compile(r"\b(title|subtitle|message|explanation|footnote)\s*:\s*")
+
+
 @dataclass(frozen=True)
 class Finding:
     path: str
@@ -267,6 +277,11 @@ def scan() -> list[Finding]:
                 # `String(localized:)` is handled above; skip the `localized` label itself.
                 if match.group(1) == "Text" and "localized" in line[:match.start()]:
                     continue
+                literal = literal_after(line, match.end())
+                if literal is None:
+                    continue
+                findings.append(classify(catalog, path, number, literal, localized=False))
+            for match in LABELLED_COPY.finditer(line):
                 literal = literal_after(line, match.end())
                 if literal is None:
                     continue
