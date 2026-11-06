@@ -176,8 +176,20 @@ private struct HakoLogViewContent: View {
         }
 
 
+            /// The remote-control servers the log menu may switch to.
+            ///
+            /// A failed read is reported rather than flattened into an empty list: the menu would
+            /// otherwise lose every server entry and show only "Local Device", which is the
+            /// command client's own state misreported as a configuration state. The sibling pages
+            /// that read the same list report the failure the same way (`HakoRemoteControlView`,
+            /// `HakoAppView`).
             private func reloadRemoteServers() async {
-                remoteServers = await (try? RemoteServerManager.list()) ?? []
+                do {
+                    remoteServers = try await RemoteServerManager.list()
+                } catch {
+                    remoteServers = []
+                    viewModel.alert = AlertState(action: "load remote server list", error: error)
+                }
             }
 
 

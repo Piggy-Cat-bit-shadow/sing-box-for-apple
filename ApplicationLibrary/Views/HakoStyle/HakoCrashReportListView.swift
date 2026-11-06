@@ -111,25 +111,38 @@ public struct HakoCrashReportListView: View {
     private struct NetworkExtensionCrashMenu: View {
         @EnvironmentObject private var environments: ExtensionEnvironments
         @ObservedObject var profile: ExtensionProfile
+        @State private var alert: AlertState?
 
         var body: some View {
             if profile.status.isConnectedStrict {
                 Menu("NetworkExtension") {
                     Button("Go Crash") {
-                        try? LibboxNewStandaloneCommandClient()?.triggerGoCrash()
-                        Task {
-                            try? await Task.sleep(nanoseconds: NSEC_PER_SEC)
-                            await environments.crashReportManager.refresh()
-                        }
+                        trigger { try LibboxNewStandaloneCommandClient()?.triggerGoCrash() }
                     }
                     Button("Native Crash") {
-                        try? LibboxNewStandaloneCommandClient()?.triggerNativeCrash()
-                        Task {
-                            try? await Task.sleep(nanoseconds: NSEC_PER_SEC)
-                            await environments.crashReportManager.refresh()
-                        }
+                        trigger { try LibboxNewStandaloneCommandClient()?.triggerNativeCrash() }
                     }
                 }
+                .alert($alert)
+            }
+        }
+
+        /// Send one crash trigger, then re-read the reports.
+        ///
+        /// The command channel can refuse even with the tunnel reported as connected, and both
+        /// calls here used to be `try?` - so a refused trigger looked exactly like a crash that ran
+        /// and produced nothing to list. The OOM page's trigger already reports the same failure
+        /// through its page alert (`triggerOOMReport`); this is that shape.
+        private func trigger(_ action: () throws -> Void) {
+            do {
+                try action()
+            } catch {
+                alert = AlertState(action: "trigger crash", error: error)
+                return
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: NSEC_PER_SEC)
+                await environments.crashReportManager.refresh()
             }
         }
     }
