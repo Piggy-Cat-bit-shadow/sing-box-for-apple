@@ -723,8 +723,15 @@ public struct HakoHomeView: View {
         Variant.screenshotMode || profile.status.isConnected
     }
 
+    /// Whether the Proxies row is offered: the client reported at least one group.
+    ///
+    /// Read from the mirror the page already keeps for the row's subtitle, not from the command
+    /// client. `groups` is a `@Published` of a *nested* observable, so testing it here would put the
+    /// row's existence at the mercy of an unrelated redraw - exactly the defect the mode row had,
+    /// and the reason `liveGroupCount` exists. This was the last place `body` read through
+    /// `environments.commandClient` directly.
     private var showGroups: Bool {
-        Variant.screenshotMode || environments.commandClient.groups?.isEmpty == false
+        Variant.screenshotMode || liveGroupCount > 0
     }
 
     /// The outbound mode, in one of the two shapes the list can honestly take.

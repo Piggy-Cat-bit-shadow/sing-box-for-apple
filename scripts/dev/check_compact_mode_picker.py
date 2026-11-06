@@ -660,6 +660,12 @@ def check_view_contract(source: str) -> list[str]:
             "`onChangeCompat(of: environments.commandClient.clashMode)` is back - it can never "
             "fire, because a `@Published` of a nested observable does not invalidate this view"
         )
+    if "Variant.screenshotMode || liveGroupCount > 0" not in code:
+        problems.append(
+            "the Proxies row is no longer gated on `liveGroupCount`, the mirror of `$groups` - a "
+            "`body` read of `environments.commandClient.groups` cannot see it change, so the row "
+            "would appear or disappear only when something else redrew the page"
+        )
     return problems
 
 

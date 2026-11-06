@@ -75,8 +75,9 @@ TECHNICAL_TERMS = {
     # `NEVPNProtocol` property names, which the Tunnel page explains in place of translating.
     "enforceRoutes", "includeAllNetworks", "excludeAPNs", "excludeCellularServices",
     "excludeDeviceCommunication", "excludeLocalNetworks",
-    # Placeholder / example values.
-    "example.com",
+    # Placeholder / example values: a field's hint, not copy. `http://...` is the probe-URL
+    # field's placeholder on the On-Demand rule editor, and it reads the same in every language.
+    "example.com", "http://...",
 }
 
 #: Strings whose zh-Hans is still owed. Every entry is a debt with a reason, and the gate fails if
@@ -174,35 +175,107 @@ def localization_state(catalog: dict, key: str, locale: str) -> str | None:
 
 
 def strip_comments_and_strings_aware(text: str) -> list[tuple[int, str]]:
-    """Lines with `//` comments removed, keeping line numbers.
+    """Lines with comments removed and string literals kept, line numbers preserved.
 
-    Block comments are dropped too. String literals are left alone, because the strings are the
-    subject - a naive comment stripper that ate `"//"` inside a literal would lose real findings.
+    The scan has to know where the literals are, and the docstring here used to claim it did while
+    the code cut each line at the first `//` whatever it was inside. That hid every string with a
+    URL in it: the settings page's manual link is
+    `URL(string: String(localized: "https://…"))!`, and truncating at the `//` left an unterminated
+    literal that yielded no finding - so the one string in the tree that *is* a URL was never
+    checked, and a broken localization of it could not be reported. This walks the file once,
+    tracking strings, multi-line strings and both comment forms.
     """
     out: list[tuple[int, str]] = []
-    in_block = False
-    for number, raw in enumerate(text.split("\n"), start=1):
-        line = raw
-        if in_block:
-            end = line.find("*/")
-            if end == -1:
+    current: list[str] = []
+    line = 1
+    index = 0
+    length = len(text)
+    in_line_comment = False
+    block_depth = 0
+    in_string = False
+    in_multiline = False
+    raw_hashes = 0
+
+    while index < length:
+        char = text[index]
+        nxt = text[index + 1] if index + 1 < length else ""
+
+        if char == "\n":
+            out.append((line, "".join(current)))
+            current = []
+            line += 1
+            in_line_comment = False
+            index += 1
+            continue
+        if in_line_comment:
+            index += 1
+            continue
+        if block_depth:
+            if char == "*" and nxt == "/":
+                block_depth -= 1
+                index += 2
                 continue
-            line = line[end + 2:]
-            in_block = False
-        while True:
-            start = line.find("/*")
-            if start == -1:
-                break
-            end = line.find("*/", start + 2)
-            if end == -1:
-                line = line[:start]
-                in_block = True
-                break
-            line = line[:start] + line[end + 2:]
-        comment = line.find("//")
-        if comment != -1:
-            line = line[:comment]
-        out.append((number, line))
+            if char == "/" and nxt == "*":
+                block_depth += 1
+                index += 2
+                continue
+            index += 1
+            continue
+        if in_multiline:
+            current.append(char)
+            if char == '"' and text.startswith('"""' + "#" * raw_hashes, index):
+                current.extend('""' + "#" * raw_hashes)
+                in_multiline = False
+                index += 3 + raw_hashes
+                continue
+            index += 1
+            continue
+        if in_string:
+            current.append(char)
+            if char == "\\":
+                if index + 1 < length:
+                    current.append(text[index + 1])
+                index += 2
+                continue
+            if char == '"':
+                in_string = False
+            index += 1
+            continue
+
+        if char == "/" and nxt == "/":
+            in_line_comment = True
+            index += 2
+            continue
+        if char == "/" and nxt == "*":
+            block_depth += 1
+            index += 2
+            continue
+        if text.startswith('"""', index):
+            in_multiline = True
+            current.extend('"""')
+            index += 3
+            continue
+        if char == '"':
+            in_string = True
+            current.append(char)
+            index += 1
+            continue
+        if char == "#":
+            hashes = 0
+            probe = index
+            while probe < length and text[probe] == "#":
+                hashes += 1
+                probe += 1
+            if probe < length and text[probe] == '"':
+                raw_hashes = hashes
+                in_string = True
+                current.extend(text[index:probe + 1])
+                index = probe + 1
+                continue
+        current.append(char)
+        index += 1
+
+    out.append((line, "".join(current)))
     return out
 
 
@@ -329,6 +402,30 @@ def candidate_keys(text: str) -> list[str]:
     return [numeric] if numeric == stringy else [numeric, stringy]
 
 
+URL_SHAPE = re.compile(r"^https?://\S+$")
+
+
+def broken_localized_url(catalog: dict, key: str) -> str | None:
+    """A key that *is* a URL must still be a URL in every localization.
+
+    The settings page links to the manual through upstream's shape -
+    `URL(string: String(localized: "https://sing-box.sagernet.org/"))!` - and the catalog localizes
+    that key to the `/zh/` path. That works only while every value is still a URL: a translator who
+    writes prose there turns the force unwrap into a crash on the page that renders it. The gate can
+    see this because it already holds the catalog.
+    """
+    if not URL_SHAPE.match(key):
+        return None
+    entry = catalog.get("strings", {}).get(key, {})
+    for locale in entry.get("localizations", {}):
+        value = localization_state(catalog, key, locale)
+        if value is None:
+            continue
+        if not URL_SHAPE.match(value):
+            return f"{key!r} is localized as {locale}={value!r}, which is not a URL"
+    return None
+
+
 def classify(catalog: dict, path: str, line: int, text: str, *, localized: bool) -> Finding:
     if text in TECHNICAL_TERMS:
         return Finding(path, line, text, "EXEMPT", "technical term or product/property name")
@@ -353,6 +450,9 @@ def classify(catalog: dict, path: str, line: int, text: str, *, localized: bool)
                        f"{key!r} is marked shouldTranslate=false in the catalog")
     if localization_state(catalog, key, "en") is None and catalog.get("sourceLanguage") != "en":
         return Finding(path, line, text, "NO_SOURCE", f"{key!r} has no source-language entry")
+    broken = broken_localized_url(catalog, key)
+    if broken is not None:
+        return Finding(path, line, text, "BROKEN_URL", broken)
     if localization_state(catalog, key, "zh-Hans") is None:
         return Finding(path, line, text, "MISSING_ZH_HANS",
                        f"{key!r} has no zh-Hans, so the Simplified-Chinese UI shows English here")
@@ -371,7 +471,8 @@ def main() -> int:
         return 2
 
     findings = scan()
-    failures = [f for f in findings if f.kind in ("MISSING_KEY", "NO_SOURCE", "MISSING_ZH_HANS")]
+    failures = [f for f in findings
+                if f.kind in ("MISSING_KEY", "NO_SOURCE", "MISSING_ZH_HANS", "BROKEN_URL")]
     pending = [f for f in findings if f.kind == "PENDING"]
     exempt = [f for f in findings if f.kind == "EXEMPT"]
     ok = [f for f in findings if f.kind == "OK"]

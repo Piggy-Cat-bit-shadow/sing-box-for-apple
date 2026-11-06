@@ -340,6 +340,50 @@ def run(root: str) -> list[str]:
             )
     ran.append("localization gate sees bare literals")
 
+    # 14. A key that is a URL must stay a URL where it is localized. The settings page builds its
+    #     manual link as `URL(string: String(localized: "https://…"))!`, so a translator who writes
+    #     prose there turns the force unwrap into a crash. The gate holds the catalog, so it can
+    #     refuse; this case breaks one locale and requires the refusal.
+    url_page = (
+        "import SwiftUI\n"
+        "struct ProbeLink: View {\n"
+        "    var body: some View {\n"
+        '        Link(destination: URL(string: String(localized: "https://sing-box.sagernet.org/"))!) {\n'
+        '            Text("Back")\n'
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+    broken_catalog = catalog_text.replace(
+        '"value" : "https://sing-box.sagernet.org/zh/"', '"value" : "文档"', 1)
+    if broken_catalog == catalog_text:
+        raise CaseFailure(
+            "the catalog no longer carries the localized docs URL, so the URL case proves nothing - "
+            "update it against the catalog"
+        )
+    for name, text, expected_code, expected_text in (
+        ("a localized URL kept as a URL", catalog_text, 0, "PASS"),
+        ("a localized URL turned into prose", broken_catalog, 1, "not a URL"),
+    ):
+        tree = scratch_tree({
+            "Localizable.xcstrings": text,
+            "scripts/dev/check_localization.py": localization_script,
+            "ApplicationLibrary/Views/HakoStyle/ProbeLink.swift": url_page,
+        })
+        try:
+            result = subprocess.run(
+                [sys.executable, os.path.join(tree, "scripts", "dev", "check_localization.py")],
+                capture_output=True, text=True, encoding="utf-8", errors="replace")
+        finally:
+            shutil.rmtree(tree, ignore_errors=True)
+        output = result.stdout + result.stderr
+        if result.returncode != expected_code or expected_text not in output:
+            raise CaseFailure(
+                "the localization gate did not treat %s as expected (exit %d, wanted %d): %s"
+                % (name, result.returncode, expected_code, output[-400:])
+            )
+    ran.append("broken localized URL is caught")
+
     return ran
 
 
