@@ -244,7 +244,10 @@ public struct HakoOnDemandRulesView: View {
                 Task {
                     do {
                         try await SharedPreferences.resetOnDemandRules()
-                        await updateService()
+                        // `.disabled`, not `mode`: the preferences were just deleted and say
+                        // "disabled", so the system configuration has to be told the same thing.
+                        // Reading `mode` here re-applied whatever the reader had before the reset.
+                        await updateService(.disabled)
                         isLoading = true
                     } catch {
                         alert = AlertState(action: "reset on-demand rules", error: error)
@@ -297,16 +300,35 @@ public struct HakoOnDemandRulesView: View {
         let onDemandEnabled = newMode == .enabled
         await SharedPreferences.alwaysOn.set(alwaysOn)
         await SharedPreferences.onDemandEnabled.set(onDemandEnabled)
-        await updateService()
+        await updateService(newMode)
     }
 
-    private func updateService() async {
-        guard let profile = environments.extensionProfile, profile.status.isConnected else {
+    /// Write a mode to the tunnel's system configuration.
+    ///
+    /// The mode is a parameter, not `self.mode`, and both halves of the guard are load-bearing.
+    /// This was `updateService()` reading the view's state with the guard
+    /// `profile.status.isConnected` only, and each half of that was a defect of its own:
+    ///
+    ///   * **reset** calls it without changing `mode` first, so the call after
+    ///     `resetOnDemandRules()` re-applied the mode the reader had just cleared -
+    ///     `onDemand(isOnDemandEnabled: true)` on a configuration whose preferences now say
+    ///     "disabled". The page then reloaded and displayed Disabled while the system still held
+    ///     "connect by itself". Upstream passes `.disabled` at that call site
+    ///     (`OnDemandRulesView.resetButton`), which is what makes reset mean reset.
+    ///   * the guard required a connected tunnel, so **turning On Demand off while it was down**
+    ///     wrote nothing: `ExtensionProfile.updateOnDemand` is the only thing on this page that
+    ///     clears `manager.isOnDemandEnabled`, and the system went on holding a configuration that
+    ///     says connect by itself. Upstream's guard is `newMode == .disabled || isConnected`, so
+    ///     the disabling half is written whatever the tunnel is doing.
+    private func updateService(_ newMode: OnDemandMode) async {
+        guard let profile = environments.extensionProfile,
+              newMode == .disabled || profile.status.isConnected
+        else {
             return
         }
         do {
-            let enabled = mode != .disabled
-            try await profile.updateOnDemand(enabled: enabled, useDefaultRules: mode == .alwaysOn)
+            let enabled = newMode != .disabled
+            try await profile.updateOnDemand(enabled: enabled, useDefaultRules: newMode == .alwaysOn)
         } catch {
             alert = AlertState(action: "update on-demand rules", error: error)
         }
@@ -319,7 +341,7 @@ public struct HakoOnDemandRulesView: View {
             alert = AlertState(errorMessage: String(localized: "Failed to save rules"))
             return
         }
-        await updateService()
+        await updateService(mode)
     }
 
     private func loadSettings() async {

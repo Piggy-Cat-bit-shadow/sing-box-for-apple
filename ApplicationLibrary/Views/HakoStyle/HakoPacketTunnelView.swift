@@ -103,63 +103,79 @@ struct HakoPacketTunnelView: View {
             ) { newValue in
                 Task {
                     await set(newValue)
-                    await restartService()
+                    await applySettings()
                 }
             }
         }
     }
 
+    /// The routing switches.
+    ///
+    /// `#if !os(tvOS)`, because the six `SharedPreferences` members this page writes are
+    /// declared inside that condition (`Library/Database/SharedPreferences.swift:31-39`) - the
+    /// properties belong to a `NETunnelProviderProtocol`, which tvOS does not have. The pinned
+    /// original guards its switches the same way (`Setting/PacketTunnelView.swift`'s
+    /// `#if !os(tvOS)` around the same six toggles); the migration resolved the condition for iOS
+    /// and kept the arm, which compiles for iOS and does not compile for the tvOS slice of
+    /// `ApplicationLibrary`. The page is never routed to on tvOS - the phone is the only idiom that
+    /// reaches it - but `ApplicationLibrary` is built for `appletvos` too, so the file still has to
+    /// compile there.
     private var routingSections: some View {
         Group {
-            settingSection(
-                String(localized: "Include All Networks"),
-                explanation: "Route everything through the tunnel, except the system services the device needs to stay online.",
-                identifier: "hako.tunnel.includeAllNetworks",
-                isOn: $includeAllNetworks
-            ) { await SharedPreferences.includeAllNetworks.set($0) }
+            #if !os(tvOS)
+                settingSection(
+                    String(localized: "Include All Networks"),
+                    explanation: "Route everything through the tunnel, except the system services the device needs to stay online.",
+                    identifier: "hako.tunnel.includeAllNetworks",
+                    isOn: $includeAllNetworks
+                ) { await SharedPreferences.includeAllNetworks.set($0) }
 
-            settingSection(
-                String(localized: "Enforce Routes"),
-                explanation: "Keep the routes the tunnel does not carry on the current network interface, overriding the system routing table.",
-                identifier: "hako.tunnel.enforceRoutes",
-                isOn: $enforceRoutes
-            ) { await SharedPreferences.enforceRoutes.set($0) }
+                settingSection(
+                    String(localized: "Enforce Routes"),
+                    explanation: "Keep the routes the tunnel does not carry on the current network interface, overriding the system routing table.",
+                    identifier: "hako.tunnel.enforceRoutes",
+                    isOn: $enforceRoutes
+                ) { await SharedPreferences.enforceRoutes.set($0) }
+            #endif
         }
     }
 
+    /// The exclusion switches. Same condition, same reason as `routingSections`.
     private var exclusionSections: some View {
         Group {
-            if #available(iOS 16.4, macOS 13.3, *) {
-                settingSection(
-                    String(localized: "Exclude APNs"),
-                    explanation: "Leave Apple Push Notification traffic outside the tunnel, while Include All Networks is on.",
-                    identifier: "hako.tunnel.excludeAPNs",
-                    isOn: $excludeAPNs
-                ) { await SharedPreferences.excludeAPNs.set($0) }
+            #if !os(tvOS)
+                if #available(iOS 16.4, macOS 13.3, *) {
+                    settingSection(
+                        String(localized: "Exclude APNs"),
+                        explanation: "Leave Apple Push Notification traffic outside the tunnel, while Include All Networks is on.",
+                        identifier: "hako.tunnel.excludeAPNs",
+                        isOn: $excludeAPNs
+                    ) { await SharedPreferences.excludeAPNs.set($0) }
+
+                    settingSection(
+                        String(localized: "Exclude Cellular Services"),
+                        explanation: "Leave Wi-Fi Calling, MMS, SMS and Visual Voicemail outside the tunnel, while Include All Networks is on.",
+                        identifier: "hako.tunnel.excludeCellularServices",
+                        isOn: $excludeCellularServices
+                    ) { await SharedPreferences.excludeCellularServices.set($0) }
+                }
 
                 settingSection(
-                    String(localized: "Exclude Cellular Services"),
-                    explanation: "Leave Wi-Fi Calling, MMS, SMS and Visual Voicemail outside the tunnel, while Include All Networks is on.",
-                    identifier: "hako.tunnel.excludeCellularServices",
-                    isOn: $excludeCellularServices
-                ) { await SharedPreferences.excludeCellularServices.set($0) }
-            }
+                    String(localized: "Exclude Local Networks"),
+                    explanation: "Leave AirPlay, AirDrop, CarPlay and other local-network traffic outside the tunnel.",
+                    identifier: "hako.tunnel.excludeLocalNetworks",
+                    isOn: $excludeLocalNetworks
+                ) { await SharedPreferences.excludeLocalNetworks.set($0) }
 
-            settingSection(
-                String(localized: "Exclude Local Networks"),
-                explanation: "Leave AirPlay, AirDrop, CarPlay and other local-network traffic outside the tunnel.",
-                identifier: "hako.tunnel.excludeLocalNetworks",
-                isOn: $excludeLocalNetworks
-            ) { await SharedPreferences.excludeLocalNetworks.set($0) }
-
-            if #available(iOS 17.4, macOS 14.4, *) {
-                settingSection(
-                    String(localized: "Exclude Device Communication"),
-                    explanation: "Leave traffic between this device and nearby devices outside the tunnel.",
-                    identifier: "hako.tunnel.excludeDeviceCommunication",
-                    isOn: $excludeDeviceCommunication
-                ) { await SharedPreferences.excludeDeviceCommunication.set($0) }
-            }
+                if #available(iOS 17.4, macOS 14.4, *) {
+                    settingSection(
+                        String(localized: "Exclude Device Communication"),
+                        explanation: "Leave traffic between this device and nearby devices outside the tunnel.",
+                        identifier: "hako.tunnel.excludeDeviceCommunication",
+                        isOn: $excludeDeviceCommunication
+                    ) { await SharedPreferences.excludeDeviceCommunication.set($0) }
+                }
+            #endif
         }
     }
 
@@ -172,7 +188,7 @@ struct HakoPacketTunnelView: View {
             ) {
                 Task {
                     await SharedPreferences.resetPacketTunnel()
-                    await restartService()
+                    await applySettings()
                     isLoading = true
                 }
             }
@@ -201,8 +217,27 @@ struct HakoPacketTunnelView: View {
 
     // MARK: - Behaviour
 
-    private func restartService() async {
-        guard let profile = environments.extensionProfile, profile.status.isConnected else {
+    /// Make a change on this page take effect.
+    ///
+    /// Two branches, exactly as upstream's `PacketTunnelView.applySettings` has them - and the
+    /// first is the one this page was missing. With no tunnel running there is nothing to restart,
+    /// so the copy stopped there; but the stored properties belong to the tunnel's
+    /// `NETunnelProviderProtocol`, and the only writer for that is `updateProtocolConfiguration()`.
+    /// `ExtensionProfile.start()` does write it, so a start from this app never noticed; a tunnel
+    /// the **system** starts - On Demand, Always On, a reconnect after a reboot - is handed the
+    /// protocol configuration straight from the manager, so until this app next started the tunnel
+    /// itself those switches were persisted and inert. `VERIFIED_SOURCE`: upstream calls the same
+    /// method in the same branch.
+    private func applySettings() async {
+        guard let profile = environments.extensionProfile else {
+            return
+        }
+        if !profile.status.isConnected {
+            do {
+                try await profile.updateProtocolConfiguration()
+            } catch {
+                alert = AlertState(action: "update packet tunnel settings", error: error)
+            }
             return
         }
         do {
@@ -214,7 +249,7 @@ struct HakoPacketTunnelView: View {
 
     @MainActor
     private func loadSettings() async {
-
+        #if !os(tvOS)
             includeAllNetworks = await SharedPreferences.includeAllNetworks.get()
             excludeLocalNetworks = await SharedPreferences.excludeLocalNetworks.get()
             enforceRoutes = await SharedPreferences.enforceRoutes.get()
@@ -225,6 +260,7 @@ struct HakoPacketTunnelView: View {
             if #available(iOS 17.4, macOS 14.4, *) {
                 excludeDeviceCommunication = await SharedPreferences.excludeDeviceCommunication.get()
             }
+        #endif
 
         isLoading = false
     }

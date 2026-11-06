@@ -53,16 +53,19 @@ def scratch_tree(files: dict[str, str]) -> str:
     return root
 
 
-def run_switch_gate(root: str, tree: str) -> tuple[int, str]:
+def run_gate(root: str, script: str, tree: str) -> tuple[int, str]:
     result = subprocess.run(
-        [sys.executable, os.path.join(root, "scripts", "dev", "check_hako_profile_switch.py"),
-         "--root", tree],
+        [sys.executable, os.path.join(root, "scripts", "dev", script), "--root", tree],
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
     )
     return result.returncode, result.stdout + result.stderr
+
+
+def run_switch_gate(root: str, tree: str) -> tuple[int, str]:
+    return run_gate(root, "check_hako_profile_switch.py", tree)
 
 
 def load(path: str, name: str):
@@ -269,6 +272,31 @@ def run(root: str) -> list[str]:
             "an unserialised queue passed the compiled cases; the gate said: %s" % output
         )
     ran.append("unserialised queue is caught")
+
+    # 12. The platform guard that the migration dropped from the phone's tunnel page. The gate is
+    #     a source scan, so the *file* is mutated in a scratch tree and the gate is required to
+    #     report the use it leaves unprotected.
+    tunnel = read(root, "ApplicationLibrary/Views/HakoStyle/HakoPacketTunnelView.swift")
+    preferences = read(root, "Library/Database/SharedPreferences.swift")
+    unguarded = mutate(
+        tunnel,
+        "        Group {\n            #if !os(tvOS)\n                settingSection(",
+        "        Group {\n                settingSection(",
+        "the `#if !os(tvOS)` guard around the phone's tunnel routing switches",
+    )
+    tree = scratch_tree({
+        "Library/Database/SharedPreferences.swift": preferences,
+        "ApplicationLibrary/Views/HakoStyle/HakoPacketTunnelView.swift": unguarded,
+    })
+    try:
+        code, output = run_gate(root, "check_hako_platform_symbols.py", tree)
+    finally:
+        shutil.rmtree(tree, ignore_errors=True)
+    if code == 0 or "SharedPreferences.includeAllNetworks" not in output:
+        raise CaseFailure(
+            "an unguarded tvOS-absent symbol passed the platform gate; the gate said: %s" % output
+        )
+    ran.append("missing platform guard is caught")
 
     return ran
 
