@@ -144,13 +144,16 @@ runtime test.
    page restores upstream's `updateProtocolConfiguration()` branch and the `#if !os(tvOS)` guards
    its own switches need; the On-Demand page passes the mode it was given and writes the disabling
    half whatever the tunnel is doing, which is what makes Reset mean Reset.
-7. **The localization gate measures again, and the phone's untranslated copy has keys.** Its file
-   walk matched nothing on Windows, its literal extractor was off by one, it compared escapes raw,
-   and it never read labelled arguments — so only `String(localized:)` had ever been checked. With
-   all four fixed it found 57 strings that rendered English in every language, and all 57 are in the
-   catalog with zh-Hans. One call site changed with them: the "no shared container" state was a
-   Chinese title over a Chinese/English message, which is what every locale saw; it now uses English
-   keys and the catalog carries the Chinese.
+7. **The localization gate measures again, and the phone's untranslated copy has keys.** It was blind
+   five ways, each found by making it run rather than by reading it: the file walk matched nothing on
+   Windows, the literal extractor was off by one, escapes were compared raw, labelled arguments were
+   never read, and the comment stripper cut each line at the first `//` — including inside a string
+   literal, which hid the one string in the tree that *is* a URL. With all five fixed it found 57
+   strings that rendered English in every language; all 57 are in the catalog with zh-Hans. One call
+   site changed with them: the "no shared container" state was a Chinese title over a Chinese/English
+   message, which is what every locale saw; it now uses English keys and the catalog carries the
+   Chinese. The gate also refuses a localized URL that is no longer a URL — the docs link is
+   `URL(string: String(localized: "https://…"))!`, so prose there would be a crash, not a typo.
 
 Design constraint kept: no second `ProfileManager`, no second event bus, no new persistence, no new
 reload state machine. Everything the page does goes through a type upstream already ships.
@@ -176,7 +179,7 @@ Run from the worktree root on Windows, CPython 3.12.10, Swift 6.3.3 (`swiftc` pr
 | `git diff --check` | clean | `VERIFIED_GIT` |
 | `audit_hako_lossless_parity.py --root .` | `PARTIAL`, `lost UI tokens: 2` (`Remote control`, `Out of Memory Report`), `HakoData 952 vs 920`, `HakoRow 879 vs 855`, exit 1 | `VERIFIED_STATIC` — **same as before this round**, and the two tokens are the documented intentional renames |
 | `dup_module_scope.py` | exit 1, **20** candidate findings — every one an `extension` of a type several files extend, plus one `formattedSize` free function; **none involves a file this round added** | `VERIFIED_STATIC`, pre-existing. Previously reported as 18: the script's default root pointed at a stale worktree (`_work/r8/w-main`), and it now resolves from its own location — see the branch-cleanup note below |
-| `check_localization.py` | `PASS: 498 visible string(s) across 58 fork-owned file(s) … (24 exempt, 0 pending)`, exit 0 | `VERIFIED_STATIC` — **this row used to read `INVALID COVERAGE`**: the gate was vacuous on Windows and, independently, could not see a bare literal or a labelled argument (see F-10). Four defects fixed; the 57 keys it then found are in the catalog |
+| `check_localization.py` | `PASS: 502 visible string(s) across 58 fork-owned file(s) … (26 exempt, 0 pending)`, exit 0 | `VERIFIED_STATIC` — **this row used to read `INVALID COVERAGE`**: the gate was vacuous on Windows and, independently, could not see a bare literal, a labelled argument, or any string containing `//` (see F-10). Five defects fixed; the 57 keys it then found are in the catalog, and a localized URL that stops being a URL now fails the gate |
 | `check_commit_messages.py` | exit 0, `commits in --root:` empty | **BLOCKED_BY_ENVIRONMENT** — scanned 0 commits, proves nothing |
 | `test_audit_reverse_routing.py` | 29 executed, 1 skipped (`refs/up-hako` absent), 2 mutations could not be applied (`HakoEditProfileView()` ×3 expected 2; `#endif` ×2 expected 1) | pre-existing drift in that suite's mutation targets; neither file is touched by this round |
 | `test_fail_closed_exit_codes.py` | 2 passed, 1 failed (`lossless-positive: lost_tokens=2`) | pre-existing, same intentional renames |
