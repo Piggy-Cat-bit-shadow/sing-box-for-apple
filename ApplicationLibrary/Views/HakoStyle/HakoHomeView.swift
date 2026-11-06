@@ -97,6 +97,15 @@ public struct HakoHomeView: View {
     @EnvironmentObject private var profile: ExtensionProfile
     @Environment(\.hakoHomeActions) private var actions
     @Environment(\.selection) private var selection
+    /// The modes the core reported, mirrored out of the command client.
+    ///
+    /// Mirrored for the same reason the two counts below are: `commandClient` is a *nested*
+    /// observable, and `environments` publishes only its own properties, so a list that
+    /// changes inside the client does not re-evaluate a view that read through it. The
+    /// section used to read `environments.commandClient.clashModeList` in `body`, which meant
+    /// a configuration switch could leave the previous configuration's modes on screen.
+    /// Written only from the client's own publisher.
+    @State private var modeList: [String] = []
     /// The chosen outbound mode, held here until the core confirms it. See `selectClashMode`.
     @State private var localMode: String = ""
     /// The mode the core last reported, which is the only value this page may fall back to.
@@ -147,6 +156,11 @@ public struct HakoHomeView: View {
     /// Whether the configuration centre is open. Opened from the row that used to be a picker.
     @State private var showsConfigurationCentre = false
     @Binding private var selectedProfileID: Int64
+    /// The switches this page has accepted, in the order it accepted them.
+    ///
+    /// See `selectProfile`. The value is the identifier the reader picked; the queue is what
+    /// keeps two of them from being applied at once.
+    @State private var profileSwitchQueue = HakoProfileSwitchQueue<Int64>()
     @Binding private var systemProxyAvailable: Bool
     @Binding private var systemProxyEnabled: Bool
     @ObservedObject private var cardConfiguration: DashboardCardConfiguration
@@ -199,6 +213,7 @@ public struct HakoHomeView: View {
         .onAppear {
             confirmedMode = environments.commandClient.clashMode
             localMode = confirmedMode
+            modeList = environments.commandClient.clashModeList
             liveGroupCount = environments.commandClient.groups?.count ?? 0
             liveConnectionCount = Int(environments.commandClient.status?.connectionsIn ?? 0)
         }
@@ -207,6 +222,24 @@ public struct HakoHomeView: View {
         }
         .onReceive(environments.commandClient.statusPublisher) { status in
             liveConnectionCount = Int(status?.connectionsIn ?? 0)
+        }
+        // The core's own mode, mirrored out of the client rather than read through it.
+        //
+        // This was `onChangeCompat(of: environments.commandClient.clashMode)`, and it could not
+        // fire: the value is a `@Published` of a *nested* observable, and reading it while the
+        // parent object does not publish means SwiftUI never re-evaluates the body that the
+        // comparison lives in - `onChange` only ever compares at the next evaluation, so a core
+        // that reports a new mode does not cause one. Subscribing to the publisher is the
+        // observation; the mirrored state is what `body` reads, so a report also repaints the row
+        // that shows it. `$clashModeList` carries the same defect one level up: without it, a
+        // configuration switch could leave the previous configuration's modes on screen.
+        .onReceive(environments.commandClient.$clashMode) { newValue in
+            guard !newValue.isEmpty else { return }
+            confirmedMode = newValue
+            localMode = newValue
+        }
+        .onReceive(environments.commandClient.$clashModeList) { newValue in
+            modeList = newValue
         }
         // The count is this page's own copy of a live figure, and the row that shows it is gated on
         // the tunnel being connected. Clearing it the moment the tunnel stops is what keeps a
@@ -219,17 +252,11 @@ public struct HakoHomeView: View {
                 liveConnectionCount = 0
             }
         }
-        .onChangeCompat(of: environments.commandClient.clashMode) { newValue in
-            if !newValue.isEmpty {
-                confirmedMode = newValue
-                localMode = newValue
-            }
-        }
         .onChangeCompat(of: systemProxyEnabled) { newValue in
             systemProxyEnabledLocal = newValue
         }
-        .alert($coordinator.alert)
-        .alert($alert)
+        // One presentation, two sources. See `pageAlert`.
+        .alert(pageAlert)
         // The same gate the card grid applies: no control on the page may act while the tunnel is
         // moving. Only while it is *moving*: `isSwitchable` is connected-or-disconnected, so testing
         // it disabled the whole page for a client that has no tunnel at all - which greyed out the
@@ -258,12 +285,98 @@ public struct HakoHomeView: View {
                 content: {
                     HakoProfilePickerSheet(
                         profileList: $profileList,
-                        selectedProfileID: $selectedProfileID
+                        selectedProfileID: profileSelection
                     )
                     .environmentObject(environments)
                     .hakoModalClose()
                 }
             )
+        }
+    }
+
+    // MARK: - Alerts
+
+    /// The page's one alert presentation.
+    ///
+    /// `.alert` is a presentation modifier, and two of them attached to the same view are one
+    /// presentation: the outer one wins. This page had `$coordinator.alert` inside `$alert`, so
+    /// every error the shared `OverviewViewModel` reports - the system-proxy action's and the
+    /// profile switch's - was raised into a binding nothing displayed, and a failed switch looked
+    /// exactly like a press that had not registered. Folding the two sources into the one
+    /// presentation the modifier chain can actually make is what restores them.
+    ///
+    /// The two are never set at the same moment; the getter's order is only a preference for the
+    /// impossible case. Clearing either clears both, because this is one presentation - a sheet
+    /// dismissed once must not come back from the other source still holding a value.
+    private var pageAlert: Binding<AlertState?> {
+        Binding(
+            get: { coordinator.alert ?? alert },
+            set: { newValue in
+                guard newValue == nil else {
+                    return
+                }
+                coordinator.alert = nil
+                alert = nil
+            }
+        )
+    }
+
+    // MARK: - Profile selection
+
+    /// What a configuration-centre selection means.
+    ///
+    /// The centre writes the reader's choice through this binding, and its setter is the page's
+    /// only profile-switch entry point - the same shape upstream's `OverviewView` gives its own
+    /// picker (`Binding(get:set:)` around `OverviewViewModel.switchProfile`). The centre itself
+    /// is a generated copy of the official picker and still assigns into its `@Binding` at all
+    /// four of its selection sites (the two iOS 26 list/editing shapes and the two legacy ones),
+    /// so one side-effecting binding here covers every one of them; putting the behaviour in the
+    /// rows instead would mean four copies of it in a file that is regenerated from upstream.
+    ///
+    /// This page used to hand the centre `$selectedProfileID` directly. Assigning that field
+    /// moves a `@Published` value and nothing else: the choice is never persisted, no
+    /// `selectedProfileUpdate` is sent, and a running tunnel keeps serving the previous
+    /// configuration while the page shows the new name. That is the "fake switch" this binding
+    /// closes.
+    private var profileSelection: Binding<Int64> {
+        Binding(
+            get: { selectedProfileID },
+            set: { selectProfile($0) }
+        )
+    }
+
+    /// Accept a selection, then drive the official switch - serially.
+    ///
+    /// The operation is `OverviewViewModel.switchProfile`, the same function the iPad's card grid
+    /// calls, so persistence, the broadcast, the reload and its error are upstream's rather than
+    /// this page's. What this page adds is the order: `HakoProfileSwitchQueue` keeps one switch in
+    /// flight and one pending choice, so a reader who taps twice ends on the second choice whatever
+    /// order the two async chains would otherwise have completed in, and
+    /// `coordinator.reasserting` stays up until the queue is empty instead of dropping when the
+    /// first switch finishes.
+    ///
+    /// `selectedProfileID` is deliberately **not** written here. That field is the *rendered*
+    /// truth: `selectedProfileUpdate` reaches `HakoPhoneRootView`, which re-reads the persisted
+    /// identifier into `DashboardViewModel` (`updateSelectedProfile`). Writing it here as well
+    /// would light the new name before the choice was saved - the "UI says B, the tunnel still
+    /// runs A" state this page must not manufacture. A switch that fails at the reload raises its
+    /// alert through `coordinator.alert` (see `pageAlert`) and leaves the page showing what was
+    /// actually persisted, which is the truth it has.
+    private func selectProfile(_ profileID: Int64) {
+        guard profileSwitchQueue.request(profileID) else {
+            return
+        }
+        coordinator.reasserting = true
+        Task {
+            while let next = profileSwitchQueue.take() {
+                // Raised per switch, not once around the loop. `switchProfile` clears its own
+                // `reasserting` on the way out - it is the last line it runs - so a gate raised
+                // only before the loop would be down for every switch after the first one, and
+                // the reader could act on a page that is in the middle of a reload.
+                coordinator.reasserting = true
+                await coordinator.switchProfile(next, profile: profile, environments: environments)
+            }
+            coordinator.reasserting = false
         }
     }
 
@@ -616,11 +729,22 @@ public struct HakoHomeView: View {
 
     /// The outbound mode, in one of the two shapes the list can honestly take.
     ///
-    /// The conventional three modes are a quick choice, and the home page draws them the way it
-    /// draws a quick choice: one row, three equal thirds, the chosen third marked. Anything else
-    /// keeps the reference's shape - a painted section of selection rows, each carrying the reason
-    /// its mode exists - because a mode the product has no words for is a setting, and the list
-    /// that renders whatever the core sent is the only one that cannot drop it.
+    /// The control is a quick choice when the list is short enough to be one, and the home page
+    /// draws a quick choice the way it draws one: one row, equal thirds, the chosen third marked.
+    /// Everything else keeps the reference's shape - a painted section of selection rows, each
+    /// carrying the reason its mode exists - because a mode the product has no words for is a
+    /// setting, and the list that renders whatever the core sent is the only shape that cannot drop
+    /// one.
+    ///
+    /// # What decides the shape
+    ///
+    /// **How many modes there are and whether their names fit** - not which words they are. This
+    /// used to ask whether the list was exactly `Rule`, `Global` and `Direct`, which gave every
+    /// other three-mode configuration the taller fallback: a configuration may define three modes
+    /// of its own, in any language, and there is nothing about the English spelling that makes one
+    /// row of thirds readable. `HakoClashModeLayout` holds the decision and its calibration; the
+    /// two rules that matter here are that a name which would truncate declines the row, and that
+    /// no list is ever shortened.
     ///
     /// This was a `Picker` with `.segmented` once, and it had to fit its labels into the width it
     /// was given: the client carried a `GeometryReader`, two preference keys and a menu fallback
@@ -634,10 +758,14 @@ public struct HakoHomeView: View {
     /// That gate is the reason the control has looked absent rather than merely unstyled: without a
     /// `clash_mode` rule anywhere, there is no mode to offer and no mode for a switch to change.
     ///
+    /// The list is read from `modeList`, which is the core's own list mirrored out of the command
+    /// client by the subscription in `body` - not read through the nested observable in `body`,
+    /// which would not repaint when the core reported a different list.
+    ///
     /// The values are reported exactly as the configuration spells them, and the conventional
     /// configuration spells them `Rule`, `Global` and `Direct`. They are therefore never compared
-    /// against a lower-case literal here: a mode is recognised by the case-insensitive test the
-    /// core itself uses, and every string that reaches the core is a string the core sent - see
+    /// against a lower-case literal on the way *back* to the core: a mode is matched
+    /// case-insensitively, and every string that reaches the core is a string the core sent - see
     /// `selectClashMode`.
     ///
     /// # Why the section no longer wears a caption
@@ -645,22 +773,18 @@ public struct HakoHomeView: View {
     /// The explanation each mode used to carry under its own name answers the question the three
     /// words already answer. On a settings page that cost nothing; on the home page it was three
     /// two-line rows - a caption, three subtitles and three selection marks - between the reader
-    /// and the shortcuts below, for a control whose whole content is "which of three". The
-    /// conventional configuration therefore gets one compact row, and the explanations stay where
-    /// they are still a setting's explanation: the fallback below, which serves the modes the
-    /// product has no words for.
-    ///
-    /// A configuration whose list is not exactly the conventional three keeps the list it had -
-    /// see `conventionalModes`. It is the only shape that could *lose* a mode, so it is the only
-    /// shape that must be allowed to be taller.
+    /// and the shortcuts below, for a control whose whole content is "which of three". A list that
+    /// fits the row therefore gets one compact row, and the explanations stay where they are still
+    /// a setting's explanation: the fallback below, which serves the lists the row is the wrong
+    /// shape for.
     @ViewBuilder
     private var modeSection: some View {
-        let modes = environments.commandClient.clashModeList
+        let modes = modeList
         let current = currentMode(in: modes)
         if modes.count > 1 {
-            if let conventionalModes = conventionalModes(in: modes) {
+            if HakoClashModeLayout.shape(titles: modes.map(modeTitle)) == .compactRow {
                 HakoPageSection {
-                    compactModePicker(modes: conventionalModes, current: current)
+                    compactModePicker(modes: modes, current: current)
                 }
             } else {
                 HakoPageSection(String(localized: "Outbound Mode")) {
@@ -682,39 +806,8 @@ public struct HakoHomeView: View {
         }
     }
 
-    /// The core's three conventional modes, in the order the picker shows them, or `nil` when the
-    /// list is anything else.
-    ///
-    /// `clash_mode` is not a closed set. `clashmode` builds its list from whatever values the
-    /// reader's own route and DNS rules declare, so a configuration may define a fourth mode this
-    /// client has never heard of, and upstream may define more later. A picker with three fixed
-    /// slots would drop that value - it would be missing from the screen and unreachable from it -
-    /// so the compact shape is offered only when the list is exactly `Rule`, `Global` and
-    /// `Direct`, and everything else falls back to the list that renders whatever it is given.
-    ///
-    /// The test is the core's own, case-insensitively: the configuration decides the spelling, and
-    /// `rule`, `GLOBAL`, `Direct` is as conventional as `Rule`, `Global`, `Direct`. The order the
-    /// core reports is not the test either - the list is a set of modes, and the picker's order is
-    /// the reading order of the three words, so a core that reports them reversed still gets the
-    /// same control. What is returned is the core's own spelling, because that is what the core
-    /// accepts and what `selectClashMode` must send back.
-    ///
-    /// Present-and-three is a complete answer: a list holding all three of three values holds no
-    /// others, and so holds no duplicates, which is why each returned element has exactly one
-    /// match in the list it came from.
-    private func conventionalModes(in modes: [String]) -> [String]? {
-        guard modes.count == 3 else {
-            return nil
-        }
-        let conventional = ["rule", "global", "direct"]
-        let matched = conventional.compactMap { name in
-            modes.first { $0.caseInsensitiveCompare(name) == .orderedSame }
-        }
-        return matched.count == conventional.count ? matched : nil
-    }
-
-    /// The three conventional modes as one row of equal thirds: the home page's shape for the
-    /// choice, where the reference's three rows are the settings page's shape for it.
+    /// The modes as one row of equal thirds: the home page's shape for the choice, where the
+    /// reference's rows are the settings page's shape for it.
     ///
     /// The row is `HakoTheme.Control.compactChoiceRowMinHeight` tall - the touch target - and the
     /// chosen third is marked by a `HakoTheme.Control.segmentedTabHeight` capsule of the design
@@ -724,13 +817,14 @@ public struct HakoHomeView: View {
     /// not a disabled control. Nothing else is drawn: no icons, no captions, no selection marks,
     /// and no dividers, which is what keeps one row one row.
     ///
-    /// Equal thirds come from `maxWidth: .infinity` and a zero spacing, so the three labels sit in
-    /// one `HStack` and divide it. Nothing here measures text: the three words are two characters
-    /// each and the row is the page's width.
+    /// Equal thirds come from `maxWidth: .infinity` and a zero spacing, so the labels sit in one
+    /// `HStack` and divide it. The labels here are the core's own list in the core's own order -
+    /// this no longer reorders anything into a preferred reading order, because with a
+    /// configuration-defined list there is no order but the one the core reported.
     ///
-    /// Every one of the three is `hako.home.mode.<the core's spelling>`, the identifier the
-    /// fallback rows carry, so a test naming a mode names it the same way in either shape. Each
-    /// carries the selected trait the fallback row carries, for the same reason.
+    /// Every third is `hako.home.mode.<the core's spelling>`, the identifier the fallback rows
+    /// carry, so a test naming a mode names it the same way in either shape. Each carries the
+    /// selected trait the fallback row carries, for the same reason.
     private func compactModePicker(modes: [String], current: String) -> some View {
         HStack(spacing: 0) {
             ForEach(modes, id: \.self) { mode in
@@ -831,7 +925,7 @@ public struct HakoHomeView: View {
     /// disconnected that property is empty, and falling back to it would silently move the
     /// selection again instead of restoring what the reader had.
     private func selectClashMode(_ mode: String) {
-        let modes = environments.commandClient.clashModeList
+        let modes = modeList
         let requested = canonicalMode(mode, in: modes)
         withAnimation {
             localMode = requested

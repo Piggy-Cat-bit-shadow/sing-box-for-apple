@@ -210,6 +210,9 @@ SFIUITests/ SFMUITests/ SFTUITests/ UITests/   上游的 UI 测试目标
 scripts/
   dev/audit_apple_ui_boundary.py       ★ 静态边界审计（本项目的验收工具）
   dev/test_audit_apple_ui_boundary.py  ★ 审计的负例套件（14 个案例）
+  dev/check_hako_profile_switch.py     ★ 编译并运行配置切换的排队逻辑（真实 Swift 编译器 + 提取的视图代码）
+  dev/check_compact_mode_picker.py     ★ 编译并运行出站模式栏的形状决策（同上）
+  dev/test_hako_ui_gates.py            ★ 上面两个门禁的负例套件（把每个缺陷放回去，要求门禁报错）
   dev/set_display_name.py              重新应用可见产品名（幂等，合并上游后运行）
   link-test-sources.sh                 把真实源码以符号链接接入测试包
   run-subscription-usage-tests.sh      运行上述测试包
@@ -220,6 +223,7 @@ docs/
   UPSTREAM-SYNC-PLAYBOOK.md            ★ 上游同步的逐步操作手册
   APPLE-DEVICE-ACCEPTANCE.md           ★ 待执行验收清单；**开头的铁律先读**：iPad/Mac 只做代码审核，禁止实测
   APPLE-REFACTOR-FINAL-REPORT.md       本轮施工的最终报告
+  HAKO-UI-BEHAVIOR-CLOSURE-2026-11-07.md ★ iPhone UI 行为闭环：配置切换 / 模式栏 / 错误弹窗（含证据等级与待真机清单）
   SNAPSHOT-FIXTURE-CONTRACT.md         ★ 截图 fixture 读哪些变量、如何加状态、哪些状态测不到
   pending/                             未能原样取用的 fork 资产（含原因）
 ```
@@ -268,7 +272,14 @@ docs/
 ```bash
 python scripts/dev/audit_apple_ui_boundary.py --upstream-ref 089d35e   # 应当是 PASS 9 FAIL 0
 python scripts/dev/test_audit_apple_ui_boundary.py                     # 14/14 应当按设计行为
+python scripts/dev/check_hako_profile_switch.py                        # 配置切换：6 个行为案例 + 接线断言
+python scripts/dev/check_compact_mode_picker.py                        # 出站模式栏：10 个案例 + 接线断言
+python scripts/dev/test_hako_ui_gates.py                               # 12/12 把缺陷放回去，门禁必须报错
 ```
+
+后面三条需要 `swiftc`（编译真实的决策文件并运行），不需要 Xcode。`test_hako_ui_gates.py`
+有一条用例会在临时目录里改一份树再跑 `check_hako_profile_switch.py`，因此它同时验证门禁
+「会对」和「会错」。
 
 `UNKNOWN` 不是通过。它意味着一次比较没能进行——在继续之前把它修好。
 

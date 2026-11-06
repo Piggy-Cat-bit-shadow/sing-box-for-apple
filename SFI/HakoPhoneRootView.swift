@@ -179,9 +179,8 @@ struct HakoPhoneRootView: View {
             // records the failure on its own `alert`. The iPad presents that alert (`DashboardView:26`);
             // the phone bound its *own* state here, which only ever held URL-import failures - so an
             // unreadable profile list left Home saying "No profile selected" with no explanation and no
-            // retry. Both alerts are presented now, each where it belongs.
-            .alert($alert)
-            .alert($dashboard.alert)
+            // retry. Both sources are presented through the root's one presentation - see `pageAlert`.
+            .alert(pageAlert)
             .globalChecks()
             .environment(\.selection, $selection)
             .environment(\.importProfile, $importProfile)
@@ -278,6 +277,31 @@ struct HakoPhoneRootView: View {
                     }
                 }
             }
+    }
+
+    /// The root's one alert presentation.
+    ///
+    /// `.alert` is a presentation modifier, and two of them attached to the same view are one
+    /// presentation: the outer one wins. This view stacked `$alert` (URL-import failures) inside
+    /// `$dashboard.alert` (an unreadable configuration list), so the outer one was the only one
+    /// the reader could ever see and a failed import looked like a tap that had not registered -
+    /// the exact opposite of what the comment above the modifiers claimed. Folding both sources
+    /// into the single presentation the modifier chain can make is what makes both reachable.
+    ///
+    /// The two are never set at the same moment; the getter's order is only a preference for the
+    /// impossible case. Clearing either clears both, because this is one presentation - a sheet
+    /// dismissed once must not come back from the other source still holding a value.
+    private var pageAlert: Binding<AlertState?> {
+        Binding(
+            get: { alert ?? dashboard.alert },
+            set: { newValue in
+                guard newValue == nil else {
+                    return
+                }
+                alert = nil
+                dashboard.alert = nil
+            }
+        )
     }
 
     /// Calls back when an `ExtensionProfile`'s status changes.

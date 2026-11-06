@@ -3,15 +3,24 @@
 
 The compact picker is a SwiftUI view, and this host has no Xcode, so the view itself
 cannot be instantiated here. What *can* be compiled and executed is the part of the
-control that decides anything - which lists the compact shape is allowed to serve,
-which third it marks, what a third is called, and which string a tap sends to the core.
-None of that is SwiftUI: it is a handful of `private func`s on `HakoHomeView`.
+control that decides anything:
 
-So this gate does not re-implement them. It **extracts their source text** from
-`HakoHomeView.swift` verbatim, compiles that text with the real Swift compiler, and
-drives it through the cases the change has to satisfy. A re-implementation would only
-prove that the re-implementation agrees with itself; extracted source is the shipped
-code, and if it changes, the thing under test changes with it.
+  * which lists the compact shape is allowed to serve, and how wide a label may be -
+    `HakoClashModeLayout`, which is a Foundation-only file and is compiled **as it
+    ships**, not re-implemented here;
+  * which third it marks, what a third is called, and which string a tap sends to the
+    core - a handful of `private func`s on `HakoHomeView`, whose source text is
+    **extracted verbatim** and compiled with the real Swift compiler.
+
+A re-implementation would only prove that the re-implementation agrees with itself.
+Extracted source is the shipped code, and if it changes, the thing under test changes
+with it.
+
+This gate also asserts the view's *wiring*, which no executable case can reach: that
+the mode section asks `HakoClashModeLayout` for the shape (rather than the removed
+three-English-words rule), that it reads the list the command client published instead
+of reading through the nested observable, and that the core's own publisher is what
+writes that mirror.
 
 Usage:
     python check_compact_mode_picker.py [--root DIR] [--explain]
@@ -32,7 +41,6 @@ import tempfile
 # Adding a decision to the view means adding it here; the gate fails loudly rather than
 # silently testing a subset if one of them disappears.
 REQUIRED_METHODS = (
-    "conventionalModes",
     "currentMode",
     "canonicalMode",
     "modeTitle",
@@ -41,6 +49,7 @@ REQUIRED_METHODS = (
 )
 
 VIEW_FILE = os.path.join("ApplicationLibrary", "Views", "HakoStyle", "HakoHomeView.swift")
+LAYOUT_FILE = os.path.join("ApplicationLibrary", "Views", "HakoStyle", "HakoClashModeLayout.swift")
 CATALOG_FILE = "Localizable.xcstrings"
 
 
@@ -81,8 +90,8 @@ HARNESS_HEADER = """\
 //
 // Everything below `enum Extracted` is the verbatim text of the methods named in
 // REQUIRED_METHODS, lifted out of HakoHomeView.swift. `Probe` is the smallest thing
-// that can stand in for the rest of the view: the two pieces of mode state and the
-// recorder for what a tap sends.
+// that can stand in for the rest of the view: the mode state and the recorder for what
+// a tap sends. `HakoClashModeLayout` is compiled from the shipped file beside this one.
 import Foundation
 
 struct AlertState {
@@ -124,35 +133,26 @@ extension String {
 /// The stand-in the extracted method bodies are compiled inside.
 ///
 /// They are methods of `HakoHomeView` and read its state unqualified - `localMode`,
-/// `confirmedMode`, `clashModeList` through `environments`, and the `alert` they raise - so
-/// this class supplies exactly those names and nothing else. The bodies are pasted in
-/// unchanged; the names around them are what makes that possible. `Probe` inherits it.
+/// `confirmedMode`, `modeList`, and the `alert` they raise - so this class supplies
+/// exactly those names and nothing else. The bodies are pasted in unchanged; the names
+/// around them are what makes that possible. `Probe` inherits it.
+///
+/// `modeList` is the *mirror* of the core's list, which is what the view reads. It used
+/// to read `environments.commandClient.clashModeList` in place, which is the defect the
+/// view's subscription closes; there is no `environments` here because the shipped code
+/// no longer reaches for one.
 @MainActor
 class Extracted {
-    let clashModeList: [String]
-    let clashMode: String
+    var modeList: [String]
     var localMode: String
     var confirmedMode: String
     /// The state the view raises its alert through; the extracted method assigns it.
     var alert: AlertState?
-    var alerts: [String] = []
 
-    init(clashModeList: [String], clashMode: String) {
-        self.clashModeList = clashModeList
-        self.clashMode = clashMode
-        localMode = clashMode
-        confirmedMode = clashMode
-    }
-
-    /// The shape `selectClashMode` reads the list through.
-    struct Client {
-        let clashModeList: [String]
-    }
-
-    var environments: Environments { Environments(commandClient: Client(clashModeList: clashModeList)) }
-
-    struct Environments {
-        let commandClient: Client
+    init(modes: [String], reported: String) {
+        modeList = modes
+        localMode = reported
+        confirmedMode = reported
     }
 """
 
@@ -160,19 +160,17 @@ class Extracted {
 HARNESS_FOOTER = """\
 }
 
-/// The state the extracted methods reach for, and the two questions the cases ask of them.
+/// The state the extracted methods reach for, and the questions the cases ask of them.
 @MainActor
 final class Probe: Extracted {
-    init(modes: [String], reported: String) {
-        super.init(clashModeList: modes, clashMode: reported)
-    }
-
     var selection: String {
-        currentMode(in: clashModeList)
+        currentMode(in: modeList)
     }
 
+    /// The list the compact shape serves, or `nil` when the section must fall back to
+    /// the painted list. This is the shipped decision, in the shipped file.
     func pickerModes() -> [String]? {
-        conventionalModes(in: clashModeList)
+        HakoClashModeLayout.shape(titles: modeList.map(modeTitle)) == .compactRow ? modeList : nil
     }
 
     /// The label the picker draws on a third, and the caption the fallback row would.
@@ -295,7 +293,7 @@ func settle() async {
 /// The Chinese the shipped catalogue gives each key `modeTitle` returns, read out of
 /// `Localizable.xcstrings` by the gate that generated this file. The extracted methods are
 /// asked for their own keys - `String(localized:)` is a bundle lookup, and this host has no
-/// bundle - and the pair is what a reader actually sees on the three thirds.
+/// bundle - and the pair is what a reader actually sees on the thirds.
 let catalogue: [String: String] = [
 CATALOGUE_ENTRIES
 ]
@@ -312,10 +310,10 @@ func chinese(for key: String) throws -> String {
 func runChecks() async throws -> [String] {
     var ran: [String] = []
 
-    // 1. The standard three, the order the core conventionally reports.
+    // 1. The conventional three, the order the core conventionally reports.
     do {
         let probe = Probe(modes: ["Rule", "Global", "Direct"], reported: "Rule")
-        try expectEqual(probe.pickerModes(), ["Rule", "Global", "Direct"], "standard three are compact")
+        try expectEqual(probe.pickerModes(), ["Rule", "Global", "Direct"], "the conventional three are compact")
         try expectEqual(probe.selection, "Rule", "the core's reported mode is the marked third")
         try expectEqual(
             try probe.labels().map { try chinese(for: $0) },
@@ -326,16 +324,18 @@ func runChecks() async throws -> [String] {
         ran.append("standard three")
     }
 
-    // 2. The order the core reports is not the order the picker shows.
+    // 2. The row is the core's own order. It used to be reordered into the reading order of
+    //    the three English words; with a configuration-defined list there is no other order,
+    //    and reordering would be this client inventing one.
     do {
         CommandTarget.sent = []
         let probe = Probe(modes: ["Global", "Direct", "Rule"], reported: "Global")
-        try expectEqual(probe.pickerModes(), ["Rule", "Global", "Direct"], "the picker fixes the order")
-        try expectEqual(probe.selection, "Global", "the marked third follows the core, not the slot")
+        try expectEqual(probe.pickerModes(), ["Global", "Direct", "Rule"], "the row keeps the core's order")
+        try expectEqual(probe.selection, "Global", "the marked third follows the core")
         probe.tap(probe.pickerModes()![2])
         await settle()
-        try expectEqual(CommandTarget.sent.last, "Direct", "a tap sends the core's own spelling")
-        ran.append("reported order")
+        try expectEqual(CommandTarget.sent.last, "Rule", "a tap sends the core's own spelling")
+        ran.append("core order")
     }
 
     // 3. Case is the configuration's to choose.
@@ -366,10 +366,33 @@ func runChecks() async throws -> [String] {
         ran.append("case")
     }
 
-    // 4. A fourth mode is never dropped: the compact shape declines the list.
+    // 4. A list of three the configuration defined itself is a row of three.
+    //
+    //    This is the case the rule exists for and the one the previous rule got wrong: it
+    //    asked whether the list was exactly `Rule`, `Global` and `Direct`, so three modes of
+    //    the reader's own - in English or Chinese - went to the taller fallback for no reason
+    //    a reader could see.
+    do {
+        let english = Probe(modes: ["Proxy", "Block", "Auto"], reported: "Block")
+        try expectEqual(english.pickerModes(), ["Proxy", "Block", "Auto"], "three custom English modes are one row")
+        try expectEqual(english.selection, "Block", "and the core's mode is marked on it")
+
+        let chinese = Probe(modes: ["代理", "直连", "拦截"], reported: "直连")
+        try expectEqual(chinese.pickerModes(), ["代理", "直连", "拦截"], "three custom Chinese modes are one row")
+        try expectEqual(chinese.selection, "直连", "and the core's mode is marked on it")
+
+        CommandTarget.sent = []
+        chinese.tap("代理")
+        await settle()
+        try expectEqual(CommandTarget.sent.last, "代理", "a custom mode goes back exactly as it came")
+        ran.append("custom three")
+    }
+
+    // 5. A fourth mode is never dropped: the compact shape declines the list, and the
+    //    fallback renders all four.
     do {
         let probe = Probe(modes: ["Rule", "Global", "Direct", "Block"], reported: "Rule")
-        try expectEqual(probe.pickerModes(), nil, "a custom mode falls back to the list")
+        try expectEqual(probe.pickerModes(), nil, "a fourth mode falls back to the list")
         try expectEqual(probe.selection, "Rule", "the fallback still marks the current mode")
         try expectEqual(probe.label("Block"), "Block", "an unknown mode is shown as the core named it")
         try expectEqual(probe.caption("Block"), nil, "an unknown mode grows no borrowed explanation")
@@ -378,18 +401,25 @@ func runChecks() async throws -> [String] {
             "\u{6240}\u{6709}\u{8fde}\u{63a5}\u{5747}\u{8d70}\u{4ee3}\u{7406}",
             "the fallback row keeps its explanation"
         )
+        for count in 5...8 {
+            let many = Probe(modes: (1...count).map { "Mode\($0)" }, reported: "Mode1")
+            try expectEqual(many.pickerModes(), nil, "\(count) modes fall back to the list")
+        }
         ran.append("custom mode")
     }
 
-    // 5. Fewer than three: never compact, and a single mode is still no control at all.
+    // 6. Fewer than three: never compact, and a single mode is still no control at all.
     do {
         let probe = Probe(modes: ["Rule"], reported: "Rule")
-        try expectEqual(probe.pickerModes(), nil, "one mode is not the compact three")
-        try expect(probe.clashModeList.count <= 1, "one mode draws no selector")
-        ran.append("single mode")
+        try expectEqual(probe.pickerModes(), nil, "one mode is not the compact row")
+        try expect(probe.modeList.count <= 1, "one mode draws no selector")
+        let pair = Probe(modes: ["Rule", "Global"], reported: "Global")
+        try expectEqual(pair.pickerModes(), ["Rule", "Global"], "two short modes are one row")
+        try expectEqual(pair.selection, "Global", "and the core's mode is marked on it")
+        ran.append("few modes")
     }
 
-    // 6. A switch the core refuses is given back to the mode it last reported.
+    // 7. A switch the core refuses is given back to the mode it last reported.
     do {
         CommandTarget.sent = []
         CommandTarget.failure = NSError(domain: "probe", code: 1)
@@ -402,7 +432,7 @@ func runChecks() async throws -> [String] {
         ran.append("failed switch rolls back")
     }
 
-    // 7. A switch the core accepts stays where the reader put it, before the core reports.
+    // 8. A switch the core accepts stays where the reader put it, before the core reports.
     do {
         CommandTarget.sent = []
         let probe = Probe(modes: ["Rule", "Global", "Direct"], reported: "Rule")
@@ -414,21 +444,63 @@ func runChecks() async throws -> [String] {
         ran.append("optimistic selection")
     }
 
-    // 8. Every list that is not exactly the conventional three is declined.
+    // 9. Readability decides the shape, not the words. The budget is the shipped constant.
     do {
-        let walls: [[String]] = [
+        let budget = HakoClashModeLayout.maximumLabelWidthUnits
+        try expectEqual(HakoClashModeLayout.widthUnits(of: "Direct"), 6, "a narrow glyph is one unit")
+        try expectEqual(HakoClashModeLayout.widthUnits(of: "\u{76f4}\u{8fde}"), 4, "a full-width glyph is two")
+        try expectEqual(HakoClashModeLayout.widthUnits(of: ""), 0, "nothing is no width")
+
+        // Exactly at the budget is still readable; one unit over is not.
+        let atBudget = String(repeating: "a", count: budget)
+        let overBudget = String(repeating: "a", count: budget + 1)
+        try expectEqual(
+            Probe(modes: [atBudget, "b", "c"], reported: "b").pickerModes(),
+            [atBudget, "b", "c"],
+            "a label exactly at the budget keeps the row"
+        )
+        try expectEqual(
+            Probe(modes: [overBudget, "b", "c"], reported: "b").pickerModes(),
+            nil,
+            "a label one unit over the budget declines the row"
+        )
+
+        // A long name in either script declines, because a truncated name is not a choice.
+        try expectEqual(
+            Probe(modes: ["Rule", "Global", "VeryLongModeName"], reported: "Rule").pickerModes(),
+            nil,
+            "a long English mode name declines the row"
+        )
+        try expectEqual(
+            Probe(modes: ["\u{81ea}\u{5b9a}\u{4e49}\u{6a21}\u{5f0f}\u{4e00}",
+                          "\u{81ea}\u{5b9a}\u{4e49}\u{6a21}\u{5f0f}\u{4e8c}",
+                          "\u{81ea}\u{5b9a}\u{4e49}\u{6a21}\u{5f0f}\u{4e09}"],
+                    reported: "\u{81ea}\u{5b9a}\u{4e49}\u{6a21}\u{5f0f}\u{4e00}").pickerModes(),
+            nil,
+            "six-glyph Chinese mode names decline the row"
+        )
+        // Five-glyph Chinese names are exactly the budget, and they are readable.
+        try expectEqual(
+            Probe(modes: ["\u{89c4}\u{5219}\u{6a21}\u{5f0f}\u{4e00}", "\u{5168}\u{5c40}\u{6a21}\u{5f0f}\u{4e8c}", "\u{76f4}\u{8fde}\u{6a21}\u{5f0f}\u{4e09}"],
+                  reported: "\u{89c4}\u{5219}\u{6a21}\u{5f0f}\u{4e00}").pickerModes(),
+            ["\u{89c4}\u{5219}\u{6a21}\u{5f0f}\u{4e00}", "\u{5168}\u{5c40}\u{6a21}\u{5f0f}\u{4e8c}", "\u{76f4}\u{8fde}\u{6a21}\u{5f0f}\u{4e09}"],
+            "five-glyph Chinese mode names keep the row"
+        )
+        ran.append("width budget")
+    }
+
+    // 10. Every list that cannot be drawn as one row is declined, and nothing else is.
+    do {
+        let declined: [[String]] = [
             [],
             ["Rule"],
-            ["Rule", "Global"],
             ["Rule", "Global", "Direct", "Block"],
-            ["Rule", "Global", "DIRECT", "direct"],
             ["Rule", "Rule", "Global"],
-            ["Rule", "Global", "Proxy"],
-            ["rule", "global"],
+            ["", "Global", "Direct"],
         ]
-        for wall in walls {
-            let probe = Probe(modes: wall, reported: wall.first ?? "")
-            try expectEqual(probe.pickerModes(), nil, "must decline \(wall)")
+        for list in declined {
+            let probe = Probe(modes: list, reported: list.first ?? "")
+            try expectEqual(probe.pickerModes(), nil, "must decline \(list)")
         }
         ran.append("declined lists")
     }
@@ -440,6 +512,155 @@ let ran = try await runChecks()
 for name in ran { print("  [ok] " + name) }
 print("  compact outbound-mode picker: \(ran.count) case(s) PASS")
 """
+
+
+def code_only(text: str) -> str:
+    """`text` with comments removed and string literals kept.
+
+    The same state machine `check_swift_structure.py` walks, and for the same reason: a `//`
+    inside a string literal (a URL, most often) is not a comment, and treating it as one
+    would swallow code. Comments become a space so a pattern cannot be assembled across one.
+
+    The wiring checks below are substring searches, and this file's own header and the
+    view's doc comments name the very calls they forbid ("this was `onChangeCompat(of: …)`").
+    Searching the comments too would fail on the explanation rather than on the code.
+    """
+    out: list[str] = []
+    index = 0
+    length = len(text)
+    in_line = False
+    in_block = 0
+    in_string = False
+    in_multiline = False
+    raw_hashes = 0
+
+    while index < length:
+        char = text[index]
+        nxt = text[index + 1] if index + 1 < length else ""
+
+        if char == "\n":
+            in_line = False
+            out.append(char)
+            index += 1
+            continue
+        if in_line:
+            index += 1
+            continue
+        if in_block:
+            if char == "*" and nxt == "/":
+                in_block -= 1
+                index += 2
+                continue
+            if char == "/" and nxt == "*":
+                in_block += 1
+                index += 2
+                continue
+            index += 1
+            continue
+        if in_multiline:
+            out.append(char)
+            if char == '"' and text.startswith('"""' + "#" * raw_hashes, index):
+                out.extend('""' + "#" * raw_hashes)
+                in_multiline = False
+                index += 3 + raw_hashes
+                continue
+            index += 1
+            continue
+        if in_string:
+            out.append(char)
+            if char == "\\":
+                if index + 1 < length:
+                    out.append(text[index + 1])
+                index += 2
+                continue
+            if char == '"':
+                in_string = False
+            index += 1
+            continue
+
+        if char == "/" and nxt == "/":
+            in_line = True
+            index += 2
+            out.append(" ")
+            continue
+        if char == "/" and nxt == "*":
+            in_block += 1
+            index += 2
+            out.append(" ")
+            continue
+        if text.startswith('"""', index):
+            in_multiline = True
+            out.extend('"""')
+            index += 3
+            continue
+        if char == '"':
+            in_string = True
+            out.append(char)
+            index += 1
+            continue
+        if char == "#":
+            hashes = 0
+            probe = index
+            while probe < length and text[probe] == "#":
+                hashes += 1
+                probe += 1
+            if probe < length and text[probe] == '"':
+                raw_hashes = hashes
+                in_string = True
+                out.extend(text[index:probe + 1])
+                index = probe + 1
+                continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def check_view_contract(source: str) -> list[str]:
+    """The wiring no executable case can reach, asserted on the view's own text.
+
+    Each entry is a defect, not a suggestion: the rule it checks is the one the change
+    exists to establish, and a view that stopped satisfying it would be reading state
+    that cannot report a change, or deciding the shape from the wrong input.
+    """
+    problems: list[str] = []
+    code = code_only(source)
+
+    if "HakoClashModeLayout.shape(titles: modes.map(modeTitle))" not in code:
+        problems.append(
+            "the mode section no longer asks `HakoClashModeLayout` for the shape - the "
+            "readability rule is in the view again, or the decision is bypassed"
+        )
+    if "conventionalModes" in code:
+        problems.append(
+            "`conventionalModes` is back in the view: the shape is being decided from the "
+            "three English words again"
+        )
+    if "let modes = modeList" not in code:
+        problems.append(
+            "the mode section no longer reads the mirrored list (`let modes = modeList`), so "
+            "it is reading the nested observable's value in `body` again"
+        )
+    if "let modes = environments.commandClient.clashModeList" in code:
+        problems.append(
+            "a read path takes `environments.commandClient.clashModeList` directly - a nested "
+            "observable's value, which does not re-evaluate the view when the core changes it"
+        )
+    if ".onReceive(environments.commandClient.$clashModeList)" not in code:
+        problems.append(
+            "nothing subscribes to `$clashModeList`, so the row's list is not a mirror of the "
+            "core's and a configuration switch can leave the previous list on screen"
+        )
+    if ".onReceive(environments.commandClient.$clashMode)" not in code:
+        problems.append(
+            "nothing subscribes to `$clashMode`: `onChangeCompat` over a nested observable's "
+            "property cannot fire, because the parent object does not publish"
+        )
+    if "onChangeCompat(of: environments.commandClient.clashMode)" in code:
+        problems.append(
+            "`onChangeCompat(of: environments.commandClient.clashMode)` is back - it can never "
+            "fire, because a `@Published` of a nested observable does not invalidate this view"
+        )
+    return problems
 
 
 def find_swiftc(explicit: str | None) -> str:
@@ -471,6 +692,11 @@ def main() -> int:
     with open(view_path, "r", encoding="utf-8") as handle:
         source = handle.read()
 
+    layout_path = os.path.join(options.root, LAYOUT_FILE)
+    if not os.path.exists(layout_path):
+        print("FAIL: %s does not exist - the picker's decision has no shipped file" % layout_path)
+        return 2
+
     catalog_path = os.path.join(options.root, CATALOG_FILE)
     if not os.path.exists(catalog_path):
         print("FAIL: %s does not exist" % catalog_path)
@@ -493,20 +719,23 @@ def main() -> int:
 
     swiftc = find_swiftc(options.swiftc)
     with tempfile.TemporaryDirectory(prefix="compact-mode-picker-") as scratch:
-        harness_path = os.path.join(scratch, "harness.swift")
+        # `main.swift`, not `harness.swift`: this is compiled beside the shipped decision
+        # file, and Swift only allows top-level code (the case list below runs at top level)
+        # in a file with that name when a build has more than one input.
+        harness_path = os.path.join(scratch, "main.swift")
         with open(harness_path, "w", encoding="utf-8") as handle:
             handle.write(harness)
 
         binary = os.path.join(scratch, "harness.exe" if os.name == "nt" else "harness")
         compile_result = subprocess.run(
-            [swiftc, "-O", "-o", binary, harness_path],
+            [swiftc, "-O", "-o", binary, harness_path, layout_path],
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
         )
         if compile_result.returncode != 0:
-            print("FAIL: the extracted methods do not compile")
+            print("FAIL: the extracted methods and the shipped decision file do not compile")
             print(compile_result.stdout)
             print(compile_result.stderr)
             return 1
@@ -523,6 +752,14 @@ def main() -> int:
             sys.stderr.write(run_result.stderr)
             print("FAIL: a case did not hold")
             return 1
+
+    problems = check_view_contract(source)
+    for problem in problems:
+        print("  [FAIL] " + problem)
+    if problems:
+        print("FAIL: the mode section's wiring does not hold")
+        return 1
+    print("  [ok] view wiring: shape from HakoClashModeLayout, list mirrored from the core")
 
     return 0
 
