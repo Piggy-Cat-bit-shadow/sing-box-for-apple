@@ -148,7 +148,10 @@ public final class NewProfileViewModel: BaseViewModel {
             }
             savePath = remotePath
         } else if profileType == .remote {
-            let remoteContent = try await HTTPClient.getStringAsync(remotePath)
+            let remoteContent = try await HTTPClient.getStringAsync(
+                remotePath,
+                userAgent: HTTPClient.subscriptionUserAgent
+            )
             try await BlockingIO.run {
                 var error: NSError?
                 LibboxCheckConfig(remoteContent, &error)

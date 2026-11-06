@@ -71,11 +71,12 @@ final class SubscriptionCaptureTests: XCTestCase {
         )
     }
 
-    /// The body request must keep the identity that keeps the subscription *format* correct.
+    /// The subscription body uses the fixed sing-box identity that keeps the *format* correct.
     /// Sending a Clash marker there risks receiving Clash YAML where sing-box JSON is required.
-    func testTheIdentityUsedForTheBodyIsUnchangedAndCarriesNoClashMarker() {
+    func testTheSubscriptionBodyIdentityIsTheStableSingBoxAgentAndCarriesNoClashMarker() {
+        XCTAssertEqual(HTTPClient.subscriptionUserAgent, "sing-box/1.15.0")
         XCTAssertFalse(
-            HTTPClient.userAgent.lowercased().contains("clash"),
+            HTTPClient.subscriptionUserAgent.lowercased().contains("clash"),
             "the body request's identity must not claim to be a Clash client"
         )
     }

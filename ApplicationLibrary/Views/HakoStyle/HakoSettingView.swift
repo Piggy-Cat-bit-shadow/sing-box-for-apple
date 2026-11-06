@@ -243,7 +243,7 @@ public struct HakoSettingView: View {
                 }
                 .buttonStyle(HakoPushRowButtonStyle())
                 HakoRowDivider()
-                Link(destination: URL(string: "https://github.com/Piggy-Cat-bit-shadow/sing-box")!) {
+                Link(destination: URL(string: "https://github.com/Piggy-Cat-bit-shadow/JiejieBox")!) {
                     rowLabel(aboutDestination(
                         title: String(localized: "Source Code"),
                         subtitle: String(localized: "This client's repository"),

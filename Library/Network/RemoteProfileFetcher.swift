@@ -58,10 +58,10 @@ public enum RemoteProfileFetcher {
             throw RemoteProfileFetchError.missingURL
         }
         var request = URLRequest(url: parsedURL, cachePolicy: cachePolicy, timeoutInterval: 60)
-        // The same User-Agent the Libbox client sends, so switching this fetch to URLSession does
-        // not change what a panel sees. A panel that serves a different plan by User-Agent would
-        // otherwise start answering this client differently.
-        request.setValue(HTTPClient.userAgent, forHTTPHeaderField: "User-Agent")
+        // The subscription body uses the stable sing-box identity on both transports, so a panel
+        // sees the same string from the first import and every refresh. `HTTPClient.userAgent`
+        // stays the app's own identity for GitHub updates, rule-set downloads and other requests.
+        request.setValue(HTTPClient.subscriptionUserAgent, forHTTPHeaderField: "User-Agent")
         request.httpMethod = "GET"
 
         let (data, response) = try await URLSession.shared.data(for: request)

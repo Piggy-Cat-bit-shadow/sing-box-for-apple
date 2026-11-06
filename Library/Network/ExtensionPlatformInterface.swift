@@ -11,7 +11,20 @@ import UserNotifications
 #endif
 
 public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, LibboxCommandServerHandlerProtocol {
+    /// Whether the core has ever asked the system to route through this tunnel.
+    ///
+    /// Set once, at the first successful `setTunnelNetworkSettings`. A tunnel that is connected
+    /// but never reached this point is the "connected, carries nothing" failure: the core
+    /// started without a tun inbound, or the TUN could not be opened.
+    public private(set) static var didApplyTunnelNetworkSettings = false
     private static let logger = Logger(category: "ExtensionPlatformInterface")
+
+    /// The MTU iOS gives the Personal Hotspot bridge that carries a tethered client's traffic.
+    ///
+    /// It is the widest frame any peer behind that bridge can receive, so it is also the only
+    /// honest upper bound for an interface that may forward for those peers.
+    private static let hotspotBridgeMTU = 1500
+
     private let tunnel: ExtensionProvider
     private var networkSettings: NEPacketTunnelNetworkSettings?
 
@@ -41,7 +54,26 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         if options.getAutoRoute() {
-            settings.mtu = NSNumber(value: options.getMTU())
+            // The utun's MTU is not private to this device.
+            //
+            // `include_all_networks` is the one mode in which iOS also routes Personal Hotspot
+            // clients into this utun. In that mode the same interface fronts the 1500-byte
+            // hotspot bridge, and the NIC MTU becomes the MSS this stack offers to every peer
+            // behind it: a 9000-byte utun tells a client on a 1500-byte link to accept segments
+            // that link can never deliver intact, and every non-TCP or MSS-ignoring peer on it
+            // black-holes rather than negotiating around it. An interface that forwards for
+            // others must not promise more than the narrowest link it forwards for.
+            //
+            // The decision is taken from the start options rather than from hotspot state:
+            // iOS exposes no "I am serving a hotspot" signal, and the hotspot may be enabled
+            // long after `setTunnelNetworkSettings` has run, at which point this value can no
+            // longer be revised for the session.
+            let requestedMTU = Int(options.getMTU())
+            var effectiveMTU = requestedMTU > 0 ? requestedMTU : Self.hotspotBridgeMTU
+            if prefs.includeAllNetworks, effectiveMTU > Self.hotspotBridgeMTU {
+                effectiveMTU = Self.hotspotBridgeMTU
+            }
+            settings.mtu = NSNumber(value: effectiveMTU)
 
             var dnsSettings: NEDNSSettings?
             if options.getDNSMode()!.value != LibboxDNSModeDisabled {
@@ -86,6 +118,27 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
             } else {
                 ipv4Routes.append(NEIPv4Route.default())
             }
+
+            #if os(iOS)
+                // The addresses the core answers for itself (option `loopback_address`). A packet can
+                // only reach the core if the system routes it to this interface, so each one needs an
+                // explicit /32. They are appended regardless of which route shape was chosen above:
+                // with `excludeDefaultRoute` there is no default route to catch them, and in the
+                // sub-range shape the containing range is deliberately not the ones they fall in.
+                //
+                // iOS only. The switch that injects the address exists only here, and a macOS build
+                // must not gain routes it did not install before: `loopback_address` in a user's own
+                // configuration meant "the core knows about it", and that is what it still means on
+                // macOS. Installing routes there is a behaviour change this feature did not ask for.
+                if let inet4LoopbackIterator = options.getInet4LoopbackAddress() {
+                    while inet4LoopbackIterator.hasNext() {
+                        let address = inet4LoopbackIterator.next()
+                        if !ipv4Routes.contains(where: { $0.destinationAddress == address }) {
+                            ipv4Routes.append(NEIPv4Route(destinationAddress: address, subnetMask: "255.255.255.255"))
+                        }
+                    }
+                }
+            #endif
 
             let inet4RouteExcludeAddressIterator = options.getInet4RouteExcludeAddress()!
             while inet4RouteExcludeAddressIterator.hasNext() {
@@ -146,6 +199,21 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
                 } else {
                     ipv6Routes.append(NEIPv6Route.default())
                 }
+
+                #if os(iOS)
+                    // The same host-route rule for IPv6, with the same platform gate. It is inside
+                    // the `!ipv6Address.isEmpty` branch on purpose: an NEIPv6Settings without an
+                    // address cannot deliver a packet, so advertising a /128 there would be a route
+                    // to nowhere.
+                    if let inet6LoopbackIterator = options.getInet6LoopbackAddress() {
+                        while inet6LoopbackIterator.hasNext() {
+                            let address = inet6LoopbackIterator.next()
+                            if !ipv6Routes.contains(where: { $0.destinationAddress == address }) {
+                                ipv6Routes.append(NEIPv6Route(destinationAddress: address, networkPrefixLength: 128))
+                            }
+                        }
+                    }
+                #endif
 
                 let inet6RouteExcludeAddressIterator = options.getInet6RouteExcludeAddress()!
                 while inet6RouteExcludeAddressIterator.hasNext() {
@@ -213,6 +281,12 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
 
         networkSettings = settings
         try await tunnel.setTunnelNetworkSettings(settings)
+        // Recorded because "the tunnel is up but carries nothing" looks identical to a working
+        // tunnel from the app: the NE session is connected, no error is thrown, and without an App
+        // Group the app cannot read this process's log. Whether the core ever asked the system to
+        // route through this interface is the one fact that separates the two.
+        Self.didApplyTunnelNetworkSettings = true
+        logInstalledSettings(settings, autoRoute: options.getAutoRoute(), prefs: prefs)
 
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
             ret0_.pointee = tunFd
@@ -225,6 +299,33 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         } else {
             throw NSError(domain: "ExtensionPlatformInterface", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "Missing file descriptor")])
         }
+    }
+
+    /// Records the tunnel as the system received it, once per session.
+    ///
+    /// Nothing else in the client reports what was actually installed: the profile's options,
+    /// the platform's own decisions (`includeAllNetworks`, `excludeLocalNetworks`) and the
+    /// clamping above all end up as one `NEPacketTunnelNetworkSettings`, and a report of "the
+    /// tethered client has no connectivity" cannot be read without it.
+    private func logInstalledSettings(_ settings: NEPacketTunnelNetworkSettings, autoRoute: Bool, prefs: ExtensionProvider.OverridePreferences) {
+        let ipv4Included = settings.ipv4Settings?.includedRoutes?.count ?? 0
+        let ipv4Excluded = settings.ipv4Settings?.excludedRoutes?.count ?? 0
+        let ipv6Included = settings.ipv6Settings?.includedRoutes?.count ?? 0
+        let ipv6Excluded = settings.ipv6Settings?.excludedRoutes?.count ?? 0
+        let dnsServers = settings.dnsSettings?.servers.joined(separator: ",") ?? "none"
+        let matchDomains = settings.dnsSettings?.matchDomains?.joined(separator: ",") ?? "none"
+        let mtu = settings.mtu?.intValue ?? 0
+        let summary = [
+            "[tunnel] installed",
+            "mtu=\(mtu)",
+            "auto_route=\(autoRoute)",
+            "ipv4=\(ipv4Included)/\(ipv4Excluded)",
+            "ipv6=\(ipv6Included)/\(ipv6Excluded)",
+            "dns=\(dnsServers)",
+            "match_domains=\(matchDomains)",
+            "include_all_networks=\(prefs.includeAllNetworks)",
+        ].joined(separator: " ")
+        tunnel.writeMessage(summary, level: .info)
     }
 
     public func usePlatformAutoDetectControl() -> Bool {
@@ -274,10 +375,6 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
             return result
         #endif
         throw NSError(domain: "ExtensionPlatformInterface", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "Not implemented")])
-    }
-
-    public func useProcFS() -> Bool {
-        false
     }
 
     public func writeLog(_ message: String?) {

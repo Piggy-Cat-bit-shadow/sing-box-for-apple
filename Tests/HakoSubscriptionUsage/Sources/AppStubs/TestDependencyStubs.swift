@@ -19,6 +19,9 @@ public enum HTTPClient {
         "HakoTest (sing-box stub; language en_US)"
     }
 
+    /// Mirrors the real fixed identity the subscription body request carries.
+    public static let subscriptionUserAgent = "sing-box/1.15.0"
+
     /// Mirrors the real `subscriptionMetadataUserAgent`: the identity above plus the
     /// Clash-compatibility marker the metadata probe needs. The probe's request is asserted
     /// against this value, so the marker being present is testable here.

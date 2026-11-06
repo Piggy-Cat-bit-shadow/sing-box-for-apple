@@ -1,1 +1,1 @@
-../../../Library/Network/SubscriptionInfo.swift
+../../../../Library/Network/SubscriptionInfo.swift

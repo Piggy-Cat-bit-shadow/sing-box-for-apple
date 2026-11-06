@@ -392,6 +392,10 @@ private struct LogContentInnerView: View {
                 Text("Connecting...").onAppear {
                     environments.connect()
                 }
+            } else if FilePath.isUsingProcessLocalDirectory {
+                // Not "the service is stopped": this signature shares no container with the
+                // tunnel, so the command channel cannot connect and the log cannot be read.
+                Text("状态通道不可用 / Status channel unavailable")
             } else {
                 Text("Service not started").onAppear {
                     environments.connect()

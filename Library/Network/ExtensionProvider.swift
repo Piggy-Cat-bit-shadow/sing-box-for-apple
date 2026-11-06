@@ -45,12 +45,30 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// correct mechanism is the one that adds no new lifecycle concept.
     private let serviceLifecycleLock = NSLock()
 
+    #if os(iOS)
+        /// The takeover check runs once, on the first start of this provider's life.
+        ///
+        /// A reload must not run it again: the TUN is already open, and a transient state during a
+        /// reload would turn a working tunnel into an error.
+        private var tunnelTakeoverChecked = false
+    #endif
+
+    /// The address the switch asks the tunnel to answer for locally.
+    ///
+    /// One constant, in one place: the core merges whatever the platform lists, and the Apple
+    /// Network Extension installs a host route for the same list, so the two halves cannot drift
+    /// by editing one of them.
+    public static let localSigningLoopbackAddress = "10.7.0.1"
+
     public struct OverridePreferences {
         public var includeAllNetworks: Bool = false
         public var systemProxyEnabled: Bool = true
         public var excludeDefaultRoute: Bool = false
         public var autoRouteUseSubRangesByDefault: Bool = false
         public var excludeAPNsRoute: Bool = false
+        /// The local signing loopback switch. Startup options only: false for every build that
+        /// does not send the key, which is every non-iOS one.
+        public var localSigningLoopback: Bool = false
     }
 
     public var overridePreferences: OverridePreferences?
@@ -99,7 +117,8 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             systemProxyEnabled: (options["systemProxyEnabled"] as? NSNumber)?.boolValue ?? true,
             excludeDefaultRoute: (options["excludeDefaultRoute"] as? NSNumber)?.boolValue ?? false,
             autoRouteUseSubRangesByDefault: (options["autoRouteUseSubRangesByDefault"] as? NSNumber)?.boolValue ?? false,
-            excludeAPNsRoute: (options["excludeAPNsRoute"] as? NSNumber)?.boolValue ?? false
+            excludeAPNsRoute: (options["excludeAPNsRoute"] as? NSNumber)?.boolValue ?? false,
+            localSigningLoopback: (options["localSigningLoopback"] as? NSNumber)?.boolValue ?? false
         )
     }
 
@@ -126,6 +145,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 "excludeDefaultRoute": overridePreferences.excludeDefaultRoute,
                 "autoRouteUseSubRangesByDefault": overridePreferences.autoRouteUseSubRangesByDefault,
                 "excludeAPNsRoute": overridePreferences.excludeAPNsRoute,
+                "localSigningLoopback": overridePreferences.localSigningLoopback,
             ]
         }
         return PlatformMetadata.json(metadata)
@@ -280,6 +300,23 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             throw ExtensionStartupError("(packet-tunnel): create command server error: \(error.localizedDescription)")
         }
 
+        #if os(iOS)
+            // The App Group is what lets this process and the app share a container. A re-signed
+            // build whose profile does not grant it runs here with a private one: the tunnel and
+            // the VPN work (the configuration arrives in the start options), but the app's
+            // statistics and command channel cannot reach this process, and the command socket
+            // lives in this process's own temporary directory.
+            //
+            // Saying so is the difference between "the statistics are broken" and "this build's
+            // signature cannot give me statistics".
+            if FilePath.isUsingProcessLocalDirectory {
+                writeMessage(
+                    "(packet-tunnel) the App Group is unavailable to this build; running with a private container. VPN traffic works, but the app's statistics and command channel cannot reach this process. Re-sign with a provisioning profile that grants the group to restore them.",
+                    level: .info
+                )
+            }
+        #endif
+
         // Everything from here to the end of this function is the start TRANSACTION, and it is
         // wrapped so that a failure unwinds what it created instead of leaving it live.
         //
@@ -405,6 +442,15 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         }
 
         let options = LibboxOverrideOptions()
+        #if os(iOS)
+            // The local signing loopback address is injected into this run's in-memory
+            // configuration, never into the profile file. Turning the switch off and reloading
+            // therefore leaves the user's configuration exactly as they wrote it, and the core
+            // only ever sees the address while the switch is on.
+            if overridePreferences?.localSigningLoopback == true {
+                options.loopbackAddress = [Self.localSigningLoopbackAddress].toStringIterator()
+            }
+        #endif
         // Held across `startOrReloadService` and the monitor install that follows it inside the core,
         // and NOT across the `locationManager` block below, which is macOS-only, touches no shared
         // resource and would only widen the region.
@@ -419,6 +465,26 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         } catch {
             throw ExtensionStartupError("(packet-tunnel) error: start service: \(error.localizedDescription)")
         }
+        #if os(iOS)
+            // A tunnel that started but never asked the system to route through it is connected and
+            // carries nothing, and nothing reports it: the NE session stays up, the start call
+            // returned without error, and the app has no shared container from which to read this
+            // process's log. The check costs at most a second on the first start and turns that
+            // silent state into an error the system shows the user.
+            if !tunnelTakeoverChecked {
+                tunnelTakeoverChecked = true
+                for _ in 0 ..< 30 where !ExtensionPlatformInterface.didApplyTunnelNetworkSettings {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+                if !ExtensionPlatformInterface.didApplyTunnelNetworkSettings {
+                    let hasTunInbound = configContent.contains("\"tun\"")
+                    throw ExtensionStartupError(
+                        "(packet-tunnel) the tunnel is connected but the core never took it over: no network settings were applied within 3s. "
+                            + "config mentions a tun inbound: \(hasTunInbound); config bytes: \(configContent.utf8.count)"
+                    )
+                }
+            }
+        #endif
         #if os(macOS)
             if !Variant.useSystemExtension, commandServer.needWIFIState() {
                 locationManager = CLLocationManager()
@@ -494,7 +560,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         // `commandServer == nil` and skip the cleanup entirely - leaking whatever the new start built.
         //
         // The same reasoning applies to the macOS block below: `xpcListener.invalidate()`,
-        // `xpcService = nil` and the registry clear are all "tear down the surface I owned", so they
+        // `xpcService = nil` and the command-server release are all "tear down the surface I owned", so they
         // are conditional on the server being the one this call captured. The earlier comment here
         // claimed this ordering was safe for macOS *because* the stop runs first; that is only true
         // when nothing started in between, which is exactly what cannot be assumed.
@@ -513,7 +579,6 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                         xpcListener = nil
                         xpcService.commandServer = nil
                         xpcService = nil
-                        UserServiceEndpointRegistry.shared.clear()
                     }
                 #endif
             } else {
