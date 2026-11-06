@@ -290,6 +290,16 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
     private var nwMonitor: NWPathMonitor?
     private var lastNetworkPath: String?
 
+    /// Serialises every delivery and the seed.
+    ///
+    /// `NWPathMonitor.start(queue:)` only promises that events are delivered on the queue; it does
+    /// not promise a serial queue. `DispatchQueue.global()` is concurrent, so two path updates could
+    /// run `onUpdateDefaultInterface` at once and interleave `lastNetworkPath`, the dedup and the
+    /// two `listener.updateDefaultInterface` calls - the last of which decides the core's default
+    /// interface. The queue is therefore a dedicated serial one, and `close` retires the generation
+    /// on it so a callback already past the generation check cannot race the cleanup.
+    private let pathMonitorQueue = DispatchQueue(label: "io.nekohasekai.sfa.path-monitor")
+
     /// Identifies the monitor a path callback belongs to, and bounds the first update.
     ///
     /// The rules live in `InterfaceMonitorStartup` - a Foundation-only type with no
@@ -307,7 +317,9 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         }
         let monitor = NWPathMonitor()
         nwMonitor = monitor
-        let generation = nwMonitorGeneration.next()
+        // The generation is queue-confined too: the callback reads it on `pathMonitorQueue`, so the
+        // bump has to happen there as well or a start racing a running callback is a data race.
+        let generation = pathMonitorQueue.sync { nwMonitorGeneration.next() }
 
         let semaphore = DispatchSemaphore(value: 0)
         // One closure for the monitor's whole life. The previous revision replaced the handler from
@@ -322,7 +334,7 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
             self.onUpdateDefaultInterface(listener, path)
             semaphore.signal()
         }
-        monitor.start(queue: DispatchQueue.global())
+        monitor.start(queue: pathMonitorQueue)
 
         // Seed from `currentPath` first, so the ordinary case does not wait at all: `NWPathMonitor`
         // populates `currentPath` before `start` returns, and it is `.unsatisfied` rather than invalid
@@ -332,7 +344,13 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         // A network with no default interface is a legal state, not a failure to start. The listener is
         // told so and the tunnel continues to start; the callback above keeps it current if a path
         // appears later, which is what makes "airplane mode, then Wi-Fi on" recover.
-        onUpdateDefaultInterface(listener, monitor.currentPath)
+        //
+        // The seed runs ON the monitor queue: it is the same `lastNetworkPath` the callbacks mutate,
+        // and a callback that started between `monitor.start` and this call would otherwise be a
+        // concurrent writer.
+        pathMonitorQueue.sync {
+            onUpdateDefaultInterface(listener, monitor.currentPath)
+        }
 
         // Then wait, briefly, for a real update to supersede the seed, and map the result through the
         // policy so the two meanings of "the wait ended" are stated once. The outcome is deliberately
@@ -343,6 +361,32 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         _ = InterfaceMonitorStartup.outcome(signalled: signalled)
     }
 
+    /// The interface the path is actually using, not merely the first one it could use.
+    ///
+    /// `NWPath.availableInterfaces` is a list of interfaces the path CAN use, ordered by preference;
+    /// it is not the interface the system selected. On a handover the list can still lead with the
+    /// interface the device is leaving (Wi-Fi during the moment before the path moves to cellular),
+    /// and taking `.first` would report that stale interface to the core - which then keeps dialling
+    /// on a path the system no longer uses. `usesInterfaceType` is the API that answers which type
+    /// the path is on, so the matching entry wins; `.first` remains only as a fallback for an
+    /// interface type the three cases do not name.
+    private func activeInterface(of path: Network.NWPath) -> Network.NWInterface? {
+        let interfaces = path.availableInterfaces
+        if path.usesInterfaceType(.wifi),
+           let wifi = interfaces.first(where: { $0.type == .wifi }) {
+            return wifi
+        }
+        if path.usesInterfaceType(.cellular),
+           let cellular = interfaces.first(where: { $0.type == .cellular }) {
+            return cellular
+        }
+        if path.usesInterfaceType(.wiredEthernet),
+           let wired = interfaces.first(where: { $0.type == .wiredEthernet }) {
+            return wired
+        }
+        return interfaces.first
+    }
+
     private func onUpdateDefaultInterface(_ listener: LibboxInterfaceUpdateListenerProtocol, _ path: Network.NWPath) {
         let networkPath = describeNetworkPath(path)
         listener.updateNetworkPath(networkPath)
@@ -351,7 +395,7 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         }
         lastNetworkPath = networkPath
         guard path.status != .unsatisfied,
-              let defaultInterface = path.availableInterfaces.first
+              let defaultInterface = activeInterface(of: path)
         else {
             listener.updateDefaultInterface("", interfaceIndex: -1, isExpensive: false, isConstrained: false)
             return
@@ -373,6 +417,13 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         }
         if !path.availableInterfaces.isEmpty {
             components.append("interfaces=" + path.availableInterfaces.map { "\($0.name)#\($0.index)/\($0.type)" }.joined(separator: ","))
+        }
+        // The interface the path is USING, not just the set it could use. A handover can keep the
+        // available set identical (Wi-Fi still associated, cellular already up) while the path moves
+        // from one to the other; without this component the dedup key would be unchanged and the
+        // update would be suppressed - the core would keep the interface the device has left.
+        if let activeInterface = activeInterface(of: path) {
+            components.append("active=\(activeInterface.name)#\(activeInterface.index)/\(activeInterface.type)")
         }
         if !path.gateways.isEmpty {
             components.append("gateways=" + path.gateways.map { "\($0)" }.sorted().joined(separator: ","))
@@ -396,13 +447,16 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
     }
 
     public func closeDefaultInterfaceMonitor(_: LibboxInterfaceUpdateListenerProtocol?) throws {
-        // Bumping the generation before the cancel is what makes a late callback harmless: the closure
-        // captures the generation it was installed under, so one already queued when `cancel()` is called
-        // finds a different value and returns without touching the listener or `lastNetworkPath`.
-        nwMonitorGeneration.retire()
+        // The generation bump and the state clear are ONE step on the queue a callback runs on: a
+        // callback already past its generation check would otherwise write `lastNetworkPath` after
+        // this function cleared it, and the next monitor would inherit a dedup key from the previous
+        // one. Cancelling after the sync also means no callback body is running when the monitor dies.
+        pathMonitorQueue.sync {
+            nwMonitorGeneration.retire()
+            lastNetworkPath = nil
+        }
         nwMonitor?.cancel()
         nwMonitor = nil
-        lastNetworkPath = nil
     }
 
     public func getInterfaces() throws -> LibboxNetworkInterfaceIteratorProtocol {
@@ -604,7 +658,12 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         networkSettings = nil
         // The same generation bump as `closeDefaultInterfaceMonitor`, and for the same reason: this is
         // reached from `stopService()`, so it can land while a start's first callback is still queued.
-        nwMonitorGeneration.retire()
+        // It runs on the monitor queue so the bump and the dedup key's clear are one step against a
+        // callback that is already executing.
+        pathMonitorQueue.sync {
+            nwMonitorGeneration.retire()
+            lastNetworkPath = nil
+        }
         nwMonitor?.cancel()
         nwMonitor = nil
         #if os(macOS)
