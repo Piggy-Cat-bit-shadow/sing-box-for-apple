@@ -212,7 +212,8 @@ scripts/
   dev/test_audit_apple_ui_boundary.py  ★ 审计的负例套件（14 个案例）
   dev/check_hako_profile_switch.py     ★ 编译并运行配置切换的排队逻辑（真实 Swift 编译器 + 提取的视图代码）
   dev/check_compact_mode_picker.py     ★ 编译并运行出站模式栏的形状决策（同上）
-  dev/test_hako_ui_gates.py            ★ 上面两个门禁的负例套件（把每个缺陷放回去，要求门禁报错）
+  dev/check_hako_platform_symbols.py   ★ 手机页面不得在 `#if !os(tvOS)` 之外使用只在非 tvOS 声明的偏好项
+  dev/test_hako_ui_gates.py            ★ 上面三个门禁的负例套件（把每个缺陷放回去，要求门禁报错）
   dev/set_display_name.py              重新应用可见产品名（幂等，合并上游后运行）
   link-test-sources.sh                 把真实源码以符号链接接入测试包
   run-subscription-usage-tests.sh      运行上述测试包
@@ -274,11 +275,14 @@ python scripts/dev/audit_apple_ui_boundary.py --upstream-ref 089d35e   # 应当�
 python scripts/dev/test_audit_apple_ui_boundary.py                     # 14/14 应当按设计行为
 python scripts/dev/check_hako_profile_switch.py                        # 配置切换：6 个行为案例 + 接线断言
 python scripts/dev/check_compact_mode_picker.py                        # 出站模式栏：10 个案例 + 接线断言
-python scripts/dev/test_hako_ui_gates.py                               # 12/12 把缺陷放回去，门禁必须报错
+python scripts/dev/check_hako_platform_symbols.py                      # 平台守卫：手机页面不得用 tvOS 不存在的符号
+python scripts/dev/test_hako_ui_gates.py                               # 13/13 把缺陷放回去，门禁必须报错
 ```
 
-后面三条需要 `swiftc`（编译真实的决策文件并运行），不需要 Xcode。`test_hako_ui_gates.py`
-有一条用例会在临时目录里改一份树再跑 `check_hako_profile_switch.py`，因此它同时验证门禁
+后面四条里，`check_hako_profile_switch.py`、`check_compact_mode_picker.py` 和
+`test_hako_ui_gates.py` 需要 `swiftc`（编译真实的决策文件并运行），`check_hako_platform_symbols.py`
+只是源码扫描；四条都不需要 Xcode。`test_hako_ui_gates.py` 的其中两条用例会在临时目录里改一份树，
+再跑 `check_hako_profile_switch.py` 或 `check_hako_platform_symbols.py`，因此它同时验证门禁
 「会对」和「会错」。
 
 `UNKNOWN` 不是通过。它意味着一次比较没能进行——在继续之前把它修好。
