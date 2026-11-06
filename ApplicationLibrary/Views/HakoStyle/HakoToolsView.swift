@@ -163,10 +163,21 @@ public struct HakoToolsView: View {
         diagnosticsSection
     }
 
-    /// Live endpoints reported by the core: a Tailscale node, a VPN gateway.
+    /// Live endpoints reported by the core: a Tailscale node, a VPN gateway, a USB/IP server.
+    ///
+    /// The USB/IP rows are rendered from this card too - the reference put them here - so the
+    /// condition has to include the collection they come from. It did not: the card was gated on
+    /// the three *endpoint* arrays only, and a configuration whose one live service is a USB/IP
+    /// server therefore showed no card at all and the tool was unreachable. Upstream keeps USB/IP
+    /// in its own `Services` section gated on `!usbipViewModel.servers.isEmpty`
+    /// (`Tools/ToolsView.swift:109`), which is the same statement in a different card; extending
+    /// this condition is the smallest way to say it without moving the row out of the design's
+    /// card.
     @ViewBuilder
     private var endpointSection: some View {
-        if !tailscaleViewModel.endpoints.isEmpty || !openConnectViewModel.endpoints.isEmpty || !openVPNViewModel.endpoints.isEmpty {
+        if !tailscaleViewModel.endpoints.isEmpty || !openConnectViewModel.endpoints.isEmpty
+            || !openVPNViewModel.endpoints.isEmpty || !usbipViewModel.servers.isEmpty
+        {
             HakoPageSection(String(localized: "Endpoints")) {
                 ForEach(Array(tailscaleViewModel.endpoints.enumerated()), id: \.element.id) { index, endpoint in
                     if index > 0 { HakoRowDivider() }

@@ -70,6 +70,8 @@ both files are phone-only Hako presentation.
 | **F-8** | P1 | Tunnel routing switches seem to do nothing until the app itself next starts the tunnel — a system-initiated (On Demand / Always On) start keeps the old values | `HakoPacketTunnelView.swift` `applySettings()` | `Setting/PacketTunnelView.swift:112-129` calls `updateProtocolConfiguration()` when not connected | The copy had `restartService()` with `guard … isConnected else { return }`, so with the tunnel down the page persisted the preference and wrote nothing to the `NETunnelProviderProtocol`; the system reads that protocol, not the preference | `applySettings()` restores upstream's two branches, reporting the write failure through the page's alert | `VERIFIED_SOURCE` |
 | **F-9** | P1 | Turning On Demand **off** while the tunnel is down wrote nothing to the system; **Reset** re-enabled On Demand in the system config while the page then displayed "Disabled" | `HakoOnDemandRulesView.swift` `updateService(_:)`, `saveMode`, `resetSection` | `Setting/OnDemandRulesView.swift:326-344` passes the mode and guards `newMode == .disabled \|\| isConnected` | `updateService()` read `self.mode` and guarded on `isConnected` alone. Reset does not change `mode` first, so the call after `resetOnDemandRules()` re-applied the previous mode to the system — `isOnDemandEnabled = true` over preferences that now say disabled, and the reloaded page shows Disabled | `updateService(_ newMode:)` takes the mode; reset passes `.disabled`; the guard restores upstream's disabling half | `VERIFIED_SOURCE` |
 | **F-10** | P2 (57 strings) | 57 strings in the phone UI rendered English (or Chinese) in every language: every empty state on Proxies / Activity / Logs / the report pages, the On-Demand rule editor's captions, the Back/Clear/Selected/Working… chrome, the Tunnel and Profile Override explanations, and the "no shared container" state | `HakoScaffold`, `HakoRow`, `HakoData`, `HakoEmptyState`, `HakoHomeView`, `HakoConnectionListView`, `HakoOnDemandRulesView`, `HakoTailscaleSSHPromptView`, `HakoStartStopButton`, `HakoPacketTunnelView`, `HakoProfileOverrideView`, `HakoLogView`, `SFI/HakoPhoneRootView` | — (the catalog is the counterpart) | The gate that exists for exactly this could not see them: it matched no file on Windows, its literal extractor was off by one so only `String(localized:)` was checked, it compared escapes raw, and it never looked at labelled arguments (`explanation:`, `footnote:`, `title:`, `message:`, `subtitle:`) at all. The literals are catalog *keys*, so a miss is silent by design | Gate fixed (four defects) and 57 keys added with zh-Hans; `HakoLogView`'s new state now uses English keys with the Chinese in the catalog | `VERIFIED_STATIC` + mutation case |
+| **F-11** | P1 | A configuration whose only live service is a **USB/IP server** shows no Endpoints card at all on Tools, so the USB/IP page is unreachable | `HakoToolsView.swift` `endpointSection` (the `if` at the top of the card) | `Tools/ToolsView.swift:109` gives USB/IP its own section gated on `!usbipViewModel.servers.isEmpty` | The reference put the USB/IP rows inside the Endpoints card, and the port's gate listed only the three *endpoint* arrays — so the rows rendered from `usbipViewModel.servers` were nested under a condition that never mentions them | The gate now includes `!usbipViewModel.servers.isEmpty`: same card, same rows, one condition — no visual or information-architecture change | `VERIFIED_SOURCE` (compared line by line with upstream's gate) |
+| **F-12** | P2 | A failed read of the remote-control server list hid the whole card, looking exactly like "there are none" | `HakoMacAppView.swift` `reloadRemoteServers()` | `HakoRemoteControlView.reload()` reports the same failure through an alert | `remoteServers = await (try? RemoteServerManager.list()) ?? []` — a silent `try?` on the value that decides whether the card is drawn | The failure is reported through the page's existing alert; the list is cleared only on failure, not flattened into a fake empty success | `VERIFIED_SOURCE` |
 
 ### Found and **not** fixed: the shared cards now depend on Hako types
 
@@ -154,6 +156,10 @@ runtime test.
    message, which is what every locale saw; it now uses English keys and the catalog carries the
    Chinese. The gate also refuses a localized URL that is no longer a URL — the docs link is
    `URL(string: String(localized: "https://…"))!`, so prose there would be a crash, not a typo.
+8. **The Tools page's Endpoints card no longer hides a service it renders.** Its gate listed the
+   three endpoint arrays and the USB/IP rows came from a fourth; the condition now includes it, which
+   is upstream's own condition in a different card (F-11). The remote-control server list on Client
+   Settings reports a failed read instead of flattening it into an empty list (F-12).
 
 Design constraint kept: no second `ProfileManager`, no second event bus, no new persistence, no new
 reload state machine. Everything the page does goes through a type upstream already ships.
@@ -222,6 +228,9 @@ actually reloads the tunnel. Those are §F.
 16. **Language:** set the iPhone to Simplified Chinese and walk Home → Profiles → Proxies → Activity →
     Logs → More → every More sub-page. No English sentence should remain (F-10), and the On-Demand
     rule editor is where the gate found the most.
+17. **Tools:** with a configuration that declares only a USB/IP server (no Tailscale / OpenConnect /
+    OpenVPN endpoint), Tools must still show the Endpoints card and the USB/IP row must open its page
+    (F-11). With none of the four, the card must be absent — not empty.
 
 ---
 

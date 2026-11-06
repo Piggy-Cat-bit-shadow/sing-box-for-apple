@@ -225,8 +225,20 @@ public struct HakoAppView: View {
         }
     }
 
+    /// The remote-control servers this client may switch to.
+    ///
+    /// A failed read is reported, not flattened into "no servers". The list decides whether the
+    /// whole remote-control card is drawn, so swallowing the error made a database failure
+    /// indistinguishable from an empty list - the card simply vanished, including the one row that
+    /// opens the page where servers are managed. `HakoRemoteControlView.reload()` reports the same
+    /// failure the same way.
     private func reloadRemoteServers() async {
-        remoteServers = await (try? RemoteServerManager.list()) ?? []
+        do {
+            remoteServers = try await RemoteServerManager.list()
+        } catch {
+            remoteServers = []
+            alert = AlertState(action: "load remote server list", error: error)
+        }
     }
 
     private func loadSettings() async {
