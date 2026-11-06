@@ -29,7 +29,7 @@ import sys
 
 GIT = os.environ.get("DSH_GIT") or r"C:\Deepseek\IOS客户端\_tools\mingit\cmd\git.exe"
 UPSTREAM_TREE = r"C:\Deepseek\IOS客户端\_work\refs\up-hako"
-ROOT = r"C:\Deepseek\IOS客户端\_work\r8\w-main"
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 JOBS = (
     {

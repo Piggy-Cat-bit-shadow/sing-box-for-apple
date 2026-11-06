@@ -15,17 +15,18 @@ verified (no device).** Every claim below is marked with the level it actually r
 |---|---|---|
 | Repository | `Piggy-Cat-bit-shadow/sing-box-for-apple` | `git remote -v` |
 | Worktree | `IOS客户端/_work/main-fix` (linked worktree of `IOS客户端/sing-box-for-apple`) | `git worktree list` |
-| Branch | `main` — the product branch, no new branch, no worktree created | `git branch --show-current` |
+| Branch | `main` — the product branch; no new branch was created. The work moved from the `_work/main-fix` worktree into the primary checkout during the branch cleanup (§H) | `git branch -vv` |
 | Start SHA | `e8c08744a001767e20bc2f75d935e65e6901ff8c`, working tree clean | `git status --short` (0 entries) |
-| End SHA | `c5d92c245928c931c27435e50acd1d8b7c424564` — the fix; this report is the commit on top of it | `git rev-parse HEAD` |
-| `origin/main` | `3aedd74` — one commit ahead (`fix(network): follow the interface the path uses…`) | `git log --oneline main..origin/main` |
+| End SHA | `c5d92c2` (the fix), `563bc4b` (the secondary pages), `3160100` (this report), `d968800` (merge of `origin/main`, §H) | `git log --oneline -4` |
+| `origin/main` | `3aedd74`, merged in during the cleanup; `main` is now ahead of it and behind by nothing | `git log --oneline main..origin/main` (empty) |
 | Upstream reference | pin `089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85`; local `upstream/dev` has moved to `0d1b59f` | `git rev-parse upstream/dev` |
 | Kernel (read-only) | `JiejieBox` `testing` @ `fc7e400243d46a451b2dffbe68cb5a3147c66289` | `git -C _p01_main rev-parse HEAD` |
 
 Two deliberate non-actions:
 
-* **`origin/main` was not merged.** Its one commit is the network layer. Pulling or rebasing would
-  put a non-UI change inside a UI commit and move a target this round is not allowed to touch.
+* **`origin/main` was not merged while the UI work was being written** — its one commit is the
+  network layer, and folding a non-UI change into a UI commit would blur both. It was merged
+  afterwards, as its own commit, once the UI work was closed (`d968800`, §H).
 * **The kernel was not entered.** `_p01_main` carries 12 pre-existing modified/untracked entries
   (`KNOWLEDGE/*`, `clients/android` gitlink); they are not this round's and were left exactly as
   found. `git -C _p01_main ls-tree HEAD clients/apple` reports the gitlink at
@@ -166,7 +167,7 @@ Run from the worktree root on Windows, CPython 3.12.10, Swift 6.3.3 (`swiftc` pr
 | `test_platform_gates.py` | 0 failing of 19, scope report covers 56 of 56 files, exit 0 | `VERIFIED_STATIC` |
 | `git diff --check` | clean | `VERIFIED_GIT` |
 | `audit_hako_lossless_parity.py --root .` | `PARTIAL`, `lost UI tokens: 2` (`Remote control`, `Out of Memory Report`), `HakoData 952 vs 920`, `HakoRow 879 vs 855`, exit 1 | `VERIFIED_STATIC` — **same as before this round**, and the two tokens are the documented intentional renames |
-| `dup_module_scope.py` | exit 1, 18 candidate findings — every one an `extension` of a type several files extend; **none involves the two new files** | `VERIFIED_STATIC`, pre-existing |
+| `dup_module_scope.py` | exit 1, **20** candidate findings — every one an `extension` of a type several files extend, plus one `formattedSize` free function; **none involves a file this round added** | `VERIFIED_STATIC`, pre-existing. Previously reported as 18: the script's default root pointed at a stale worktree (`_work/r8/w-main`), and it now resolves from its own location — see the branch-cleanup note below |
 | `check_localization.py` | `PASS … across 0 fork-owned file(s)` | **INVALID COVERAGE** — the documented Windows false green (backslash prefixes match nothing). No new user-visible string was added this round; this is stated, not relied on |
 | `check_commit_messages.py` | exit 0, `commits in --root:` empty | **BLOCKED_BY_ENVIRONMENT** — scanned 0 commits, proves nothing |
 | `test_audit_reverse_routing.py` | 29 executed, 1 skipped (`refs/up-hako` absent), 2 mutations could not be applied (`HakoEditProfileView()` ×3 expected 2; `#endif` ×2 expected 1) | pre-existing drift in that suite's mutation targets; neither file is touched by this round |
@@ -247,10 +248,47 @@ actually reloads the tunnel. Those are §F.
 * The mode row's width budget assumes the default text size; at accessibility sizes the third may
   still compress. The previous fixed-three rule had the same limitation. Recorded in
   `HakoClashModeLayout`'s header.
-* `origin/main` is one network commit ahead. The kernel's `clients/apple` gitlink names
+* `origin/main` is no longer ahead: the branch-cleanup pass merged its one commit (§H).
+* The kernel's `clients/apple` gitlink names
   `ab575dace8`, which is **absent from this clone's object store** (`git cat-file -t` fails), so the
   distance to this `main` cannot be measured here — `EXTERNAL_CHECK_REQUIRED`, and a release-time
   concern rather than a UI defect. Moving either pin is a release action.
 * `dup_module_scope.py`, `audit_hako_lossless_parity.py` and two negative suites are red at this
   baseline for reasons recorded in §E. None of them is caused by this round; none was made green by
   editing its inputs.
+
+---
+
+## H. Branch cleanup (same session, after the fixes)
+
+The clone carried eleven local branches and fifteen worktrees, all left over from the rounds that
+produced the knowledge base. They were consolidated to **one branch, `main`**, in this order:
+
+| Was | Verdict |
+|---|---|
+| `fix/compact-outbound-mode-ui` (`3cc3aae`) | ancestor of `main` — deleted |
+| `jiejiebox/integrated` (`2207852`), `r8/main` (`2a18968`), `r8/a-generator`, `r8/b-boundary`, `r8/c-platform`, `r8/d-reach`, `r8/e-redteam` | ancestors of `main` — deleted |
+| `jiejiebox/v0.1.6-hardening` (`ff849cc`) | not in `main`; tip preserved by the new tag `archive/v0.1.6-hardening-tip-2026-11-07`, then deleted |
+| `jiejiebox/hako-ui-migration-wip` (`83127c2`) | not in `main`; tip preserved by `archive/hako-ui-migration-wip-2026-11-07`, then deleted |
+| `dev` (`d1224bb`, upstream 1.15.0-alpha.10) | not in `main` and not in `upstream/dev`; tip preserved by `archive/dev-tip-2026-11-07`, then deleted |
+| `origin/main` (1 commit) | merged into `main` — it touched only `Library/Network/ExtensionPlatformInterface.swift`, already on the reviewed list |
+
+Every deleted tip was re-checked with `git cat-file -e` afterwards. The merge is local: **nothing was
+pushed**, and the remote `origin/fix/compact-outbound-mode-ui` still exists (it is an ancestor of
+`main`, so deleting it remotely is content-safe but is a publish action and was left to its owner).
+
+Two consequences worth knowing:
+
+* the primary checkout is now on `main` and the `_work/main-fix` worktree is gone — the tree this
+  report describes is at `IOS客户端/sing-box-for-apple/`;
+* nine `scripts/dev/` tools had a hard-coded default root naming `_work/r8/w-main`, so removing that
+  worktree exposed that they had been scanning a **stale tree** when run without an argument. Their
+  defaults now resolve from the script's own location. `dup_module_scope.py` is the visible
+  difference: 18 candidates against the stale tree, 20 against the real one, none involving this
+  round's files.
+
+The five `_work/refs/up-*` checkouts were kept: they are detached reference trees, not branches, and
+`restore_picker_guards.py` names one of them by path.
+
+`KNOWLEDGE/BASELINE.md`'s "Local branches at this refresh" list is now stale by design — this was not
+a Knowledge Refresh, so `KNOWLEDGE/` was not edited.

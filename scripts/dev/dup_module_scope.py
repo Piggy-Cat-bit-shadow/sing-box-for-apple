@@ -15,7 +15,7 @@ import os
 import re
 import sys
 
-ROOT = sys.argv[1] if len(sys.argv) > 1 else r"C:\Deepseek\IOS客户端\_work\r8\w-main"
+ROOT = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HAKO = "ApplicationLibrary/Views/HakoStyle"
 
 DECL = re.compile(
