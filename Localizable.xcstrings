@@ -91,6 +91,16 @@
         }
       }
     },
+    "Collapsed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已收起"
+          }
+        }
+      }
+    },
     "Colours and font for SSH sessions" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1177,6 +1187,16 @@
         }
       }
     },
+    "Add DNS server IP" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加 DNS 服务器 IP"
+          }
+        }
+      }
+    },
     "Add Domain" : {
       "localizations" : {
         "fa" : {
@@ -1201,6 +1221,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "添加域名"
+          }
+        }
+      }
+    },
+    "Add domain (e.g., example.com)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加域名（例如 example.com）"
           }
         }
       }
@@ -1970,6 +2000,16 @@
         }
       }
     },
+    "Back" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回"
+          }
+        }
+      }
+    },
     "Backend" : {
       "localizations" : {
         "fa" : {
@@ -2642,6 +2682,16 @@
         }
       }
     },
+    "Clear" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除"
+          }
+        }
+      }
+    },
     "Clear Cache" : {
       "localizations" : {
         "fa" : {
@@ -3199,6 +3249,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "連接"
+          }
+        }
+      }
+    },
+    "Connection Rules" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接规则"
           }
         }
       }
@@ -4611,6 +4671,16 @@
         }
       }
     },
+    "Domains that trigger this rule. The rule matches if the destination host shares a suffix with any domain in this list." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触发本规则的域名。目标主机与列表中的任一域名共享后缀时，规则即匹配。"
+          }
+        }
+      }
+    },
     "Domains: %@" : {
       "localizations" : {
         "fa" : {
@@ -5469,6 +5539,16 @@
         }
       }
     },
+    "Expanded" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已展开"
+          }
+        }
+      }
+    },
     "Expired" : {
       "localizations" : {
         "fa" : {
@@ -5941,6 +6021,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "檔案"
+          }
+        }
+      }
+    },
+    "Filter and sort" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "筛选与排序"
           }
         }
       }
@@ -8391,6 +8481,16 @@
         }
       }
     },
+    "Match Domains" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "匹配域名"
+          }
+        }
+      }
+    },
     "Match Rule" : {
       "localizations" : {
         "fa" : {
@@ -9403,6 +9503,16 @@
         }
       }
     },
+    "No connection rules. Add rules to specify which domains trigger VPN connection." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有连接规则。添加规则以指定哪些域名会触发 VPN 连接。"
+          }
+        }
+      }
+    },
     "No connections" : {
       "localizations" : {
         "fa" : {
@@ -10055,6 +10165,26 @@
     },
     "OpenConnect: %@" : {
       "shouldTranslate" : false
+    },
+    "Opens outside the app" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在应用外打开"
+          }
+        }
+      }
+    },
+    "Opens Profiles" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开配置"
+          }
+        }
+      }
     },
     "OpenVPN" : {
       "shouldTranslate" : false
@@ -11285,6 +11415,16 @@
         }
       }
     },
+    "Remote control: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程控制：%@"
+          }
+        }
+      }
+    },
     "Remote error: %@" : {
       "localizations" : {
         "fa" : {
@@ -11845,6 +11985,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選擇配置"
+          }
+        }
+      }
+    },
+    "Selected" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已选中"
           }
         }
       }
@@ -14836,6 +14986,16 @@
         }
       }
     },
+    "When action is 'Evaluate Connection', these rules determine whether to connect based on the destination host." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当动作为“评估连接”时，这些规则根据目标主机决定是否连接。"
+          }
+        }
+      }
+    },
     "When memory limit is enabled, you will receive a report if the service memory exceeds the limit. You can also manually trigger report collection." : {
       "localizations" : {
         "fa" : {
@@ -15032,6 +15192,16 @@
         }
       }
     },
+    "Working…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "处理中…"
+          }
+        }
+      }
+    },
     "Would you like to enable automatic update checking from **GitHub**?" : {
       "localizations" : {
         "fa" : {
@@ -15112,6 +15282,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "是"
+          }
+        }
+      }
+    },
+    "You can change the session colours and font in **More**, under **Client Settings**, in **Terminal Appearance**." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你可以在 **更多** 的 **客户端设置** 中，于 **终端外观** 里更改会话颜色和字体。"
           }
         }
       }

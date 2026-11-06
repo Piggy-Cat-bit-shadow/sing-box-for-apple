@@ -298,6 +298,48 @@ def run(root: str) -> list[str]:
         )
     ran.append("missing platform guard is caught")
 
+    # 13. The localization gate must see a bare literal at all. It was vacuous on Windows twice
+    #     over - the path prefixes never matched, and the literal extractor was off by one, so only
+    #     `String(localized:)` was ever checked. This case runs the shipped gate against a scratch
+    #     tree that carries the real catalog and one page with a literal the catalog has never
+    #     contained, and requires it to fail; the same tree with a key that does exist must pass, so
+    #     the case cannot be satisfied by a gate that fails on everything.
+    catalog_text = read(root, "Localizable.xcstrings")
+    localization_script = read(root, "scripts/dev/check_localization.py")
+    missing_literal = (
+        "import SwiftUI\n"
+        "struct ProbeView: View {\n"
+        "    var body: some View {\n"
+        '        Text("A phrase the catalog has never contained")\n'
+        "    }\n"
+        "}\n"
+    )
+    known_literal = missing_literal.replace(
+        "A phrase the catalog has never contained", "Back")
+    for name, page, expected_code, expected_text in (
+        ("a bare literal with no catalog key", missing_literal, 1,
+         "A phrase the catalog has never contained"),
+        ("a literal that resolves", known_literal, 0, "PASS"),
+    ):
+        tree = scratch_tree({
+            "Localizable.xcstrings": catalog_text,
+            "scripts/dev/check_localization.py": localization_script,
+            "ApplicationLibrary/Views/HakoStyle/ProbeView.swift": page,
+        })
+        try:
+            result = subprocess.run(
+                [sys.executable, os.path.join(tree, "scripts", "dev", "check_localization.py")],
+                capture_output=True, text=True, encoding="utf-8", errors="replace")
+        finally:
+            shutil.rmtree(tree, ignore_errors=True)
+        output = result.stdout + result.stderr
+        if result.returncode != expected_code or expected_text not in output:
+            raise CaseFailure(
+                "the localization gate did not treat %s as expected (exit %d, wanted %d): %s"
+                % (name, result.returncode, expected_code, output[-400:])
+            )
+    ran.append("localization gate sees bare literals")
+
     return ran
 
 

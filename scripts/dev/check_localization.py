@@ -84,11 +84,18 @@ TECHNICAL_TERMS = {
 PENDING_TRANSLATION: dict[str, str] = {}
 
 #: SwiftUI view-building initialisers whose first string literal is user-visible.
+#:
+#: `HakoEmptyState` and `HakoCardEmptyState` are the phone's own primitives and take
+#: `LocalizedStringKey`, so a literal there is a catalog key like any `Text` - but they were not in
+#: this list, which is how the "no shared container" state added during the self-sign work shipped
+#: with a Chinese literal as its title (a key the catalog does not contain, so it renders that
+#: literal in every language).
 VISIBLE_CALLS = (
     "Text", "Label", "Button", "Toggle", "Section", "TextField", "SecureField",
     "navigationTitle", "navigationBarTitle", "alert", "confirmationDialog",
     "FormItem", "FormPicker", "FormNavigationLink", "HakoPageSection", "HakoSettingsSection",
     "HakoNavigationRow", "HakoActionTile", "HakoRow", "HakoDestructiveRow", "HakoToggleRow",
+    "HakoEmptyState", "HakoCardEmptyState",
 )
 
 
@@ -105,10 +112,17 @@ class Finding:
 
 
 def repo_paths() -> list[str]:
-    """The fork's own Swift files, relative to the repository root."""
+    """The fork's own Swift files, relative to the repository root.
+
+    The separators are normalised to `/` because the prefixes below are written that way: on Windows
+    `os.path.relpath` answers `ApplicationLibrary\\Views\\HakoStyle`, which matches neither prefix, so
+    the walk found nothing and the gate printed `PASS … across 0 fork-owned file(s)`. A gate that
+    scans nothing is not a green gate; this was a Windows-only false green and the reason the file
+    count is printed at all.
+    """
     found: list[str] = []
     for base, _, names in os.walk(ROOT):
-        rel = os.path.relpath(base, ROOT)
+        rel = os.path.relpath(base, ROOT).replace(os.sep, "/")
         if rel.startswith(".") or "/.git" in rel or rel.startswith(".git"):
             continue
         if rel in ("Tests",) or rel.startswith("Tests/"):
@@ -116,7 +130,10 @@ def repo_paths() -> list[str]:
         for name in names:
             if not name.endswith(".swift"):
                 continue
-            path = os.path.join(rel, name) if rel != "." else name
+            # Built with a forward slash rather than `os.path.join`, for the same reason: a joined
+            # path is `…\\HakoStyle\\HakoCard.swift`, which does not start with the `…/HakoStyle/`
+            # prefix either.
+            path = f"{rel}/{name}" if rel != "." else name
             if path.startswith(FORK_UI_GLOBS) or any(
                     path.startswith(p) for p in FORK_UI_FILE_PREFIXES):
                 found.append(path)
@@ -180,7 +197,13 @@ def strip_comments_and_strings_aware(text: str) -> list[tuple[int, str]]:
 
 
 def literal_after(text: str, open_paren: int) -> str | None:
-    """The first `"..."` literal after an opening paren, or `None` if the argument is not a literal."""
+    """The first `"..."` literal after an opening paren, or `None` if the argument is not a literal.
+
+    The escapes are decoded, because the catalog stores what the *runtime* sees: a three-line
+    paragraph written `"...\\n\\n..."` in Swift is a key with real newlines, and comparing the raw
+    source text reported nine such keys as missing. Interpolations are the exception and are copied
+    through as `\\(` - `candidate_keys` looks for that spelling to turn them into `%lld`/`%@`.
+    """
     index = open_paren
     while index < len(text) and text[index] in " \t\n":
         index += 1
@@ -188,9 +211,28 @@ def literal_after(text: str, open_paren: int) -> str | None:
         return None
     index += 1
     value: list[str] = []
+    escapes = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "'": "'", "\\": "\\", "0": "\0"}
     while index < len(text):
         char = text[index]
         if char == "\\":
+            following = text[index + 1] if index + 1 < len(text) else ""
+            if following == "(":
+                value.append("\\(")
+                index += 2
+                continue
+            if following in escapes:
+                value.append(escapes[following])
+                index += 2
+                continue
+            if following == "u" and index + 2 < len(text) and text[index + 2] == "{":
+                end = text.find("}", index + 3)
+                if end != -1:
+                    try:
+                        value.append(chr(int(text[index + 3:end], 16)))
+                    except ValueError:
+                        value.append(text[index:end + 1])
+                    index = end + 1
+                    continue
             value.append(text[index:index + 2])
             index += 2
             continue
@@ -213,7 +255,11 @@ def scan() -> list[Finding]:
             text = handle.read()
         for number, line in strip_comments_and_strings_aware(text):
             for match in localized_pattern.finditer(line):
-                literal = literal_after(line, match.end() - 1)
+                # `match.end()`, not `end() - 1`: the regex consumes the `(`, so the character
+                # before the literal is whatever `\s*` stopped at. `end()` is the first character
+                # after that, which is what the extractor expects; passing `end() - 1` pointed at
+                # the `(` (or at the space, which happened to work only because `\s*` ate it).
+                literal = literal_after(line, match.end())
                 if literal is None:
                     continue
                 findings.append(classify(catalog, path, number, literal, localized=True))
@@ -221,7 +267,7 @@ def scan() -> list[Finding]:
                 # `String(localized:)` is handled above; skip the `localized` label itself.
                 if match.group(1) == "Text" and "localized" in line[:match.start()]:
                     continue
-                literal = literal_after(line, match.end() - 1)
+                literal = literal_after(line, match.end())
                 if literal is None:
                     continue
                 findings.append(classify(catalog, path, number, literal, localized=False))
@@ -275,6 +321,10 @@ def classify(catalog: dict, path: str, line: int, text: str, *, localized: bool)
         return Finding(path, line, text, "PENDING", PENDING_TRANSLATION[text])
     if not text.strip():
         return Finding(path, line, text, "EXEMPT", "empty")
+    # A literal that is nothing but interpolated values - `"\(memberCount)"` - has no words to
+    # translate. Its runtime key is the format `%lld`, which the catalog has no reason to hold.
+    if not re.search(r"[^\W\d_]", re.sub(r"\\\([^)]*\)", "", text), re.UNICODE):
+        return Finding(path, line, text, "EXEMPT", "only interpolated values - no words")
     strings = catalog.get("strings", {})
     keys = candidate_keys(text)
     key = next((k for k in keys if k in strings), None)
