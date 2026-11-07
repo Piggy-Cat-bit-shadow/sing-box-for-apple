@@ -17,7 +17,7 @@ verified (no device).** Every claim below is marked with the level it actually r
 | Worktree | `IOS客户端/_work/main-fix` (linked worktree of `IOS客户端/sing-box-for-apple`) | `git worktree list` |
 | Branch | `main` — the product branch; no new branch was created. The work moved from the `_work/main-fix` worktree into the primary checkout during the branch cleanup (§H) | `git branch -vv` |
 | Start SHA | `e8c08744a001767e20bc2f75d935e65e6901ff8c`, working tree clean | `git status --short` (0 entries) |
-| End SHA | `c5d92c2` (the fix), `563bc4b` (the secondary pages), `3160100` (this report), `d968800` (merge of `origin/main`), `eb8a8ac` (merge of the self-sign line), `da87fa4` (localization) | `git log --oneline` |
+| End SHA | `f3a943a` at the time of writing. The chain: `c5d92c2` (the fix), `f8581b4`/`3160100` (report), `d968800`/`eb8a8ac` (merges of `origin/main`), `563bc4b` (secondary pages), `e2a8341` (gate defaults), `da87fa4`/`422d780` (localization), `b180d8b`/`64eb06e` (localization gate + URLs), `64f7a7a` (Tools gate, silent read), `7d84316` (command failures), `f3a943a` (nil command client, hotfix archive) | `git log --oneline` |
 | `origin/main` | `3aedd74`, merged in during the cleanup; `main` is now ahead of it and behind by nothing | `git log --oneline main..origin/main` (empty) |
 | Upstream reference | pin `089d35e6b2a5f87e8fd1c0d5ceaba7eb82c8ce85`; local `upstream/dev` has moved to `0d1b59f` | `git rev-parse upstream/dev` |
 | Kernel (read-only) | `JiejieBox` `testing` @ `fc7e400243d46a451b2dffbe68cb5a3147c66289` | `git -C _p01_main rev-parse HEAD` |
@@ -180,7 +180,7 @@ Run from the worktree root on Windows, CPython 3.12.10, Swift 6.3.3 (`swiftc` pr
 |---|---|---|
 | `check_hako_profile_switch.py --root .` | 6 behavioural cases + 2 wiring assertions, exit 0 | `VERIFIED_UNIT` (the shipped queue and the extracted `selectProfile` compile and run) |
 | `check_compact_mode_picker.py --root .` | 10 cases + 1 wiring assertion, exit 0 | `VERIFIED_UNIT` (the shipped `HakoClashModeLayout` compiles and runs) |
-| `test_hako_ui_gates.py --root .` | 13 mutants, 13 caught, exit 0 — two of them mutate a scratch tree and require the *compiled* cases to fail, one requires the platform gate to fail | `VERIFIED_UNIT` (negative) |
+| `test_hako_ui_gates.py --root .` | **16 mutants, 16 caught**, exit 0 — the compiled cases are mutated through a scratch tree, and three further groups mutate a tree and require a source gate to fail (platform symbol, bare literal / broken localized URL, optional-chained command client) | `VERIFIED_UNIT` (negative) |
 | `check_hako_platform_symbols.py --root .` | `PASS: 58 Hako file(s) checked; 25 platform-gated SharedPreferences member(s), every use inside its condition`, exit 0 | `VERIFIED_STATIC` (new gate; it reported 12 unguarded uses before F-7's fix) |
 | `check_hako_command_channel.py --root .` | `PASS: 58 phone file(s) checked; every command client is unwrapped before use, so a nil answer can be reported`, exit 0 | `VERIFIED_STATIC` (new gate for F-13; it reported both optional-chained call sites before the fix) |
 | `audit_apple_ui_boundary.py --root . --upstream-ref 089d35e6… --strict` | `PASS 17 FAIL 3 UNKNOWN 0`, exit 1 — the same three failures as at `e8c0874`, listed in §B | `VERIFIED_STATIC` |
@@ -192,7 +192,7 @@ Run from the worktree root on Windows, CPython 3.12.10, Swift 6.3.3 (`swiftc` pr
 | `git diff --check` | clean | `VERIFIED_GIT` |
 | `audit_hako_lossless_parity.py --root .` | `PARTIAL`, `lost UI tokens: 2` (`Remote control`, `Out of Memory Report`), `HakoData 952 vs 920`, `HakoRow 879 vs 855`, exit 1 | `VERIFIED_STATIC` — **same as before this round**, and the two tokens are the documented intentional renames |
 | `dup_module_scope.py` | exit 1, **20** candidate findings — every one an `extension` of a type several files extend, plus one `formattedSize` free function; **none involves a file this round added** | `VERIFIED_STATIC`, pre-existing. Previously reported as 18: the script's default root pointed at a stale worktree (`_work/r8/w-main`), and it now resolves from its own location — see the branch-cleanup note below |
-| `check_localization.py` | `PASS: 502 visible string(s) across 58 fork-owned file(s) … (26 exempt, 0 pending)`, exit 0 | `VERIFIED_STATIC` — **this row used to read `INVALID COVERAGE`**: the gate was vacuous on Windows and, independently, could not see a bare literal, a labelled argument, or any string containing `//` (see F-10). Five defects fixed; the 57 keys it then found are in the catalog, and a localized URL that stops being a URL now fails the gate |
+| `check_localization.py` | `PASS: 504 visible string(s) across 58 fork-owned file(s) … (26 exempt, 0 pending)`, exit 0 | `VERIFIED_STATIC` — **this row used to read `INVALID COVERAGE`**: the gate was vacuous on Windows and, independently, could not see a bare literal, a labelled argument, or any string containing `//` (see F-10). Five defects fixed; the 57 keys it then found are in the catalog, and a localized URL that stops being a URL now fails the gate |
 | `check_commit_messages.py` | exit 0, `commits in --root:` empty | **BLOCKED_BY_ENVIRONMENT** — scanned 0 commits, proves nothing |
 | `test_audit_reverse_routing.py` | 29 executed, 1 skipped (`refs/up-hako` absent), 2 mutations could not be applied (`HakoEditProfileView()` ×3 expected 2; `#endif` ×2 expected 1) | pre-existing drift in that suite's mutation targets; neither file is touched by this round |
 | `test_fail_closed_exit_codes.py` | 2 passed, 1 failed (`lossless-positive: lost_tokens=2`) | pre-existing, same intentional renames |
@@ -355,3 +355,11 @@ The five `_work/refs/up-*` checkouts were kept: they are detached reference tree
 
 `KNOWLEDGE/BASELINE.md`'s "Local branches at this refresh" list is now stale by design — this was not
 a Knowledge Refresh, so `KNOWLEDGE/` was not edited.
+
+### Where the line ended
+
+`main` is the only branch, locally and on the remote, at **`f3a943a`**. Everything the rounds deleted
+is reachable by tag: `archive/dev-tip-2026-11-07`, `archive/hako-ui-migration-wip-2026-11-07`,
+`archive/v0.1.6-hardening-tip-2026-11-07`, `archive/hotfix-ios-command-socket-2026-11-07`, and the
+seven tags that were already there. The five `_work/refs/up-*` reference checkouts are the only
+remaining worktrees besides the primary one.
