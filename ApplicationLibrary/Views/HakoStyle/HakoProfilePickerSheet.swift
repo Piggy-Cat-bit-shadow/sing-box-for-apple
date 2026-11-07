@@ -1064,10 +1064,7 @@ private struct HakoProfileMetadata: View {
             }
 
             if let expiry = caption?.expiry {
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.dateFormat = "MM/dd"
-                let date = formatter.string(from: expiry.date)
+                let date = Self.expiryDay(expiry.date)
                 let format = expiry.expired ? String(localized: "Expired on %@") : String(localized: "Expires on %@")
                 Text(verbatim: String(format: format, date))
                     .foregroundStyle(expiry.expired ? Color.red : Color.secondary)
@@ -1076,6 +1073,19 @@ private struct HakoProfileMetadata: View {
         }
         .lineLimit(1)
         .minimumScaleFactor(0.8)
+    }
+
+    /// The bare month/day an expiry caption shares its line with.
+    ///
+    /// Kept in a plain method because `@ViewBuilder` accepts `let` bindings but not assignment
+    /// statements, and configuring a `DateFormatter` is a sequence of assignments. The formatter is
+    /// built per call: this runs once per visible profile row, and a cached non-`Sendable`
+    /// formatter would be the more fragile choice.
+    private static func expiryDay(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MM/dd"
+        return formatter.string(from: date)
     }
 
     @ViewBuilder
