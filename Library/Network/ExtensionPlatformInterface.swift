@@ -16,7 +16,35 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
     /// Set once, at the first successful `setTunnelNetworkSettings`. A tunnel that is connected
     /// but never reached this point is the "connected, carries nothing" failure: the core
     /// started without a tun inbound, or the TUN could not be opened.
-    public private(set) static var didApplyTunnelNetworkSettings = false
+    /// Whether this process has successfully handed a TUN configuration to the system at least
+    /// once since the current start attempt began.
+    ///
+    /// Written by the platform interface and read by `ExtensionProvider.startService` while it waits
+    /// for the core to take the tunnel over, so access is serialised: an unguarded static Bool read
+    /// and written from different threads is a data race even when the value is only a flag.
+    private static let tunnelTakeoverLock = NSLock()
+    private static var tunnelNetworkSettingsApplied = false
+
+    public static var didApplyTunnelNetworkSettings: Bool {
+        tunnelTakeoverLock.lock()
+        defer { tunnelTakeoverLock.unlock() }
+        return tunnelNetworkSettingsApplied
+    }
+
+    /// Clears the previous start attempt's success. Called at the beginning of a NEW tunnel start,
+    /// not on a reload: a reused provider instance must not treat the old session's applied settings
+    /// as proof that the new session installed any.
+    public static func resetTunnelTakeoverCheck() {
+        tunnelTakeoverLock.lock()
+        defer { tunnelTakeoverLock.unlock() }
+        tunnelNetworkSettingsApplied = false
+    }
+
+    static func markTunnelNetworkSettingsApplied() {
+        tunnelTakeoverLock.lock()
+        defer { tunnelTakeoverLock.unlock() }
+        tunnelNetworkSettingsApplied = true
+    }
     private static let logger = Logger(category: "ExtensionPlatformInterface")
 
     /// The MTU iOS gives the Personal Hotspot bridge that carries a tethered client's traffic.
@@ -285,7 +313,7 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         // tunnel from the app: the NE session is connected, no error is thrown, and without an App
         // Group the app cannot read this process's log. Whether the core ever asked the system to
         // route through this interface is the one fact that separates the two.
-        Self.didApplyTunnelNetworkSettings = true
+        Self.markTunnelNetworkSettingsApplied()
         logInstalledSettings(settings, autoRoute: options.getAutoRoute(), prefs: prefs)
 
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {

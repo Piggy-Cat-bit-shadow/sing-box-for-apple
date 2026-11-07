@@ -44,12 +44,15 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// into the core plus a handful of assignments - there is nothing to suspend on, so the smallest
     /// correct mechanism is the one that adds no new lifecycle concept.
     private let serviceLifecycleLock = NSLock()
+    /// Bumped by every start attempt and by every stop. A start that is about to wait for the tunnel
+    /// takeover compares it after each sleep, so a stop is not blocked behind that wait and a stopped
+    /// attempt cannot be mistaken for the current one. Guarded by `serviceLifecycleLock`.
+    private var serviceLifecycleGeneration: UInt64 = 0
 
     #if os(iOS)
-        /// The takeover check runs once, on the first start of this provider's life.
-        ///
-        /// A reload must not run it again: the TUN is already open, and a transient state during a
-        /// reload would turn a working tunnel into an error.
+        /// The takeover check runs once per NEW start attempt. It is reset when a fresh tunnel session
+        /// starts (never on a reload), so a reused provider instance cannot accept the previous
+        /// session's applied settings as evidence for the new one.
         private var tunnelTakeoverChecked = false
     #endif
 
@@ -409,6 +412,50 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         }
     }
 
+    /// Runs `body` with the lifecycle lock held, and nothing else. Keeping this a function rather
+    /// than a `defer` at the call site is what makes it visible that the takeover wait below is
+    /// outside the protected region.
+    private func withServiceLifecycleLock<T>(_ body: () throws -> T) rethrows -> T {
+        serviceLifecycleLock.lock()
+        defer { serviceLifecycleLock.unlock() }
+        return try body()
+    }
+
+    #if os(iOS)
+        private enum TunnelTakeoverResult {
+            case applied
+            case timedOut
+            case superseded
+        }
+
+        /// Waits for the platform interface to install this attempt's network settings.
+        ///
+        /// The wait is outside `serviceLifecycleLock`: it can last three seconds, and a concurrent
+        /// `stopService()` - reachable synchronously from the core's gRPC goroutine - must not sit
+        /// behind it. The generation check is what keeps that safe: a stop (or a newer start) bumps
+        /// the generation, this call returns `.superseded`, and the caller reports that instead of
+        /// accepting a flag an older attempt set.
+        private func waitForTunnelTakeover(generation: UInt64) async -> TunnelTakeoverResult {
+            for _ in 0 ..< 30 {
+                // Check the generation FIRST: if a stop landed after an old attempt applied its
+                // settings, the stale success must not be accepted as this attempt's evidence.
+                let isCurrent = withServiceLifecycleLock { generation == serviceLifecycleGeneration }
+                if !isCurrent {
+                    return .superseded
+                }
+                if ExtensionPlatformInterface.didApplyTunnelNetworkSettings {
+                    return .applied
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            let isCurrent = withServiceLifecycleLock { generation == serviceLifecycleGeneration }
+            if !isCurrent {
+                return .superseded
+            }
+            return ExtensionPlatformInterface.didApplyTunnelNetworkSettings ? .applied : .timedOut
+        }
+    #endif
+
     /// Starts (or reloads) the service inside the running command server.
     ///
     /// # Why the server is a `guard` and not a force-unwrap
@@ -429,7 +476,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// outcome this whole file is arranged to avoid, and on the device it is indistinguishable from
     /// "the tunnel stopped working". The other two uses of `commandServer` in this function's family
     /// are folded in for the same reason.
-    private func startService() async throws {
+    private func startService(isReload: Bool = false) async throws {
         guard let configContent = tunnelOptions?["configContent"] as? String else {
             throw ExtensionStartupError("(packet-tunnel) error: missing configContent in tunnel options")
         }
@@ -451,17 +498,24 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 options.loopbackAddress = [Self.localSigningLoopbackAddress].toStringIterator()
             }
         #endif
-        // Held across `startOrReloadService` and the monitor install that follows it inside the core,
-        // and NOT across the `locationManager` block below, which is macOS-only, touches no shared
-        // resource and would only widen the region.
-        //
-        // The `startOrReloadService` call is synchronous and the install it triggers is synchronous
-        // too, so nothing here suspends while the lock is held and there is no deadlock surface
-        // against `stopService()`, which takes the same lock directly.
-        serviceLifecycleLock.lock()
-        defer { serviceLifecycleLock.unlock() }
+        #if os(iOS)
+            // A new tunnel session must not inherit the previous session's success. A reload keeps
+            // the running TUN and deliberately does not re-check.
+            if !isReload {
+                tunnelTakeoverChecked = false
+                ExtensionPlatformInterface.resetTunnelTakeoverCheck()
+            }
+        #endif
+        // Held only across `startOrReloadService` and the generation bump. The takeover wait below
+        // is NOT in this region: it can take three seconds, and `stopService()` (called from the
+        // core's gRPC goroutine) must not block behind it. The generation makes that safe.
+        var generation: UInt64 = 0
         do {
-            try commandServer.startOrReloadService(configContent, options: options)
+            try withServiceLifecycleLock {
+                serviceLifecycleGeneration &+= 1
+                generation = serviceLifecycleGeneration
+                try commandServer.startOrReloadService(configContent, options: options)
+            }
         } catch {
             throw ExtensionStartupError("(packet-tunnel) error: start service: \(error.localizedDescription)")
         }
@@ -469,14 +523,17 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             // A tunnel that started but never asked the system to route through it is connected and
             // carries nothing, and nothing reports it: the NE session stays up, the start call
             // returned without error, and the app has no shared container from which to read this
-            // process's log. The check costs at most a second on the first start and turns that
+            // process's log. The check costs at most three seconds on the first start and turns that
             // silent state into an error the system shows the user.
             if !tunnelTakeoverChecked {
-                tunnelTakeoverChecked = true
-                for _ in 0 ..< 30 where !ExtensionPlatformInterface.didApplyTunnelNetworkSettings {
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                }
-                if !ExtensionPlatformInterface.didApplyTunnelNetworkSettings {
+                switch await waitForTunnelTakeover(generation: generation) {
+                case .applied:
+                    tunnelTakeoverChecked = true
+                case .superseded:
+                    throw ExtensionStartupError(
+                        "(packet-tunnel) the start was superseded by a stop or another start while waiting for network settings"
+                    )
+                case .timedOut:
                     let hasTunInbound = configContent.contains("\"tun\"")
                     throw ExtensionStartupError(
                         "(packet-tunnel) the tunnel is connected but the core never took it over: no network settings were applied within 3s. "
@@ -513,6 +570,9 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         // on, and this is reachable from the core's gRPC goroutine without any NetworkExtension
         // reentrancy assumption.
         serviceLifecycleLock.lock()
+        // Invalidate any start that is currently waiting for the takeover outside the lock: it must
+        // report that it was superseded, not accept a flag that an older attempt set.
+        serviceLifecycleGeneration &+= 1
         defer { serviceLifecycleLock.unlock() }
         do {
             try commandServer?.closeService()
@@ -536,7 +596,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         defer {
             reasserting = false
         }
-        try await startService()
+        try await startService(isReload: true)
     }
 
     override open func stopTunnel(with reason: NEProviderStopReason) async {

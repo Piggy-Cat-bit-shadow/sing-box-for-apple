@@ -179,6 +179,50 @@ final class InterfaceMonitorStartupTests: XCTestCase {
                        "an unbounded wait is the defect this policy exists to prevent")
     }
 
+    // MARK: - The takeover wait does not hold the service lifecycle lock
+
+    /// The service-lifecycle lock must cover `startOrReloadService` and nothing that can suspend on
+    /// the network-settings callback.
+    ///
+    /// This is a shape assertion, not a runtime interleave: building `ExtensionProvider` needs
+    /// NetworkExtension and a signed host. What it pins is the property that a stop - reachable
+    /// synchronously from the core's gRPC goroutine - is not parked behind the three-second wait, and
+    /// that a new session cannot inherit the previous session's "settings applied" flag.
+    func testTakeoverWaitIsOutsideTheLifecycleLockAndResetsPerSession() throws {
+        let provider = try String(contentsOf: Self.providerSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(provider.contains("private func waitForTunnelTakeover"),
+                      "the bounded wait must exist as its own function")
+        guard let waitStart = provider.range(of: "private func waitForTunnelTakeover"),
+              let startService = provider.range(of: "private func startService("),
+              waitStart.lowerBound < startService.lowerBound
+        else {
+            return XCTFail("could not locate the wait and startService in ExtensionProvider.swift")
+        }
+        let waitBody = provider[waitStart.lowerBound ..< startService.lowerBound]
+        XCTAssertFalse(waitBody.contains("serviceLifecycleLock.lock()"),
+                       "the takeover wait must not hold serviceLifecycleLock across its sleeps")
+        XCTAssertTrue(waitBody.contains("withServiceLifecycleLock"),
+                      "the wait must still check the generation under the lock")
+
+        guard let startBodyStart = provider.range(of: "private func startService("),
+              let stopBodyStart = provider.range(of: "func stopService()")
+        else {
+            return XCTFail("could not locate startService/stopService")
+        }
+        let startBody = provider[startBodyStart.lowerBound ..< stopBodyStart.lowerBound]
+        XCTAssertTrue(startBody.contains("withServiceLifecycleLock"),
+                      "startOrReloadService must be serialised with stopService")
+        XCTAssertTrue(startBody.contains("resetTunnelTakeoverCheck()"),
+                      "a NEW start must clear the previous session's applied flag")
+        XCTAssertTrue(startBody.contains("if !isReload"),
+                      "the reset must not run on a reload")
+
+        let stopBody = provider[stopBodyStart.lowerBound...]
+        XCTAssertTrue(stopBody.contains("serviceLifecycleGeneration &+= 1"),
+                      "stopService must invalidate a start that is waiting outside the lock")
+    }
+
     // MARK: - Source locations
 
     /// The policy file that ships, reached through the symlink the package compiles.
@@ -196,5 +240,11 @@ final class InterfaceMonitorStartupTests: XCTestCase {
     private static var adapterSourceURL: URL {
         policySourceURL.deletingLastPathComponent()
             .appendingPathComponent("ExtensionPlatformInterface.swift")
+    }
+
+    /// The provider, which owns the service lifecycle lock and the takeover wait.
+    private static var providerSourceURL: URL {
+        adapterSourceURL.deletingLastPathComponent()
+            .appendingPathComponent("ExtensionProvider.swift")
     }
 }
