@@ -72,7 +72,7 @@ both files are phone-only Hako presentation.
 | **F-10** | P2 (57 strings) | 57 strings in the phone UI rendered English (or Chinese) in every language: every empty state on Proxies / Activity / Logs / the report pages, the On-Demand rule editor's captions, the Back/Clear/Selected/Working… chrome, the Tunnel and Profile Override explanations, and the "no shared container" state | `HakoScaffold`, `HakoRow`, `HakoData`, `HakoEmptyState`, `HakoHomeView`, `HakoConnectionListView`, `HakoOnDemandRulesView`, `HakoTailscaleSSHPromptView`, `HakoStartStopButton`, `HakoPacketTunnelView`, `HakoProfileOverrideView`, `HakoLogView`, `SFI/HakoPhoneRootView` | — (the catalog is the counterpart) | The gate that exists for exactly this could not see them: it matched no file on Windows, its literal extractor was off by one so only `String(localized:)` was checked, it compared escapes raw, and it never looked at labelled arguments (`explanation:`, `footnote:`, `title:`, `message:`, `subtitle:`) at all. The literals are catalog *keys*, so a miss is silent by design | Gate fixed (four defects) and 57 keys added with zh-Hans; `HakoLogView`'s new state now uses English keys with the Chinese in the catalog | `VERIFIED_STATIC` + mutation case |
 | **F-11** | P1 | A configuration whose only live service is a **USB/IP server** shows no Endpoints card at all on Tools, so the USB/IP page is unreachable | `HakoToolsView.swift` `endpointSection` (the `if` at the top of the card) | `Tools/ToolsView.swift:109` gives USB/IP its own section gated on `!usbipViewModel.servers.isEmpty` | The reference put the USB/IP rows inside the Endpoints card, and the port's gate listed only the three *endpoint* arrays — so the rows rendered from `usbipViewModel.servers` were nested under a condition that never mentions them | The gate now includes `!usbipViewModel.servers.isEmpty`: same card, same rows, one condition — no visual or information-architecture change | `VERIFIED_SOURCE` (compared line by line with upstream's gate) |
 | **F-12** | P2 | A failed read of the remote-control server list hid the whole card, looking exactly like "there are none" | `HakoMacAppView.swift` `reloadRemoteServers()`, `HakoLogView.swift` `reloadRemoteServers()` | `HakoRemoteControlView.reload()` reports the same failure through an alert | `remoteServers = await (try? RemoteServerManager.list()) ?? []` — a silent `try?` on the value that decides whether the card is drawn, and on the Logs page on the value that decides which servers the menu offers | Both reads now report the failure through the page's existing alert; the list is cleared only on failure, not flattened into a fake empty success | `VERIFIED_SOURCE` |
-| **F-13** | P2 | "Go Crash" / "Native Crash" in the crash-report menu could do nothing at all, with no explanation | `HakoCrashReportListView.swift` `NetworkExtensionCrashMenu` | `HakoOOMReportListView.triggerOOMReport` guards the service state and reports the failure | Both buttons were `try? LibboxNewStandaloneCommandClient()?.trigger…()`, so a refused command channel looked exactly like a crash that ran and produced no report | One `trigger` helper with `do/catch` and an alert, mirroring the OOM page's trigger | `VERIFIED_SOURCE` |
+| **F-13** | P2 | "Go Crash" / "Native Crash" in the crash-report menu could do nothing at all, with no explanation | `HakoCrashReportListView.swift` `NetworkExtensionCrashMenu`, and `HakoOOMReportListView.triggerOOMReport` | — (the fix follows the OOM page's `AlertState(action:error:)` shape) | `LibboxNewStandaloneCommandClient()` returns an **Optional**, and both buttons were `try? LibboxNewStandaloneCommandClient()?.trigger…()`. An optional chain over **nil does not throw — it skips the call**, so "no command channel" and "a crash ran and produced no report" were the same thing to the reader. The OOM trigger had the identical hole behind its own `do/catch` | Both now `guard let` the client and report the nil answer with the catalog's existing "Status Channel Unavailable" key; thrown errors keep the `AlertState(action:error:)` shape. New gate `check_hako_command_channel.py` forbids the optional-chained form | `VERIFIED_SOURCE` + mutation case |
 
 ### Found and **not** fixed: the shared cards now depend on Hako types
 
@@ -161,6 +161,11 @@ runtime test.
    three endpoint arrays and the USB/IP rows came from a fourth; the condition now includes it, which
    is upstream's own condition in a different card (F-11). The remote-control server list on Client
    Settings reports a failed read instead of flattening it into an empty list (F-12).
+9. **A nil command client is reported, not skipped.** `LibboxNewStandaloneCommandClient()` is
+   Optional and an optional chain over nil does not throw, so the crash-report triggers and the OOM
+   trigger could do nothing at all without saying so (F-13). They now unwrap and report the nil
+   answer with the catalog's existing "Status Channel Unavailable" key, and
+   `check_hako_command_channel.py` refuses the optional-chained form anywhere in the phone files.
 
 Design constraint kept: no second `ProfileManager`, no second event bus, no new persistence, no new
 reload state machine. Everything the page does goes through a type upstream already ships.
@@ -177,6 +182,7 @@ Run from the worktree root on Windows, CPython 3.12.10, Swift 6.3.3 (`swiftc` pr
 | `check_compact_mode_picker.py --root .` | 10 cases + 1 wiring assertion, exit 0 | `VERIFIED_UNIT` (the shipped `HakoClashModeLayout` compiles and runs) |
 | `test_hako_ui_gates.py --root .` | 13 mutants, 13 caught, exit 0 — two of them mutate a scratch tree and require the *compiled* cases to fail, one requires the platform gate to fail | `VERIFIED_UNIT` (negative) |
 | `check_hako_platform_symbols.py --root .` | `PASS: 58 Hako file(s) checked; 25 platform-gated SharedPreferences member(s), every use inside its condition`, exit 0 | `VERIFIED_STATIC` (new gate; it reported 12 unguarded uses before F-7's fix) |
+| `check_hako_command_channel.py --root .` | `PASS: 58 phone file(s) checked; every command client is unwrapped before use, so a nil answer can be reported`, exit 0 | `VERIFIED_STATIC` (new gate for F-13; it reported both optional-chained call sites before the fix) |
 | `audit_apple_ui_boundary.py --root . --upstream-ref 089d35e6… --strict` | `PASS 17 FAIL 3 UNKNOWN 0`, exit 1 — the same three failures as at `e8c0874`, listed in §B | `VERIFIED_STATIC` |
 | `check_hako_macos_parse.py --root . --platform ios` | `checked=56 errors=0 undecidable=0`, exit 0 (54 before this round; the two new files are in scope) | `VERIFIED_STATIC` |
 | `check_platform_structure.py` | exit 0, "every ported file still carries the platform structure its original had" | `VERIFIED_STATIC` |
@@ -309,12 +315,27 @@ rather than rebased, and the six UI commits keep the SHAs their gates and this r
 
 Then, all of it was pushed: `main` (`ab575da..eb8a8ac` at the time) and the three preservation tags,
 so the deleted tips survive on the remote as well as locally. A follow-up push carried `da87fa4`
-(localization). The remote now carries `refs/heads/main` and one unmerged leftover,
-`hotfix/ios-command-socket` (`ceffc5b`, an earlier 13-line variant of the shared-container message
-that `eb8286a` superseded with 17 lines) — deleting unmerged work is not this round's call, so it
-stays and is recorded here. `fix/compact-outbound-mode-ui` and the two fully-merged self-sign
-branches (`experiment/selfsign-compat`, `feat/ios-local-signing-loopback`) were deleted remotely;
-their content is on `main`.
+(localization). `fix/compact-outbound-mode-ui` and the two fully-merged self-sign branches
+(`experiment/selfsign-compat`, `feat/ios-local-signing-loopback`) were deleted remotely; their
+content is on `main`.
+
+### `hotfix/ios-command-socket` — audited, archived, deleted
+
+The last remote branch besides `main` held one commit `main` did not: `ceffc5b`
+(*feat(tunnel): say when this build has no shared container*, 2026-11-04, 13 lines). It is an earlier
+form of the diagnostic `eb8286a` carries on `main`: the same
+`if FilePath.isUsingProcessLocalDirectory { writeMessage(same text, level: .info) }`, refined there
+with `#if os(iOS)`. So the function is covered — `ceffc5b` is superseded, not patch-equivalent.
+
+No workflow depended on it: neither repository has CI (no `.github`), no `Makefile` / `fastlane` /
+script names the branch or the commit, and the parent pins `clients/apple` by **SHA**
+(`ab575dace8…`), not by branch. The only text hit in either repo is a documentation *path*
+(`docs/fork/ios-command-socket-path-fix.md`) inside the kernel's knowledge base, which is not a ref.
+
+It was classified obsolete and handled as the user directed: the commit is preserved by the annotated
+tag **`archive/hotfix-ios-command-socket-2026-11-07`** (pushed), and the remote branch was deleted.
+`main` is now the only branch locally and remotely, and the five gates plus the audit are unchanged by
+this — it touched no file in this tree.
 
 Pushing also means `main` is no longer a local-only line: the SHAs this report cites are the
 published ones.

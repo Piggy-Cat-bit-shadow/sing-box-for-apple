@@ -384,6 +384,30 @@ def run(root: str) -> list[str]:
             )
     ran.append("broken localized URL is caught")
 
+    # 15. F-13's silent path. The crash menu used to be `try? LibboxNewStandaloneCommandClient()?…`,
+    #     and an optional chain over a nil client does not throw - it skips the call. The gate for
+    #     that shape is a source scan, so the original line is put back in a scratch tree and the
+    #     gate is required to report it.
+    crash_page = read(root, "ApplicationLibrary/Views/HakoStyle/HakoCrashReportListView.swift")
+    optional_chained = mutate(
+        crash_page,
+        "trigger { try $0.triggerGoCrash() }",
+        "try? LibboxNewStandaloneCommandClient()?.triggerGoCrash()",
+        "the optional-chained crash trigger",
+    )
+    tree = scratch_tree({
+        "ApplicationLibrary/Views/HakoStyle/HakoCrashReportListView.swift": optional_chained,
+    })
+    try:
+        code, output = run_gate(root, "check_hako_command_channel.py", tree)
+    finally:
+        shutil.rmtree(tree, ignore_errors=True)
+    if code == 0 or "optional-chained command client" not in output:
+        raise CaseFailure(
+            "an optional-chained command client passed the gate; it said: %s" % output
+        )
+    ran.append("optional-chained command client is caught")
+
     return ran
 
 

@@ -117,10 +117,10 @@ public struct HakoCrashReportListView: View {
             if profile.status.isConnectedStrict {
                 Menu("NetworkExtension") {
                     Button("Go Crash") {
-                        trigger { try LibboxNewStandaloneCommandClient()?.triggerGoCrash() }
+                        trigger { try $0.triggerGoCrash() }
                     }
                     Button("Native Crash") {
-                        trigger { try LibboxNewStandaloneCommandClient()?.triggerNativeCrash() }
+                        trigger { try $0.triggerNativeCrash() }
                     }
                 }
                 .alert($alert)
@@ -129,13 +129,19 @@ public struct HakoCrashReportListView: View {
 
         /// Send one crash trigger, then re-read the reports.
         ///
-        /// The command channel can refuse even with the tunnel reported as connected, and both
-        /// calls here used to be `try?` - so a refused trigger looked exactly like a crash that ran
-        /// and produced nothing to list. The OOM page's trigger already reports the same failure
-        /// through its page alert (`triggerOOMReport`); this is that shape.
-        private func trigger(_ action: () throws -> Void) {
+        /// Both call sites used to be `try? LibboxNewStandaloneCommandClient()?.trigger…()`. The
+        /// initialiser is Optional, and an optional chain over a nil client **does not throw**: it
+        /// skips the call. So "no command channel" and "a crash ran and produced no report" were
+        /// the same thing to the reader. The nil answer is now reported, with the key the Logs page
+        /// already uses for it; a thrown error keeps the OOM page's `AlertState(action:error:)`
+        /// shape, which is what `triggerOOMReport` does.
+        private func trigger(_ action: (LibboxCommandClient) throws -> Void) {
+            guard let client = LibboxNewStandaloneCommandClient() else {
+                alert = AlertState(errorMessage: String(localized: "Status Channel Unavailable"))
+                return
+            }
             do {
-                try action()
+                try action(client)
             } catch {
                 alert = AlertState(action: "trigger crash", error: error)
                 return

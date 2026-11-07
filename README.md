@@ -159,7 +159,7 @@ MacLibrary/                   macOS 专属界面与窗口（MainView 与上游�
 
 ApplicationLibrary/           共享的界面框架（iOS / macOS / tvOS 共用）
   Views/
-    HakoStyle/                ★ 手机 UI 的全部所有权边界（19 个 .swift）
+    HakoStyle/                ★ 手机 UI 的全部所有权边界（56 个 .swift）
 
       原版共享组件（必须与 c1935cf 逐字节相同）：
         HakoTheme、HakoSurface、HakoCard、HakoRow、HakoScaffold、
@@ -213,7 +213,8 @@ scripts/
   dev/check_hako_profile_switch.py     ★ 编译并运行配置切换的排队逻辑（真实 Swift 编译器 + 提取的视图代码）
   dev/check_compact_mode_picker.py     ★ 编译并运行出站模式栏的形状决策（同上）
   dev/check_hako_platform_symbols.py   ★ 手机页面不得在 `#if !os(tvOS)` 之外使用只在非 tvOS 声明的偏好项
-  dev/test_hako_ui_gates.py            ★ 上面三个门禁的负例套件（把每个缺陷放回去，要求门禁报错）
+  dev/check_hako_command_channel.py    ★ 命令客户端不得可选链：nil 必须能被报告，不能被静默跳过
+  dev/test_hako_ui_gates.py            ★ 上面四个门禁的负例套件（把每个缺陷放回去，要求门禁报错）
   dev/set_display_name.py              重新应用可见产品名（幂等，合并上游后运行）
   link-test-sources.sh                 把真实源码以符号链接接入测试包
   run-subscription-usage-tests.sh      运行上述测试包
@@ -271,19 +272,20 @@ docs/
 ### 改完之后必须运行
 
 ```bash
-python scripts/dev/audit_apple_ui_boundary.py --upstream-ref 089d35e   # 应当是 PASS 9 FAIL 0
+python scripts/dev/audit_apple_ui_boundary.py --upstream-ref 089d35e   # 本机实测 PASS 17 FAIL 3；3 项为既有红项
 python scripts/dev/test_audit_apple_ui_boundary.py                     # 14/14 应当按设计行为
 python scripts/dev/check_hako_profile_switch.py                        # 配置切换：6 个行为案例 + 接线断言
 python scripts/dev/check_compact_mode_picker.py                        # 出站模式栏：10 个案例 + 接线断言
 python scripts/dev/check_hako_platform_symbols.py                      # 平台守卫：手机页面不得用 tvOS 不存在的符号
-python scripts/dev/test_hako_ui_gates.py                               # 13/13 把缺陷放回去，门禁必须报错
+python scripts/dev/check_hako_command_channel.py                       # 命令客户端不得可选链（nil 会被静默跳过）
+python scripts/dev/test_hako_ui_gates.py                               # 16/16 把缺陷放回去，门禁必须报错
 ```
 
-后面四条里，`check_hako_profile_switch.py`、`check_compact_mode_picker.py` 和
+后面五条里，`check_hako_profile_switch.py`、`check_compact_mode_picker.py` 和
 `test_hako_ui_gates.py` 需要 `swiftc`（编译真实的决策文件并运行），`check_hako_platform_symbols.py`
-只是源码扫描；四条都不需要 Xcode。`test_hako_ui_gates.py` 的其中两条用例会在临时目录里改一份树，
-再跑 `check_hako_profile_switch.py` 或 `check_hako_platform_symbols.py`，因此它同时验证门禁
-「会对」和「会错」。
+与 `check_hako_command_channel.py` 只是源码扫描；五条都不需要 Xcode。`test_hako_ui_gates.py`
+的其中几类用例会在临时目录里改一份树，再跑对应门禁（平台守卫、本地化、命令通道），因此它同时
+验证门禁「会对」和「会错」。
 
 `UNKNOWN` 不是通过。它意味着一次比较没能进行——在继续之前把它修好。
 
@@ -354,6 +356,11 @@ python scripts/dev/test_hako_ui_gates.py                               # 13/13 �
 | iPhone 模拟器 UI 测试 | **未执行** | `ENVIRONMENT_BLOCKED`：本机 CoreSimulator 存储中有多个设备被标记为 `isDeleted`，`simctl boot` 报 `Unable to boot deleted device`。UI 测试用例**未被修改、也未被跳过** |
 | iPad / macOS 真机或模拟器验收 | **未执行** | `NEEDS_DEVICE`：本机无 iPad 与 Mac 设备验收条件 |
 | NetworkExtension / 真机联调 | **未执行** | `NEEDS_DEVICE`：需签名与设备 |
+
+> 其中「UI 边界静态审计」一行记录的是收口时在 macOS 主机上的 19 项结果。同一工具在当前树上
+> 实测为 **`PASS 17 / FAIL 3`**（Windows），3 项为既有红项，与
+> [`docs/HAKO-UI-BEHAVIOR-CLOSURE-2026-11-07.md`](docs/HAKO-UI-BEHAVIOR-CLOSURE-2026-11-07.md)
+> §B/§E 列出的是同一批；本轮没有修改检测规则，也没有把它们算作通过。
 
 **这份 README 只声称上表已执行一栏的内容。** 设备侧结论一律为 `NEEDS_DEVICE`，
 完整清单见 [`docs/APPLE-DEVICE-ACCEPTANCE.md`](docs/APPLE-DEVICE-ACCEPTANCE.md)。

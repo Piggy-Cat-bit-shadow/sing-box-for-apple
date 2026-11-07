@@ -148,8 +148,16 @@ private func triggerOOMReport(profile: ExtensionProfile, manager: OOMReportManag
         alert = AlertState(errorMessage: String(localized: "Service not started"))
         return
     }
+    // `LibboxNewStandaloneCommandClient()` is Optional, and `?.triggerOOMReport()` skipped the call
+    // silently when it answered nil - so "no command channel" looked like "a report was requested
+    // and none arrived". The nil answer is reported, with the same key the Logs page uses for this
+    // condition.
+    guard let client = LibboxNewStandaloneCommandClient() else {
+        alert = AlertState(errorMessage: String(localized: "Status Channel Unavailable"))
+        return
+    }
     do {
-        try LibboxNewStandaloneCommandClient()?.triggerOOMReport()
+        try client.triggerOOMReport()
     } catch {
         alert = AlertState(action: "trigger OOM report", error: error)
         return
