@@ -48,6 +48,11 @@ public struct HakoCoreView: View {
     @State private var cacheSizeText = ""
     @State private var cacheSizeLoaded = false
 
+    /// The daemon's own account of the selected document: the plan, the last apply and the last
+    /// recovery. Hand-added to this generated page - it has no counterpart in the upstream
+    /// `CoreView` it was ported from, so `migrate_secondary_page.py` cannot produce it; the
+    /// section is written with the Hako primitives this page already uses.
+    @StateObject private var configurationStatus = ConfigurationStatusModel()
 
     public init() {}
 
@@ -62,6 +67,7 @@ public struct HakoCoreView: View {
                     }
             } else {
                 versionSection
+                configurationSection
                 if Variant.isBeta {
                     betaSection
                 }
@@ -69,6 +75,9 @@ public struct HakoCoreView: View {
             }
         }
         .alert($alert)
+        .task {
+            await configurationStatus.load()
+        }
         .onAppear {
             guard !isLoading else {
                 return
@@ -142,8 +151,7 @@ public struct HakoCoreView: View {
     private static let infoRowHeight: CGFloat = 46
 
     private var versionSection: some View {
-        HakoSettingsSection {
-            HakoMetricRow(String(localized: "Version"), value: version, systemImage: "shippingbox.fill", tint: .neutral)
+        HakoSettingsSection {            HakoMetricRow(String(localized: "Version"), value: version, systemImage: "shippingbox.fill", tint: .neutral)
                 .hakoStandardRowMetric(minHeight: Self.infoRowHeight)
             dataSizeRow
             // The figure is read off disk, so the row says it is coming rather than showing an
@@ -181,6 +189,34 @@ public struct HakoCoreView: View {
         } else {
 
 
+        }
+    }
+
+    /// The three documents the daemon serves, in the phone's own row shape.
+    ///
+    /// The rows come from the real RPCs; an older kernel answers "cannot" rather than nothing, and
+    /// a recovery is shown even though it is not an error of the current instance - it means the
+    /// running document is not the one the user asked for.
+    private var configurationSection: some View {
+        HakoSettingsSection {
+            if configurationStatus.loading {
+                HakoCardLineTrailing(
+                    String(localized: "Configuration"),
+                    systemImage: "doc.text.fill",
+                    tint: .neutral
+                ) {
+                    ProgressView()
+                }
+            } else {
+                ForEach(configurationStatus.lines) { line in
+                    HakoMetricRow(
+                        line.label,
+                        value: line.value,
+                        systemImage: "doc.text.fill",
+                        tint: .neutral
+                    )
+                }
+            }
         }
     }
 

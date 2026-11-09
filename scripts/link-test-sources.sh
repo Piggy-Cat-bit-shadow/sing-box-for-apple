@@ -34,6 +34,7 @@ core=(
     "Library/Database/RemoteRefreshApplier.swift"
     "Library/Database/RemoteProviderRefreshReport.swift"
     "Library/Database/RemoteProfileUpdateReport.swift"
+    "Library/Database/ConfigurationDocuments.swift"
 )
 profile=(
     "Library/Database/Profile.swift"

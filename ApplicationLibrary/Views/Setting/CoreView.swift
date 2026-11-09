@@ -66,6 +66,13 @@ public struct CoreView: View {
                         }
                     }
 
+                    // What the daemon says about the document the selected profile would apply:
+                    // the plan, the last apply attempt and the last recovery. Read from the real
+                    // RPCs, so an older kernel shows "cannot" instead of an empty success.
+                    Section("Configuration") {
+                        ConfigurationStatusRows()
+                    }
+
                     Section("Working Directory") {
                         #if os(macOS)
                             if !Variant.useSystemExtension {
