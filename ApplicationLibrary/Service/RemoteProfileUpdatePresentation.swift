@@ -50,32 +50,32 @@ extension RemoteProviderRefreshSummary {
     var localizedDescription: String {
         switch status {
         case .published:
-            String(localized: "Providers: \(counts.published) published, \(counts.unchanged) unchanged")
+            return String(localized: "Providers: \(counts.published) published, \(counts.unchanged) unchanged")
         case .unchanged:
-            String(localized: "Providers unchanged")
+            return String(localized: "Providers unchanged")
         case .partial:
-            String(
+            return String(
                 localized: "Providers partly applied: \(counts.pendingTags) pending, \(counts.restartRequired) need a restart"
             )
         case .failed:
-            detail.map { String(localized: "Provider refresh failed: \($0)") }
+            return detail.map { String(localized: "Provider refresh failed: \($0)") }
                 ?? String(localized: "Provider refresh failed: \(counts.failed) of \(counts.total)")
         case .busy:
-            String(localized: "Providers busy; the refresh did not run")
+            return String(localized: "Providers busy; the refresh did not run")
         case .cancelled:
-            String(localized: "Provider refresh cancelled")
+            return String(localized: "Provider refresh cancelled")
         case .boxChanged:
-            String(localized: "Provider refresh crossed two Box instances")
+            return String(localized: "Provider refresh crossed two Box instances")
         case .none:
-            String(localized: "The running configuration has no remote providers")
+            return String(localized: "The running configuration has no remote providers")
         case .notActive:
-            String(localized: "Providers not refreshed: the profile is not active")
+            return String(localized: "Providers not refreshed: the profile is not active")
         case .notRunning:
-            String(localized: "Providers not refreshed: not connected")
+            return String(localized: "Providers not refreshed: not connected")
         case .unsupported:
-            String(localized: "Providers not refreshed: the kernel predates the provider refresh RPC")
+            return String(localized: "Providers not refreshed: the kernel predates the provider refresh RPC")
         case .unavailable:
-            detail.map { String(localized: "Provider refresh unavailable: \($0)") }
+            return detail.map { String(localized: "Provider refresh unavailable: \($0)") }
                 ?? String(localized: "Provider refresh unavailable")
         }
     }
