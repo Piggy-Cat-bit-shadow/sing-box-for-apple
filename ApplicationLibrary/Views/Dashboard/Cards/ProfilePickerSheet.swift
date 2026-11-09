@@ -411,8 +411,12 @@ struct ProfilePickerSheet: View {
 
     private func updateProfile(_ profile: ProfilePreview) async {
         do {
-            try await profile.origin.updateRemoteProfile()
+            let report = try await profile.origin.updateRemoteProfileReporting()
+            NSLog("profile update %@: %@", profile.name, report.localizedDescription)
             environments.profileUpdate.send()
+            if report.isFailure {
+                alert = AlertState(action: "update remote profile", error: RemoteProfileUpdateError(report))
+            }
         } catch {
             alert = AlertState(action: "update remote profile", error: error)
         }

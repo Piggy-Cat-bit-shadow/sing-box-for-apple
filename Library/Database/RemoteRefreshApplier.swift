@@ -39,4 +39,57 @@ public enum RemoteRefreshApplier {
         try await writeBody(body)
         try await reloadService()
     }
+
+    /// The same sequence, plus the provider half and the reload confirmation.
+    ///
+    /// The body half and the provider half are reported independently: a failed or unconfirmed
+    /// reload still probes the live instance, because the old Box may still be serving and its
+    /// remote node sources are a different failure domain. The probe is a value the caller
+    /// supplies, so "not active", "not running" and "the daemon predates the RPC" stay distinct
+    /// from an empty report.
+    public static func applyReporting(
+        _ outcome: RemoteRefreshOutcome,
+        applyMetadata: () -> Void,
+        persist: () async throws -> Void,
+        writeBody: (String) async throws -> Void,
+        reloadService: () async throws -> Void,
+        canApply: (() async -> Bool)? = nil,
+        confirmStartedAt: (() async -> Bool)? = nil,
+        refreshProviders: () async -> RemoteProviderRefreshProbe
+    ) async throws -> RemoteProfileUpdateReport {
+        applyMetadata()
+        try await persist()
+        guard outcome.writeBody, let body = outcome.bodyToWrite else {
+            // Metadata-only refresh: no reload, but the running instance's providers may still be
+            // refreshed by the same user action.
+            return RemoteProfileUpdateReport(
+                config: .unchanged,
+                providers: await refreshProviders().summary
+            )
+        }
+        try await writeBody(body)
+        // The body is saved whether or not this profile is the running one; a profile that is not
+        // selected (or a disconnected tunnel) must not pretend to have applied it.
+        if let canApply, await canApply() == false {
+            return RemoteProfileUpdateReport(
+                config: .saved,
+                providers: await refreshProviders().summary
+            )
+        }
+        let config: RemoteConfigUpdateOutcome
+        do {
+            try await reloadService()
+            if let confirmStartedAt, await confirmStartedAt() == false {
+                config = .applyUnconfirmed
+            } else {
+                config = .applied
+            }
+        } catch {
+            config = .applyFailed(error.localizedDescription)
+        }
+        return RemoteProfileUpdateReport(
+            config: config,
+            providers: await refreshProviders().summary
+        )
+    }
 }

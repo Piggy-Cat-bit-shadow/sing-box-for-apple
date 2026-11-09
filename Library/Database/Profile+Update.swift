@@ -16,7 +16,80 @@ public extension Profile {
         // The real path supplies the real metadata probe. It is not a default of
         // `refreshRemoteProfile` because that would put a live network request on the tests'
         // path, which inject a canned response and must stay offline.
-        try await refreshRemoteProfile(metadataProbe: { try await RemoteProfileFetcher.captureMetadata($0) })
+        _ = try await updateRemoteProfileReporting()
+    }
+
+    /// The same refresh, returning both halves of the result.
+    ///
+    /// Whether the body applies, and whether the providers were refreshed, are two independent
+    /// facts. A profile that is not the selected/connected one still saves its new body (`.saved`)
+    /// and must not touch the running instance's providers; the selected one confirms the reload
+    /// with the daemon's per-Box `startedAt` rather than assuming the RPC returned means applied.
+    nonisolated func updateRemoteProfileReporting() async throws -> RemoteProfileUpdateReport {
+        let selected = await SharedPreferences.selectedProfileID.get() == id
+        let running = selected && await Self.tunnelConnected()
+        let before = running ? await Self.tunnelStartedAt() : nil
+        return try await refreshRemoteProfile(
+            metadataProbe: { try await RemoteProfileFetcher.captureMetadata($0) },
+            reloadService: { try await onProfileUpdated() },
+            canApply: { running },
+            confirmStartedAt: {
+                guard let before, let after = await Self.tunnelStartedAt() else { return false }
+                return after > before
+            },
+            refreshProviders: {
+                if !selected {
+                    return .notActive
+                }
+                if !running {
+                    return .notRunning
+                }
+                return await Self.probeProviderRefresh()
+            }
+        )
+    }
+
+    /// Whether the tunnel is connected right now.
+    nonisolated static func tunnelConnected() async -> Bool {
+        guard let extensionProfile = try? await ExtensionProfile.load() else { return false }
+        return await extensionProfile.status == .connected
+    }
+
+    /// The daemon's per-Box start timestamp, or nil when no Box is reachable.
+    nonisolated static func tunnelStartedAt() async -> Int64? {
+        await BlockingIO.run {
+            guard let client = try? CommandTarget.standaloneClient() else { return nil }
+            var value: Int64 = 0
+            do {
+                try client.getStartedAt(&value)
+            } catch {
+                return nil
+            }
+            return value > 0 ? value : nil
+        }
+    }
+
+    /// Refreshes the live Box's remote providers and returns the raw JSON summary.
+    nonisolated static func probeProviderRefresh() async -> RemoteProviderRefreshProbe {
+        await BlockingIO.run {
+            guard let client = try? CommandTarget.standaloneClient() else {
+                return .notRunning
+            }
+            do {
+                let box = try client.refreshRemoteProviders("", 15_000)
+                guard let box else {
+                    return .failed("empty provider refresh response")
+                }
+                return .response(box.value)
+            } catch {
+                // gRPC's Unimplemented is code 12. An older kernel answers this way, and it is a
+                // capability gap, not a failed refresh of a live Box.
+                if (error as NSError).code == 12 {
+                    return .unsupported
+                }
+                return .failed(error.localizedDescription)
+            }
+        }
     }
 
     /// The refresh above, with the fetch, the configuration check, the metadata probe and the
@@ -31,10 +104,17 @@ public extension Profile {
         fetch: @escaping (String) async throws -> RemoteProfileResponse = { try await RemoteProfileFetcher.fetch($0) },
         validate: @escaping (String) async throws -> Void = { try await Profile.validateConfiguration($0) },
         metadataProbe: ((String) async throws -> SubscriptionInfoCapture)? = nil,
-        persist: ((Profile) async throws -> Void)? = nil
-    ) async throws {
+        persist: ((Profile) async throws -> Void)? = nil,
+        reloadService: (() async throws -> Void)? = nil,
+        canApply: (() async -> Bool)? = nil,
+        confirmStartedAt: (() async -> Bool)? = nil,
+        refreshProviders: (() async -> RemoteProviderRefreshProbe)? = nil
+    ) async throws -> RemoteProfileUpdateReport {
         if type != .remote {
-            return
+            return RemoteProfileUpdateReport(
+                config: .saved,
+                providers: RemoteProviderRefreshProbe.notActive.summary
+            )
         }
         let url = remoteURL
         // Value and capture time are read and passed together, so a refresh that captures nothing
@@ -54,7 +134,7 @@ public extension Profile {
             metadataProbe: metadataProbe
         )
         let persist = persist ?? { try await ProfileManager.update($0) }
-        try await RemoteRefreshApplier.apply(
+        return try await RemoteRefreshApplier.applyReporting(
             outcome,
             applyMetadata: {
                 subscriptionInfo = outcome.subscriptionInfo
@@ -66,7 +146,10 @@ public extension Profile {
             },
             persist: { try await persist(self) },
             writeBody: { try await writeAsync($0) },
-            reloadService: { try await onProfileUpdated() }
+            reloadService: reloadService ?? { try await onProfileUpdated() },
+            canApply: canApply,
+            confirmStartedAt: confirmStartedAt,
+            refreshProviders: refreshProviders ?? { .notActive }
         )
     }
 

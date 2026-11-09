@@ -32,6 +32,8 @@ core=(
     "Library/Network/RemoteProfileFetcher.swift"
     "Library/Database/RemoteProfileUpdatePolicy.swift"
     "Library/Database/RemoteRefreshApplier.swift"
+    "Library/Database/RemoteProviderRefreshReport.swift"
+    "Library/Database/RemoteProfileUpdateReport.swift"
 )
 profile=(
     "Library/Database/Profile.swift"

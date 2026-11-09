@@ -617,8 +617,15 @@ extension ProfileCard {
             defer { isUpdating = false }
 
             do {
-                try await profile.updateRemoteProfile()
+                // The reporting variant is the same refresh plus the provider half and the daemon's
+                // per-Box confirmation. Both halves are logged; a real failure is still presented,
+                // while a saved-but-not-running update is not an error.
+                let report = try await profile.updateRemoteProfileReporting()
+                NSLog("profile update %@: %@", profile.name, report.localizedDescription)
                 environments.profileUpdate.send()
+                if report.isFailure {
+                    alert = AlertState(action: "update remote profile", error: RemoteProfileUpdateError(report))
+                }
             } catch {
                 alert = AlertState(action: "update remote profile", error: error)
             }

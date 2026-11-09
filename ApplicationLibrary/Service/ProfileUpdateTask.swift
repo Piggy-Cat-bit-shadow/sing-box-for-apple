@@ -57,8 +57,14 @@ public enum ProfileUpdateTask {
                 continue
             }
             do {
-                try await profile.updateRemoteProfile()
-                NSLog("Updated profile %@", profileName)
+                // One batch, one report per profile. Only the profile that is actually selected and
+                // connected passes `canApply`/`refreshProviders`, so the batch refreshes providers
+                // on the final running instance once, not on every profile it downloaded.
+                let report = try await profile.updateRemoteProfileReporting()
+                NSLog("Updated profile %@: %@", profileName, report.localizedDescription)
+                if report.isFailure {
+                    success = false
+                }
             } catch {
                 NSLog("Update profile %@ failed: %@", profileName, error.localizedDescription)
                 success = false
