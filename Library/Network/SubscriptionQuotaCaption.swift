@@ -1,6 +1,6 @@
 import Foundation
 
-/// What the macOS subscription-quota caption should state for one profile.
+/// What the subscription-quota caption should state for one profile.
 ///
 /// The decision is kept out of the SwiftUI view on purpose: it is the part that can be wrong in a
 /// way the user pays for (which figure is shown, whether a date is already past, whether the quota
@@ -34,8 +34,8 @@ public enum SubscriptionQuotaCaption {
     public struct Content: Equatable {
         public let usage: Usage?
         public let expiry: Expiry?
-        /// The quota's own capture time, present only when it differs from the configuration
-        /// refresh time. Without that difference the nearby "2 hours ago" already describes it.
+        /// The quota's own capture time, present only when it predates the configuration refresh.
+        /// A capture obtained after the refresh began is already fresh for that configuration.
         public let capturedAt: Date?
 
         public var isEmpty: Bool { usage == nil && expiry == nil }
@@ -97,7 +97,7 @@ public enum SubscriptionQuotaCaption {
     /// The quota capture time when it is meaningfully older than the configuration refresh.
     private static func staleCapture(capturedAt: Date?, lastUpdated: Date?) -> Date? {
         guard let capturedAt, let lastUpdated,
-              abs(lastUpdated.timeIntervalSince(capturedAt)) >= captureTolerance
+              lastUpdated.timeIntervalSince(capturedAt) >= captureTolerance
         else { return nil }
         return capturedAt
     }

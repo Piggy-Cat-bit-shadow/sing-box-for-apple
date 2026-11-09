@@ -70,6 +70,28 @@ final class QuotaCaptionTests: XCTestCase {
         XCTAssertFalse(content(info(total: 10, expire: atNow + 1))?.expiry?.expired ?? true)
     }
 
+    func testHakoHeaderExpiryReachesTheCaptionAlongsideDistinctCaptureTime() throws {
+        let expires = Int64(now.timeIntervalSince1970) + 30 * 86_400
+        let parsed = try XCTUnwrap(SubscriptionInfo.parse(
+            header: "upload=100; download=200; total=36000000300; expire=\(expires)"
+        ))
+        let captured = now.addingTimeInterval(-17)
+        let caption = try XCTUnwrap(content(parsed, capturedAt: captured, lastUpdated: now))
+        XCTAssertEqual(caption.usage, .remaining(36_000_000_000, 36_000_000_300))
+        XCTAssertEqual(caption.expiry?.date, Date(timeIntervalSince1970: Double(expires)))
+        XCTAssertEqual(caption.expiry?.expired, false)
+        XCTAssertEqual(caption.capturedAt, captured,
+                       "the quota capture is distinct from the configuration update, not the expiry")
+    }
+
+    func testExpiryOnlyHeaderStillProducesACaption() throws {
+        let expires = Int64(now.timeIntervalSince1970) - 1
+        let parsed = try XCTUnwrap(SubscriptionInfo.parse(header: "expire=\(expires)"))
+        let caption = try XCTUnwrap(content(parsed))
+        XCTAssertNil(caption.usage)
+        XCTAssertEqual(caption.expiry?.expired, true)
+    }
+
     func testOnlyThePartsThatExistAreProduced() {
         let expiryOnly = content(info(expire: Int64(now.timeIntervalSince1970) + 86_400))
         XCTAssertNil(expiryOnly?.usage)
@@ -83,6 +105,9 @@ final class QuotaCaptionTests: XCTestCase {
     func testCapturedAtIsStatedOnlyWhenItDiffersFromTheRefresh() {
         XCTAssertNil(content(info(total: 10), capturedAt: now, lastUpdated: now.addingTimeInterval(0.4))?.capturedAt,
                      "the same refresh must not claim an age")
+        XCTAssertNil(content(info(total: 10), capturedAt: now.addingTimeInterval(-17),
+                             lastUpdated: now.addingTimeInterval(-18))?.capturedAt,
+                     "a quota captured after the configuration refresh is fresh, not retained old data")
         XCTAssertEqual(content(info(total: 10), capturedAt: now.addingTimeInterval(-week), lastUpdated: now)?.capturedAt,
                        now.addingTimeInterval(-week))
         XCTAssertNil(content(info(total: 10), capturedAt: nil, lastUpdated: now)?.capturedAt,
