@@ -76,13 +76,13 @@ extension ConfigurationDocumentProbe where Value == ConfigurationPlan {
     var localizedDescription: String {
         switch self {
         case let .document(plan):
-            plan.localizedDescription
+            return plan.localizedDescription
         case .absent:
-            String(localized: "No plan for this document yet")
+            return String(localized: "No plan for this document yet")
         case .unsupported:
-            String(localized: "This kernel cannot preview a configuration")
+            return String(localized: "This kernel cannot preview a configuration")
         case let .unavailable(reason):
-            String(localized: "Preview unavailable: \(reason)")
+            return String(localized: "Preview unavailable: \(reason)")
         }
     }
 }
@@ -91,13 +91,13 @@ extension ConfigurationDocumentProbe where Value == ConfigurationReport {
     var localizedDescription: String {
         switch self {
         case let .document(report):
-            report.localizedDescription
+            return report.localizedDescription
         case .absent:
-            String(localized: "This instance has not applied a configuration yet")
+            return String(localized: "This instance has not applied a configuration yet")
         case .unsupported:
-            String(localized: "This kernel cannot report the last apply")
+            return String(localized: "This kernel cannot report the last apply")
         case let .unavailable(reason):
-            String(localized: "Last apply unavailable: \(reason)")
+            return String(localized: "Last apply unavailable: \(reason)")
         }
     }
 }
@@ -107,13 +107,13 @@ extension ConfigurationDocumentProbe where Value == ConfigurationRecovery {
     var localizedDescription: String? {
         switch self {
         case let .document(recovery):
-            recovery.localizedDescription
+            return recovery.localizedDescription
         case .absent:
-            nil
+            return nil
         case .unsupported:
-            String(localized: "This kernel cannot report a recovery")
+            return String(localized: "This kernel cannot report a recovery")
         case let .unavailable(reason):
-            String(localized: "Recovery unavailable: \(reason)")
+            return String(localized: "Recovery unavailable: \(reason)")
         }
     }
 }
@@ -180,21 +180,21 @@ extension ConfigurationReport {
     private var statusDescription: String {
         switch status {
         case "started":
-            String(localized: "started")
+            return String(localized: "started")
         case "unchanged":
-            String(localized: "unchanged")
+            return String(localized: "unchanged")
         case "applied_live":
-            String(localized: "applied live")
+            return String(localized: "applied live")
         case "restarted":
-            String(localized: "restarted")
+            return String(localized: "restarted")
         case "recovered":
-            String(localized: "recovered to the previous document")
+            return String(localized: "recovered to the previous document")
         case "interrupted":
-            String(localized: "interrupted; nothing is running")
+            return String(localized: "interrupted; nothing is running")
         case "failed":
-            String(localized: "failed")
+            return String(localized: "failed")
         default:
-            status
+            return status
         }
     }
 }
