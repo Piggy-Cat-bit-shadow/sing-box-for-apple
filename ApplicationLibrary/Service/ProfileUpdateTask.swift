@@ -51,22 +51,37 @@ public enum ProfileUpdateTask {
 
     static func updateProfiles(_ profiles: [Profile]) async -> Bool {
         var success = true
+        var prepared: [(profile: Profile, value: PreparedRemoteProfileUpdate?)] = []
         for profile in profiles {
             let profileName = profile.name
             if profile.lastUpdated! > Date(timeIntervalSinceNow: -profile.autoUpdateIntervalOrDefault) {
                 continue
             }
             do {
-                // One batch, one report per profile. Only the profile that is actually selected and
-                // connected passes `canApply`/`refreshProviders`, so the batch refreshes providers
-                // on the final running instance once, not on every profile it downloaded.
-                let report = try await profile.updateRemoteProfileReporting()
-                NSLog("Updated profile %@: %@", profileName, report.localizedDescription)
-                if report.isFailure {
+                // Save each due profile independently. Applying and refreshing belongs to the one
+                // profile that is selected after the whole batch; doing it inside this loop is what
+                // let a switch during the batch refresh more than one Box.
+                let value = try await profile.prepareRemoteProfileReporting()
+                prepared.append((profile, value))
+                NSLog("Prepared profile %@: %@", profileName, value.report.localizedDescription)
+                if value.report.isFailure {
                     success = false
                 }
             } catch {
                 NSLog("Update profile %@ failed: %@", profileName, error.localizedDescription)
+                success = false
+            }
+        }
+        let selected = await SharedPreferences.selectedProfileID.get()
+        if let final = prepared.first(where: { $0.profile.id == selected }), let value = final.value {
+            do {
+                let report = try await final.profile.applyPreparedRemoteProfileReporting(value)
+                NSLog("Applied profile %@: %@", final.profile.name, report.localizedDescription)
+                if report.isFailure {
+                    success = false
+                }
+            } catch {
+                NSLog("Apply prepared profile %@ failed: %@", final.profile.name, error.localizedDescription)
                 success = false
             }
         }
