@@ -172,10 +172,14 @@ public enum ProfileApplyOwnership: Equatable, Sendable {
 public extension ProfileUpdateOwnership {
     /// Whether a receipt may be read as this update's answer.
     ///
-    /// Three things must agree: the request id (two applies can overlap), the profile id (the
-    /// selection can move), and the body revision the extension echoes back (the stored body can be
-    /// replaced between the write and the reply). Anything less is a reply about something else, and
-    /// reporting it as "applied" is how a superseded update claims a success it did not have.
+    /// Four things must agree, and every one of them is required: the request id (two applies can
+    /// overlap), the profile id (the selection can move), the body revision the extension echoes
+    /// back (the stored body can be replaced between the write and the reply), and this update's own
+    /// record of the revision it wrote.
+    ///
+    /// A missing field is NOT skipped as "an older extension": an extension that predates the
+    /// envelope answers nothing at all, so a receipt WITHOUT one of these fields is a document this
+    /// build cannot attribute - and `unconfirmed` is the answer, not a guess in the caller's favour.
     static func ownership(
         of receipt: ExtensionApplyReceipt,
         ticket: ProfileUpdateTicket,
@@ -184,10 +188,19 @@ public extension ProfileUpdateOwnership {
         guard receipt.requestID == ticket.requestID else {
             return .notThisUpdate("the extension answered request \(receipt.requestID)")
         }
-        if let profileID = receipt.profileID, profileID != ticket.profileID {
+        guard let profileID = receipt.profileID else {
+            return .unconfirmed("the extension did not name the profile it applied")
+        }
+        guard profileID == ticket.profileID else {
             return .notThisUpdate("the extension applied profile \(profileID)")
         }
-        if let bodyRevision = receipt.bodyRevision, bodyRevision != expectedBodyRevision {
+        guard let expectedBodyRevision else {
+            return .unconfirmed("this update did not record the body revision it wrote")
+        }
+        guard let bodyRevision = receipt.bodyRevision else {
+            return .unconfirmed("the extension did not name the body it applied")
+        }
+        guard bodyRevision == expectedBodyRevision else {
             return .notThisUpdate("the extension applied body \(bodyRevision), not the body this update wrote")
         }
         if case let .undetermined(reason) = receipt.outcome {

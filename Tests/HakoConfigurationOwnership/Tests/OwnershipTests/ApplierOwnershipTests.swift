@@ -71,17 +71,16 @@ final class ApplierOwnershipTests: XCTestCase {
         XCTAssertEqual(events, ["metadata", "persist", "write", "reload", "providers"])
     }
 
-    /// A receipt is the answer; the legacy timestamp cannot overrule it. A hot reload keeps the
-    /// start timestamp, so a false `confirmStartedAt` beside a successful receipt is the ordinary
-    /// hot-apply case.
-    func testAReceiptOutranksTheStartTimestamp() async throws {
+    /// The receipt is the ONLY confirmation. There is no fallback to the daemon's start timestamp:
+    /// a hot reload keeps it, and an unrelated restart moves it, so it cannot answer "is MY document
+    /// running" - it could only turn "unknown" into a guess.
+    func testTheReceiptIsTheOnlyConfirmation() async throws {
         let report = try await RemoteRefreshApplier.applyReporting(
             outcome(body: body),
             applyMetadata: {},
             persist: {},
             writeBody: { _ in },
             reloadService: { _ in .applied(.appliedLive, activeRevision: "active") },
-            confirmStartedAt: { false },
             refreshProviders: { .notActive }
         )
         XCTAssertEqual(report.config, .applied)

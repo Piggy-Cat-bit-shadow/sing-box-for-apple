@@ -131,6 +131,17 @@ final class ExtensionApplyReceiptTests: XCTestCase {
         }
     }
 
+    /// The status that tells the extension whether the TUN was reopened. It is the whole reason the
+    /// extension can apply first and force a rebuild only when the daemon answered live: a live
+    /// answer means `openTun` never ran, so nothing the platform installs was reinstalled.
+    func testOnlyARebuildStatusReinstalledTheTunnel() {
+        XCTAssertTrue(ExtensionApplyStatus.started.reinstalledTunnel)
+        XCTAssertTrue(ExtensionApplyStatus.restarted.reinstalledTunnel)
+        for live in [ExtensionApplyStatus.unchanged, .appliedLive, .recovered, .interrupted, .failed] {
+            XCTAssertFalse(live.reinstalledTunnel, "\(live) did not reopen the tunnel")
+        }
+    }
+
     func testAnEnvelopeWithoutAStatusIsUndetermined() {
         var statusless = message()
         statusless.status = nil

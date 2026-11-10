@@ -75,7 +75,6 @@ public enum RemoteRefreshApplier {
         reloadService: (String) async throws -> ExtensionApplyOutcome?,
         canApply: (() async -> Bool)? = nil,
         isStillCurrent: (() async -> Bool)? = nil,
-        confirmStartedAt: (() async -> Bool)? = nil,
         refreshProviders: () async -> RemoteProviderRefreshProbe
     ) async throws -> RemoteProfileUpdateReport {
         applyMetadata()
@@ -142,12 +141,13 @@ public enum RemoteRefreshApplier {
                 // The extension named the document it applied. What it says is the answer, and it
                 // distinguishes a recovery and an interruption from a failure.
                 config = receipt.configOutcome
-            } else if let confirmStartedAt {
-                // The legacy confirmation: an extension that answers nothing usable leaves only the
-                // daemon's start timestamp, which cannot tell a hot reload from an unrelated
-                // restart. It is kept for that case and never preferred to a receipt.
-                config = await confirmStartedAt() ? .applied : .applyUnconfirmed
             } else {
+                // No receipt this update can attribute to itself. That is "unconfirmed" - not a
+                // failure, and not a reason to retry or roll back: the commit point has passed.
+                //
+                // There is deliberately no fallback to the daemon's `startedAt`: a hot reload keeps
+                // it, and an unrelated restart moves it, so it cannot answer "is MY document
+                // running". It could only ever turn "unknown" into a guess.
                 config = .applyUnconfirmed
             }
         } catch {

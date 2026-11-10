@@ -155,6 +155,35 @@ final class ProfileUpdateOwnershipTests: XCTestCase {
         )
     }
 
+    /// A receipt that omits the profile or the body cannot be attributed. Skipping the comparison as
+    /// "an older extension" would be a guess in the caller's favour: an extension that predates the
+    /// envelope answers nothing at all, so a missing field here is a document this build cannot read.
+    func testAReceiptThatOmitsItsIdentityIsUnconfirmed() {
+        let captured = ticket(storedBodyRevision: "rev-1")
+        for anonymous in [receipt(profileID: nil), receipt(bodyRevision: nil)] {
+            guard case .unconfirmed = ProfileUpdateOwnership.ownership(
+                of: anonymous,
+                ticket: captured,
+                expectedBodyRevision: "rev-1"
+            ) else {
+                return XCTFail("a receipt without its identity must not be read as this update's")
+            }
+            XCTAssertEqual(anonymous.configOutcome(ticket: captured, expectedBodyRevision: "rev-1"), .applyUnconfirmed)
+        }
+    }
+
+    /// An update that never recorded the revision it wrote cannot attribute a reply to itself.
+    func testAnUpdateWithoutARevisionRecordCannotConfirm() {
+        let captured = ticket(storedBodyRevision: nil)
+        guard case .unconfirmed = ProfileUpdateOwnership.ownership(
+            of: receipt(),
+            ticket: captured,
+            expectedBodyRevision: nil
+        ) else {
+            return XCTFail("no recorded revision is not a confirmed apply")
+        }
+    }
+
     func testAnUndeterminedReceiptIsUnconfirmedNotFailed() {
         let captured = ticket(storedBodyRevision: "rev-1")
         let undetermined = receipt(outcome: .undetermined(reason: "no status"))

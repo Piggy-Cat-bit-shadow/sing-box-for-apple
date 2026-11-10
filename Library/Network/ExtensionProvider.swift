@@ -770,7 +770,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
 
         let candidate = platformSettings(options)
         let platformChange = PlatformSettingsPolicy.change(from: appliedPlatformSettings, to: candidate)
-        var reinstallsPlatformSettings = false
+        var mayNeedPlatformRebuild = false
         switch platformChange {
         case .unchanged:
             break
@@ -782,9 +782,10 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             // describes.
             try? platformInterface.setSystemProxyEnabled(candidate.systemProxyEnabled)
         case let .needsRebuild(keys):
-            reinstallsPlatformSettings = true
+            // Decision only; whether a rebuild is actually needed is known after the apply below.
+            mayNeedPlatformRebuild = true
             writeMessage(
-                "(packet-tunnel) the platform settings changed (\(keys.joined(separator: ", "))); the tunnel is rebuilt so the system reinstalls them",
+                "(packet-tunnel) the platform settings changed (\(keys.joined(separator: ", ")))",
                 level: .info
             )
         }
@@ -809,7 +810,30 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         }
 
         do {
-            let document = try await performApply(reinstallsPlatformSettings: reinstallsPlatformSettings)
+            // # Why the apply comes FIRST, and the forced rebuild only after it
+            //
+            // A settings-only change leaves the document byte-identical, so the core answers
+            // "already runs this document" and satisfies the reload in place - it never reopens the
+            // TUN, and the new routes and exclusions are never installed. That is the case a
+            // rebuild exists for.
+            //
+            // But a rebuild is not always needed: when the DOCUMENT also changed, the core rebuilds
+            // the Box itself and calls `openTun` again, which reads the overrides this request has
+            // already installed - so the system has the new settings without anything forced here.
+            // The daemon's answer says which happened (`started`/`restarted` reopened the TUN;
+            // `unchanged`/`applied_live` did not), and only the second case needs the close.
+            //
+            // Ordering it this way also removes the blind window the first version had: a candidate
+            // the core cannot parse is refused BEFORE the running Box is touched, so a bad document
+            // can no longer cost the tunnel by closing it first.
+            var document = try await startService(isReload: true)
+            if mayNeedPlatformRebuild, let applied = document?.outcomeStatus, !applied.reinstalledTunnel {
+                writeMessage(
+                    "(packet-tunnel) the daemon applied the document without reopening the tunnel; rebuilding so the system installs the new settings",
+                    level: .info
+                )
+                document = try await performApply(reinstallsPlatformSettings: true)
+            }
             appliedPlatformSettings = candidate
             return encodeReceipt(
                 requestID: requestID,

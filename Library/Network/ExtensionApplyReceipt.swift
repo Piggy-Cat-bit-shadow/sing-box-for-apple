@@ -54,6 +54,24 @@ public enum ExtensionApplyStatus: String, Equatable, Sendable {
             return false
         }
     }
+
+    /// Whether the daemon reopened the TUN to reach this status.
+    ///
+    /// The two live statuses answer "the running Box already was (or absorbed) this document", which
+    /// means `openTun` did NOT run: nothing the platform installs with the tunnel - routes,
+    /// exclusions, the proxy - was reinstalled. The two rebuild statuses did reopen it, so the
+    /// overrides the request had already installed reached the system through that rebuild.
+    ///
+    /// This is what lets the extension force a rebuild only when one is needed, and in that order:
+    /// apply first, read this, and close the old tunnel only if the daemon did not.
+    public var reinstalledTunnel: Bool {
+        switch self {
+        case .started, .restarted:
+            return true
+        case .unchanged, .appliedLive, .recovered, .interrupted, .failed:
+            return false
+        }
+    }
 }
 
 /// What one apply request did, as the app needs to report it.

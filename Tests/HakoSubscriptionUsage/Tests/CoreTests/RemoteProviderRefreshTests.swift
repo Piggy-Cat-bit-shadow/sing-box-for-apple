@@ -96,10 +96,9 @@ final class RemoteProviderRefreshTests: XCTestCase {
             applyMetadata: { events.append("metadata") },
             persist: { events.append("persist") },
             writeBody: { _ in events.append("write") },
-            reloadService: { _ in events.append("reload"); return nil },
-            confirmStartedAt: {
-                events.append("confirm")
-                return true
+            reloadService: { _ in
+                events.append("reload")
+                return .applied(.restarted, activeRevision: "active")
             },
             refreshProviders: {
                 events.append("providers")
@@ -108,7 +107,8 @@ final class RemoteProviderRefreshTests: XCTestCase {
         )
         XCTAssertEqual(report.config, .applied)
         XCTAssertEqual(report.providers.status, .published)
-        XCTAssertEqual(events, ["metadata", "persist", "write", "reload", "confirm", "providers"])
+        XCTAssertEqual(events, ["metadata", "persist", "write", "reload", "providers"],
+                       "the provider half is probed after the apply, and the receipt is the confirmation")
     }
 
     func testARefusedReloadStillProbesTheOldInstance() async throws {
@@ -147,7 +147,6 @@ final class RemoteProviderRefreshTests: XCTestCase {
             persist: {},
             writeBody: { _ in },
             reloadService: { _ in nil },
-            confirmStartedAt: { false },
             refreshProviders: { .notActive }
         )
         XCTAssertEqual(report.config, .applyUnconfirmed)
@@ -181,12 +180,11 @@ final class RemoteProviderRefreshTests: XCTestCase {
             applyMetadata: {},
             persist: {},
             writeBody: { _ in },
-            reloadService: { _ in nil },
+            reloadService: { _ in .applied(.appliedLive, activeRevision: "active") },
             isStillCurrent: {
                 checks += 1
                 return checks == 1
             },
-            confirmStartedAt: { true },
             refreshProviders: { .notActive }
         )
         XCTAssertEqual(report.config, .superseded)
