@@ -16,7 +16,10 @@ public extension Profile {
         // The real path supplies the real metadata probe. It is not a default of
         // `refreshRemoteProfile` because that would put a live network request on the tests'
         // path, which inject a canned response and must stay offline.
-        _ = try await updateRemoteProfileReporting()
+        let report = try await updateRemoteProfileReporting()
+        if report.isLegacyFailure {
+            throw RemoteProfileUpdateError(report)
+        }
     }
 
     /// The same refresh, returning both halves of the result.
@@ -44,13 +47,85 @@ public extension Profile {
             },
             isStillCurrent: { await Self.isSelected(self.id) },
             confirmStartedAt: {
-                guard await Self.isSelected(self.id) else { return false }
-                guard let before, let after = await Self.tunnelStartedAt() else { return false }
-                return after > before
+                guard await Self.isSelected(self.id) else { return nil }
+                guard let before, let after = await Self.tunnelStartedAt(), after > before else { return nil }
+                return after
             },
-            refreshProviders: { await Self.providerProbeIfCurrent(self.id) },
-            providersOnFailure: { await Self.providerProbeIfCurrent(self.id) }
+            refreshProviders: { confirmed in
+                await Self.providerProbeIfCurrent(self.id, expectedStartedAt: confirmed ?? before)
+            },
+            providersOnFailure: {
+                await Self.providerProbeIfCurrent(self.id, expectedStartedAt: before)
+            }
         )
+    }
+
+    /// Saves a fetched body without touching the live Box or its providers.
+    ///
+    /// This is the first half of a batch: every subscription can be downloaded and persisted
+    /// independently, while the single provider refresh belongs to whichever profile is selected
+    /// after the batch. It returns the body it stored, so the second half can prove that another
+    /// writer did not replace it in between.
+    nonisolated func prepareRemoteProfileReporting() async throws -> PreparedRemoteProfileUpdate {
+        let report = try await refreshRemoteProfile(
+            metadataProbe: { try await RemoteProfileFetcher.captureMetadata($0) },
+            reloadService: { try await self.onProfileUpdated() },
+            canApply: { false },
+            isStillCurrent: { await Self.isSelected(self.id) },
+            refreshProviders: { _ in .notActive }
+        )
+        let body: String? = try? await readAsync()
+        return PreparedRemoteProfileUpdate(report: report, body: body)
+    }
+
+    /// Applies the body [prepareRemoteProfileReporting] saved, once, to the current instance.
+    ///
+    /// The prepared body is compared with what is stored now; a newer write wins and this batch
+    /// reports `superseded` instead of reloading someone else's document. For an unchanged body
+    /// only the provider half runs. The provider closure receives the `startedAt` this reload
+    /// confirmed, so it cannot fall back to "whichever Box is current now".
+    nonisolated func applyPreparedRemoteProfileReporting(
+        _ prepared: PreparedRemoteProfileUpdate
+    ) async throws -> RemoteProfileUpdateReport {
+        switch prepared.report.config {
+        case .downloadFailed, .invalidConfig, .applyFailed, .applyUnconfirmed, .superseded:
+            return prepared.report
+        case .saved, .unchanged, .applied:
+            break
+        }
+        guard await Self.isSelected(id) else {
+            return RemoteProfileUpdateReport(config: .saved, providers: .notActive.summary)
+        }
+        guard await Self.tunnelConnected(), let before = await Self.tunnelStartedAt() else {
+            return RemoteProfileUpdateReport(config: .saved, providers: .notRunning.summary)
+        }
+        guard let stored = try? await readAsync(), let preparedBody = prepared.body else {
+            return RemoteProfileUpdateReport(
+                config: .applyFailed("stored body unavailable"),
+                providers: .notActive.summary
+            )
+        }
+        guard stored == preparedBody else {
+            return RemoteProfileUpdateReport(config: .superseded, providers: .notActive.summary)
+        }
+        if prepared.report.config == .unchanged {
+            let providers = await Self.providerProbeIfCurrent(id, expectedStartedAt: before)
+            return RemoteProfileUpdateReport(config: .unchanged, providers: providers.summary)
+        }
+        do {
+            try await onProfileUpdated()
+        } catch {
+            let providers = await Self.providerProbeIfCurrent(id, expectedStartedAt: before)
+            return RemoteProfileUpdateReport(
+                config: .applyFailed(error.localizedDescription),
+                providers: providers.summary
+            )
+        }
+        guard await Self.isSelected(id), let after = await Self.tunnelStartedAt(), after > before else {
+            return RemoteProfileUpdateReport(config: .superseded, providers: .notActive.summary)
+        }
+        let providers = await Self.providerProbeIfCurrent(id, expectedStartedAt: after)
+        return RemoteProfileUpdateReport(config: .applied, providers: providers.summary)
     }
 
     /// Whether [id] is still the profile the UI has selected.
@@ -63,11 +138,38 @@ public extension Profile {
     /// Re-checked after the probe as well: if the selection moved while the RPC was in flight,
     /// the answer belongs to another instance and is reported as `notActive` instead of being
     /// attributed to this profile.
-    nonisolated static func providerProbeIfCurrent(_ id: Int64?) async -> RemoteProviderRefreshProbe {
-        guard await isSelected(id) else { return .notActive }
-        guard await tunnelConnected() else { return .notRunning }
+    nonisolated static func providerProbeIfCurrent(
+        _ id: Int64?,
+        expectedStartedAt: Int64?
+    ) async -> RemoteProviderRefreshProbe {
+        let selected = await isSelected(id)
+        let connected = await tunnelConnected()
+        let current = connected ? await tunnelStartedAt() : nil
+        switch providerTargetDecision(
+            selected: selected,
+            connected: connected,
+            expectedStartedAt: expectedStartedAt,
+            currentStartedAt: current
+        ) {
+        case .notActive:
+            return .notActive
+        case .notRunning:
+            return .notRunning
+        case .superseded:
+            return .superseded
+        case .ok:
+            break
+        }
         let probe = await probeProviderRefresh()
-        guard await isSelected(id) else { return .notActive }
+        let stillCurrent = await tunnelStartedAt()
+        guard providerTargetDecision(
+            selected: await isSelected(id),
+            connected: await tunnelConnected(),
+            expectedStartedAt: expectedStartedAt,
+            currentStartedAt: stillCurrent
+        ) == .ok else {
+            return .superseded
+        }
         return probe
     }
 
@@ -130,8 +232,8 @@ public extension Profile {
         reloadService: (() async throws -> Void)? = nil,
         canApply: (() async -> Bool)? = nil,
         isStillCurrent: (() async -> Bool)? = nil,
-        confirmStartedAt: (() async -> Bool)? = nil,
-        refreshProviders: (() async -> RemoteProviderRefreshProbe)? = nil,
+        confirmStartedAt: (() async -> Int64?)? = nil,
+        refreshProviders: ((Int64?) async -> RemoteProviderRefreshProbe)? = nil,
         providersOnFailure: (() async -> RemoteProviderRefreshProbe)? = nil
     ) async throws -> RemoteProfileUpdateReport {
         if type != .remote {
@@ -191,7 +293,7 @@ public extension Profile {
             canApply: canApply,
             isStillCurrent: isStillCurrent,
             confirmStartedAt: confirmStartedAt,
-            refreshProviders: refreshProviders ?? { .notActive }
+            refreshProviders: refreshProviders ?? { _ in .notActive }
         )
     }
 

@@ -56,8 +56,8 @@ public enum RemoteRefreshApplier {
         reloadService: () async throws -> Void,
         canApply: (() async -> Bool)? = nil,
         isStillCurrent: (() async -> Bool)? = nil,
-        confirmStartedAt: (() async -> Bool)? = nil,
-        refreshProviders: () async -> RemoteProviderRefreshProbe
+        confirmStartedAt: (() async -> Int64?)? = nil,
+        refreshProviders: (Int64?) async -> RemoteProviderRefreshProbe
     ) async throws -> RemoteProfileUpdateReport {
         applyMetadata()
         try await persist()
@@ -68,7 +68,7 @@ public enum RemoteRefreshApplier {
             let current = await isStillCurrent?() ?? true
             return RemoteProfileUpdateReport(
                 config: current ? .unchanged : .superseded,
-                providers: await refreshProviders().summary
+                providers: await refreshProviders(nil).summary
             )
         }
         try await writeBody(body)
@@ -78,7 +78,7 @@ public enum RemoteRefreshApplier {
         if let storedBody, await storedBody() != body {
             return RemoteProfileUpdateReport(
                 config: .superseded,
-                providers: await refreshProviders().summary
+                providers: await refreshProviders(nil).summary
             )
         }
         // The body is saved whether or not this profile is the running one; a profile that is not
@@ -86,7 +86,7 @@ public enum RemoteRefreshApplier {
         if let canApply, await canApply() == false {
             return RemoteProfileUpdateReport(
                 config: .saved,
-                providers: await refreshProviders().summary
+                providers: await refreshProviders(nil).summary
             )
         }
         // Last boundary before touching the daemon: a switch that landed while the body was being
@@ -94,10 +94,11 @@ public enum RemoteRefreshApplier {
         if let isStillCurrent, await isStillCurrent() == false {
             return RemoteProfileUpdateReport(
                 config: .superseded,
-                providers: await refreshProviders().summary
+                providers: await refreshProviders(nil).summary
             )
         }
         var config: RemoteConfigUpdateOutcome
+        var confirmedStartedAt: Int64?
         do {
             try await reloadService()
             if let isStillCurrent, await isStillCurrent() == false {
@@ -106,8 +107,13 @@ public enum RemoteRefreshApplier {
                 // A newer body replaced ours while the daemon was reloading; the Box may be serving
                 // either one, so this operation cannot claim the apply.
                 config = .superseded
-            } else if let confirmStartedAt, await confirmStartedAt() == false {
-                config = .applyUnconfirmed
+            } else if let confirmStartedAt {
+                if let confirmed = await confirmStartedAt() {
+                    confirmedStartedAt = confirmed
+                    config = .applied
+                } else {
+                    config = .applyUnconfirmed
+                }
             } else {
                 config = .applied
             }
@@ -122,7 +128,7 @@ public enum RemoteRefreshApplier {
         }
         return RemoteProfileUpdateReport(
             config: config,
-            providers: await refreshProviders().summary
+            providers: await refreshProviders(confirmedStartedAt).summary
         )
     }
 }

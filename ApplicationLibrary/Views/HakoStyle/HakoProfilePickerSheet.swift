@@ -425,30 +425,51 @@ struct HakoProfilePickerSheet: View {
         profileList.filter { $0.type == .remote }
     }
 
-    /// Fetch every remote configuration.
+    /// Fetch every remote configuration, then apply only the final selected one.
     ///
-    /// The same call a single row makes, once per remote configuration. It reports progress
-    /// through the page's own state, so the rows say what is happening rather than the page
-    /// going quiet for as long as the slowest download takes.
+    /// Saving is per-subscription and cannot touch the live Box. The provider refresh belongs to
+    /// the profile that is selected after the whole batch, so a switch during the downloads cannot
+    /// produce refreshes against several different Boxes. Each subscription still keeps its own
+    /// result line.
     private func updateAllProfiles() async {
         guard !isUpdatingAll else {
             return
         }
         isUpdatingAll = true
         defer { isUpdatingAll = false }
-        var lines: [String] = []
+        var prepared: [(profile: ProfilePreview, value: PreparedRemoteProfileUpdate?, error: String?)] = []
         for profile in remoteProfiles {
             do {
-                // The reporting variant is what carries both halves. For the profiles that are
-                // not the selected/connected one it returns `.saved` + `notActive` without
-                // touching the live Box, so the batch probes only the instance it actually owns.
-                let report = try await profile.origin.updateRemoteProfileReporting()
-                lines.append("\(profile.name): \(report.localizedDescription)")
+                let value = try await profile.origin.prepareRemoteProfileReporting()
+                prepared.append((profile, value, nil))
             } catch {
-                lines.append("\(profile.name): \(error.localizedDescription)")
+                prepared.append((profile, nil, error.localizedDescription))
+            }
+        }
+        if let selected = prepared.first(where: { $0.profile.id == selectedProfileID }),
+           let value = selected.value
+        {
+            do {
+                let applied = try await selected.profile.origin.applyPreparedRemoteProfileReporting(value)
+                if let index = prepared.firstIndex(where: { $0.profile.id == selected.profile.id }) {
+                    prepared[index] = (selected.profile, PreparedRemoteProfileUpdate(
+                        report: applied,
+                        body: value.body
+                    ), nil)
+                }
+            } catch {
+                if let index = prepared.firstIndex(where: { $0.profile.id == selected.profile.id }) {
+                    prepared[index] = (selected.profile, nil, error.localizedDescription)
+                }
             }
         }
         environments.profileUpdate.send()
+        let lines = prepared.map { entry in
+            if let error = entry.error {
+                return "\(entry.profile.name): \(error)"
+            }
+            return "\(entry.profile.name): \(entry.value?.report.localizedDescription ?? "")"
+        }
         alert = AlertState(
             title: String(localized: "Update All"),
             message: lines.joined(separator: "\n")

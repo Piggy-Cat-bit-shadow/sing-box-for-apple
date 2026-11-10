@@ -79,7 +79,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             persist: { events.append("persist") },
             writeBody: { _ in events.append("write") },
             reloadService: { events.append("reload") },
-            refreshProviders: {
+            refreshProviders: { _ in
                 events.append("providers")
                 return .response(#"{"results":[{"tag":"pp","status":"unchanged"}]}"#)
             }
@@ -99,9 +99,9 @@ final class RemoteProviderRefreshTests: XCTestCase {
             reloadService: { events.append("reload") },
             confirmStartedAt: {
                 events.append("confirm")
-                return true
+                return Int64(1)
             },
-            refreshProviders: {
+            refreshProviders: { _ in
                 events.append("providers")
                 return .response(#"{"results":[{"tag":"pp","status":"published"}]}"#)
             }
@@ -118,7 +118,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             persist: {},
             writeBody: { _ in },
             reloadService: { throw NSError(domain: "test", code: 1) },
-            refreshProviders: { .notRunning }
+            refreshProviders: { _ in .notRunning }
         )
         XCTAssertEqual(report.config, .applyFailed("The operation couldn’t be completed. (test error 1.)"))
         XCTAssertEqual(report.providers.status, .notRunning)
@@ -133,7 +133,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             writeBody: { _ in },
             reloadService: { reloaded = true },
             canApply: { false },
-            refreshProviders: { .notActive }
+            refreshProviders: { _ in .notActive }
         )
         XCTAssertEqual(report.config, .saved)
         XCTAssertEqual(report.providers.status, .notActive)
@@ -147,8 +147,8 @@ final class RemoteProviderRefreshTests: XCTestCase {
             persist: {},
             writeBody: { _ in },
             reloadService: {},
-            confirmStartedAt: { false },
-            refreshProviders: { .notActive }
+            confirmStartedAt: { nil },
+            refreshProviders: { _ in .notActive }
         )
         XCTAssertEqual(report.config, .applyUnconfirmed)
     }
@@ -163,7 +163,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             writeBody: { _ in },
             reloadService: { reloads += 1 },
             isStillCurrent: { false },
-            refreshProviders: {
+            refreshProviders: { _ in
                 probes += 1
                 return .notActive
             }
@@ -186,8 +186,8 @@ final class RemoteProviderRefreshTests: XCTestCase {
                 checks += 1
                 return checks == 1
             },
-            confirmStartedAt: { true },
-            refreshProviders: { .notActive }
+            confirmStartedAt: { Int64(1) },
+            refreshProviders: { _ in .notActive }
         )
         XCTAssertEqual(report.config, .superseded)
     }
@@ -201,7 +201,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             writeBody: { _ in XCTFail("must not write") },
             reloadService: { XCTFail("must not reload") },
             isStillCurrent: { false },
-            refreshProviders: {
+            refreshProviders: { _ in
                 probes += 1
                 return .notActive
             }
@@ -219,8 +219,52 @@ final class RemoteProviderRefreshTests: XCTestCase {
             writeBody: { _ in },
             storedBody: { "a newer body" },
             reloadService: { XCTFail("must not reload a replaced body") },
-            refreshProviders: { .notActive }
+            refreshProviders: { _ in .notActive }
         )
         XCTAssertEqual(report.config, .superseded)
+    }
+
+    func testLegacyEntryTreatsDownloadAndSupersededAsFailures() {
+        let download = RemoteProfileUpdateReport(
+            config: .downloadFailed("offline"),
+            providers: RemoteProviderRefreshProbe.notActive.summary
+        )
+        XCTAssertTrue(download.isLegacyFailure)
+        XCTAssertNotNil(RemoteProfileUpdateError(download).errorDescription)
+
+        let superseded = RemoteProfileUpdateReport(
+            config: .superseded,
+            providers: RemoteProviderRefreshProbe.notActive.summary
+        )
+        XCTAssertTrue(superseded.isLegacyFailure)
+
+        let applied = RemoteProfileUpdateReport(
+            config: .applied,
+            providers: RemoteProviderRefreshProbe.notActive.summary
+        )
+        XCTAssertFalse(applied.isLegacyFailure)
+    }
+
+    func testProviderTargetNeedsTheSameConfirmedInstance() {
+        XCTAssertEqual(
+            providerTargetDecision(selected: true, connected: true, expectedStartedAt: nil, currentStartedAt: 9),
+            .superseded
+        )
+        XCTAssertEqual(
+            providerTargetDecision(selected: true, connected: true, expectedStartedAt: 1, currentStartedAt: 2),
+            .superseded
+        )
+        XCTAssertEqual(
+            providerTargetDecision(selected: true, connected: true, expectedStartedAt: 1, currentStartedAt: 1),
+            .ok
+        )
+        XCTAssertEqual(
+            providerTargetDecision(selected: false, connected: true, expectedStartedAt: 1, currentStartedAt: 1),
+            .notActive
+        )
+        XCTAssertEqual(
+            providerTargetDecision(selected: true, connected: false, expectedStartedAt: 1, currentStartedAt: nil),
+            .notRunning
+        )
     }
 }

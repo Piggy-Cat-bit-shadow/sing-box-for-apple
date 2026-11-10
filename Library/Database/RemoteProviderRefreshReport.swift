@@ -64,6 +64,8 @@ public enum RemoteProviderRefreshStatus: Equatable, Sendable {
     case notActive
     /// The tunnel is not connected.
     case notRunning
+    /// The profile/instance this update started against is no longer the live one.
+    case superseded
     /// The running kernel predates `RefreshRemoteProviders`.
     case unsupported
     /// The RPC failed for another reason.

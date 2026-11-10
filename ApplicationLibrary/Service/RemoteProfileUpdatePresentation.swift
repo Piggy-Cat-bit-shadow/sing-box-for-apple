@@ -34,18 +34,6 @@ extension RemoteProfileUpdateReport {
     }
 }
 
-struct RemoteProfileUpdateError: LocalizedError {
-    let report: RemoteProfileUpdateReport
-
-    init(_ report: RemoteProfileUpdateReport) {
-        self.report = report
-    }
-
-    var errorDescription: String? {
-        report.localizedDescription
-    }
-}
-
 extension RemoteProviderRefreshSummary {
     var localizedDescription: String {
         switch status {
@@ -72,6 +60,8 @@ extension RemoteProviderRefreshSummary {
             return String(localized: "Providers not refreshed: the profile is not active")
         case .notRunning:
             return String(localized: "Providers not refreshed: not connected")
+        case .superseded:
+            return String(localized: "Providers not refreshed: a newer instance owns the tunnel")
         case .unsupported:
             return String(localized: "Providers not refreshed: the kernel predates the provider refresh RPC")
         case .unavailable:

@@ -24,6 +24,8 @@ public enum RemoteProviderRefreshProbe: Equatable, Sendable {
     case response(String)
     case notActive
     case notRunning
+    /// The live Box is not the one this operation confirmed.
+    case superseded
     case unsupported
     case failed(String)
 }
@@ -47,6 +49,66 @@ public struct RemoteProfileUpdateReport: Equatable, Sendable {
             false
         }
     }
+
+    /// The stricter contract of the legacy `async throws` entry points.
+    ///
+    /// Those callers have no way to show a structured report: a superseded or unconfirmed apply
+    /// used to look exactly like success, which is how the edit page sent its refresh notification
+    /// and the shortcut returned `true` after a failed download. They must see those outcomes as
+    /// errors; the reporting API keeps them as values.
+    public var isLegacyFailure: Bool {
+        switch config {
+        case .applyFailed, .invalidConfig, .downloadFailed, .applyUnconfirmed, .superseded:
+            true
+        case .unchanged, .saved, .applied:
+            false
+        }
+    }
+}
+
+/// A body that has been saved but deliberately not applied yet.
+///
+/// Batch update saves every subscription first and then applies only the profile that is still
+/// selected. [body] is the exact bytes the prepare step stored, so the apply step can refuse to
+/// reload a document another writer replaced in between.
+public struct PreparedRemoteProfileUpdate: Sendable {
+    public let report: RemoteProfileUpdateReport
+    public let body: String?
+
+    public init(report: RemoteProfileUpdateReport, body: String?) {
+        self.report = report
+        self.body = body
+    }
+}
+
+/// The error a legacy caller gets for a structured failure it cannot present.
+public struct RemoteProfileUpdateError: LocalizedError, Sendable {
+    public let report: RemoteProfileUpdateReport
+
+    public init(_ report: RemoteProfileUpdateReport) {
+        self.report = report
+    }
+
+    public var errorDescription: String? {
+        switch report.config {
+        case .unchanged:
+            return "Configuration unchanged"
+        case .saved:
+            return "Configuration saved; it applies on the next start"
+        case .applied:
+            return "Configuration applied"
+        case let .applyFailed(message):
+            return message.map { "Configuration apply failed: \($0)" } ?? "Configuration apply failed"
+        case .applyUnconfirmed:
+            return "Configuration apply was not confirmed"
+        case let .invalidConfig(message):
+            return message.map { "Configuration rejected: \($0)" } ?? "Configuration rejected"
+        case let .downloadFailed(message):
+            return message.map { "Subscription download failed: \($0)" } ?? "Subscription download failed"
+        case .superseded:
+            return "Update superseded by a newer action"
+        }
+    }
 }
 
 extension RemoteProviderRefreshProbe {
@@ -60,6 +122,8 @@ extension RemoteProviderRefreshProbe {
             RemoteProviderRefreshSummary(status: .notActive, counts: .init(), detail: nil)
         case .notRunning:
             RemoteProviderRefreshSummary(status: .notRunning, counts: .init(), detail: nil)
+        case .superseded:
+            RemoteProviderRefreshSummary(status: .superseded, counts: .init(), detail: nil)
         case .unsupported:
             RemoteProviderRefreshSummary(status: .unsupported, counts: .init(), detail: nil)
         case let .failed(message):
