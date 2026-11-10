@@ -130,6 +130,36 @@ public final class BodyCommitLock: @unchecked Sendable {
     }
 }
 
+/// Whether an apply request may be served at all.
+///
+/// The receiving side's half of the identity check: the app compares "is this still the selected
+/// profile" immediately before it sends, and that comparison cannot cover the gap between the send and
+/// the extension's handler. The selection is the one authority both processes already share, so the
+/// extension asks the same question again, where the apply actually starts.
+public enum ApplyRequestAdmission {
+    public static func decision(requestProfileID: Int64?, selectedProfileID: Int64?) -> ApplyRequestDecision {
+        guard let requestProfileID else {
+            // No profile named: a request from a caller that does not send one keeps the old
+            // behaviour. Nothing in this app produces one, but refusing it would be a protocol change
+            // disguised as a safety check.
+            return .admit
+        }
+        guard let selectedProfileID else {
+            return .refuse(reason: "no profile is selected")
+        }
+        guard requestProfileID == selectedProfileID else {
+            return .refuse(reason: "the selection moved to profile \(selectedProfileID) before this request was received")
+        }
+        return .admit
+    }
+}
+
+/// See `ApplyRequestAdmission`.
+public enum ApplyRequestDecision: Equatable, Sendable {
+    case admit
+    case refuse(reason: String)
+}
+
 /// The metadata timestamps exactly as the database stores them.
 ///
 /// # Why this type exists instead of reading `Profile`
