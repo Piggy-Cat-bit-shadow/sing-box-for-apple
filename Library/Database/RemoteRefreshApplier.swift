@@ -53,6 +53,7 @@ public enum RemoteRefreshApplier {
         persist: () async throws -> Void,
         writeBody: (String) async throws -> Void,
         storedBody: (() async -> String?)? = nil,
+        onBodyStored: ((String) -> Void)? = nil,
         reloadService: () async throws -> Void,
         canApply: (() async -> Bool)? = nil,
         isStillCurrent: (() async -> Bool)? = nil,
@@ -72,6 +73,7 @@ public enum RemoteRefreshApplier {
             )
         }
         try await writeBody(body)
+        onBodyStored?(body)
         // The body we just wrote must still be the stored one: another update of the same profile
         // can replace it while this operation is between the write and the daemon call. Reloading
         // then would apply someone else's document and report it as ours.

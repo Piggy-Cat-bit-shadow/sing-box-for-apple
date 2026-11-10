@@ -70,15 +70,18 @@ public extension Profile {
     /// after the batch. It returns the body it stored, so the second half can prove that another
     /// writer did not replace it in between.
     nonisolated func prepareRemoteProfileReporting() async throws -> PreparedRemoteProfileUpdate {
+        var storedBody: String?
         let report = try await refreshRemoteProfile(
             metadataProbe: { try await RemoteProfileFetcher.captureMetadata($0) },
             reloadService: { try await self.onProfileUpdated() },
+            // Prepare records only download/validate/save. Selection and running state belong to
+            // the apply step; an unchanged body in a profile that is not selected is still
+            // `.unchanged`, not `.superseded`.
             canApply: { false },
-            isStillCurrent: { await Self.isSelected(self.id) },
-            refreshProviders: { _ in .notActive }
+            refreshProviders: { _ in .notActive },
+            onStoredBody: { storedBody = $0 }
         )
-        let body: String? = try? await readAsync()
-        return PreparedRemoteProfileUpdate(report: report, body: body)
+        return PreparedRemoteProfileUpdate(report: report, body: storedBody)
     }
 
     /// Applies the body [prepareRemoteProfileReporting] saved, once, to the current instance.
@@ -91,7 +94,25 @@ public extension Profile {
         _ prepared: PreparedRemoteProfileUpdate
     ) async throws -> RemoteProfileUpdateReport {
         switch prepared.report.config {
-        case .downloadFailed, .invalidConfig, .applyFailed, .applyUnconfirmed, .superseded:
+        case .downloadFailed, .invalidConfig:
+            // The configuration half failed, but an old Box of this same profile may still be
+            // serving. Its Provider refresh is an independent fact and is bound to the start
+            // timestamp observed now; a replacement Box yields `.superseded` without an RPC.
+            let providers: RemoteProviderRefreshProbe
+            if !(await Self.isSelected(id)) {
+                providers = .notActive
+            } else if !(await Self.tunnelConnected()) {
+                providers = .notRunning
+            } else if let before = await Self.tunnelStartedAt() {
+                providers = await Self.providerProbeIfCurrent(id, expectedStartedAt: before)
+            } else {
+                providers = .superseded
+            }
+            return RemoteProfileUpdateReport(
+                config: prepared.report.config,
+                providers: providers.summary
+            )
+        case .applyFailed, .applyUnconfirmed, .superseded:
             return prepared.report
         case .saved, .unchanged, .applied:
             break
@@ -237,7 +258,8 @@ public extension Profile {
         isStillCurrent: (() async -> Bool)? = nil,
         confirmStartedAt: (() async -> Int64?)? = nil,
         refreshProviders: ((Int64?) async -> RemoteProviderRefreshProbe)? = nil,
-        providersOnFailure: (() async -> RemoteProviderRefreshProbe)? = nil
+        providersOnFailure: (() async -> RemoteProviderRefreshProbe)? = nil,
+        onStoredBody: ((String?) -> Void)? = nil
     ) async throws -> RemoteProfileUpdateReport {
         if type != .remote {
             return RemoteProfileUpdateReport(
@@ -279,6 +301,11 @@ public extension Profile {
             )
         }
         let persist = persist ?? { try await ProfileManager.update($0) }
+        if !outcome.writeBody {
+            // The document this refresh observed is the unchanged current body. Record the exact
+            // value read here; the batch's apply step compares it with storage before reloading.
+            onStoredBody?(currentBody)
+        }
         return try await RemoteRefreshApplier.applyReporting(
             outcome,
             applyMetadata: {
@@ -292,6 +319,7 @@ public extension Profile {
             persist: { try await persist(self) },
             writeBody: { try await self.writeAsync($0) },
             storedBody: { try? await self.readAsync() },
+            onBodyStored: { body in onStoredBody?(body) },
             reloadService: reloadService ?? { try await self.onProfileUpdated() },
             canApply: canApply,
             isStillCurrent: isStillCurrent,
