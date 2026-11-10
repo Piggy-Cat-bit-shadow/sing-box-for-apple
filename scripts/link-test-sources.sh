@@ -25,16 +25,24 @@ package="$root/Tests/HakoSubscriptionUsage"
 screen_state_package="$root/Tests/HakoScreenState"
 startup_package="$root/Tests/HakoInterfaceStartup"
 command_package="$root/Tests/HakoCommandSubscription"
+contract_package="$root/Tests/HakoConfigurationOwnership"
 
 core=(
     "Library/Network/SubscriptionInfo.swift"
     "Library/Shared/BlockingIO.swift"
     "Library/Network/RemoteProfileFetcher.swift"
     "Library/Database/RemoteProfileUpdatePolicy.swift"
+    "Library/Database/RemoteRefreshOutcome.swift"
     "Library/Database/RemoteRefreshApplier.swift"
     "Library/Database/RemoteProviderRefreshReport.swift"
     "Library/Database/RemoteProfileUpdateReport.swift"
     "Library/Database/ConfigurationDocuments.swift"
+    # The ownership contract. `RemoteRefreshApplier` is compiled into the subscription-usage tests
+    # and names these types, so they are linked here as well as into the contract package below.
+    "Library/Network/CommandScope.swift"
+    "Library/Network/ExtensionApplyReceipt.swift"
+    "Library/Network/PlatformSettingsRevision.swift"
+    "Library/Database/ProfileUpdateOwnership.swift"
 )
 profile=(
     "Library/Database/Profile.swift"
@@ -57,6 +65,22 @@ startup=(
 #: `Tests/HakoCommandSubscription/Package.swift` for why the client itself is not here.
 command=(
     "Library/Network/CommandSubscriptionRecovery.swift"
+)
+#: The configuration-ownership contract: which daemon a local profile may be shown to, what the
+#: extension's apply receipt proves, when an update still owns the body it wrote, and whether a
+#: platform-settings change needs a rebuild. All four are Foundation-only value types, so they
+#: compile into their own package - see `Tests/HakoConfigurationOwnership/Package.swift`.
+contract=(
+    "Library/Network/CommandScope.swift"
+    "Library/Network/ExtensionApplyReceipt.swift"
+    "Library/Network/PlatformSettingsRevision.swift"
+    "Library/Database/ProfileUpdateOwnership.swift"
+    "Library/Database/RemoteProfileUpdateReport.swift"
+    "Library/Database/RemoteProviderRefreshReport.swift"
+    "Library/Database/ConfigurationDocuments.swift"
+    "Library/Database/RemoteRefreshApplier.swift"
+    "Library/Database/RemoteRefreshOutcome.swift"
+    "Library/Network/SubscriptionInfo.swift"
 )
 
 # Relative targets, so the checkout stays where it is put: a link recorded against an absolute
@@ -88,5 +112,8 @@ done
 for source in "${command[@]}"; do
     link "$source" "$command_package/Sources/Policy/$(basename "$source")"
 done
+for source in "${contract[@]}"; do
+    link "$source" "$contract_package/Sources/Contract/$(basename "$source")"
+done
 
-echo "linked ${#core[@]} core, ${#profile[@]} profile, ${#policy[@]} screen-state policy, ${#startup[@]} interface-startup policy and ${#command[@]} command-subscription policy source(s) into the test packages"
+echo "linked ${#core[@]} core, ${#profile[@]} profile, ${#policy[@]} screen-state policy, ${#startup[@]} interface-startup policy, ${#command[@]} command-subscription policy and ${#contract[@]} configuration-ownership source(s) into the test packages"

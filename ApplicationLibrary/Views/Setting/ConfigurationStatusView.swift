@@ -40,6 +40,26 @@ extension ConfigurationStatus {
     var lines: [ConfigurationStatusLine] {
         var lines = [
             ConfigurationStatusLine(
+                id: "source",
+                label: String(localized: "Reading"),
+                value: sourceDescription
+            ),
+        ]
+        if targetChanged {
+            // The one state where the three rows below are NOT the answer: the session moved between
+            // capturing the target and asking for its client, so the page says that instead of
+            // describing a daemon the user has left.
+            lines.append(
+                ConfigurationStatusLine(
+                    id: "target-changed",
+                    label: String(localized: "Reading"),
+                    value: String(localized: "The target changed while this page was opening; nothing was read.")
+                )
+            )
+            return lines
+        }
+        lines.append(contentsOf: [
+            ConfigurationStatusLine(
                 id: "plan",
                 label: String(localized: "Configuration Plan"),
                 value: preview.localizedDescription
@@ -49,7 +69,7 @@ extension ConfigurationStatus {
                 label: String(localized: "Last Apply"),
                 value: lastChange.localizedDescription
             ),
-        ]
+        ])
         if let recovery = lastRecovery.localizedDescription {
             lines.append(
                 ConfigurationStatusLine(
@@ -61,11 +81,35 @@ extension ConfigurationStatus {
         }
         return lines
     }
+
+    /// Which daemon every row above came from.
+    ///
+    /// A page that can render a plan and a report has to say whether they describe this device's
+    /// tunnel or a remote server: the same sentence means something else about another machine, and
+    /// the two can be on screen together only by being wrong.
+    var sourceDescription: String {
+        switch source.kind {
+        case .localTunnel:
+            return String(localized: "this device's tunnel")
+        case .remoteSession:
+            if let label = source.remoteLabel, !label.isEmpty {
+                return String(localized: "the remote server \(label)")
+            }
+            return String(localized: "a remote server")
+        }
+    }
 }
 
 extension ConfigurationDocumentProbe {
     var unavailableReason: String? {
         if case let .unavailable(reason) = self {
+            return reason
+        }
+        return nil
+    }
+
+    var notApplicableReason: String? {
+        if case let .notApplicable(reason) = self {
             return reason
         }
         return nil
@@ -83,6 +127,8 @@ extension ConfigurationDocumentProbe where Value == ConfigurationPlan {
             return String(localized: "This kernel cannot preview a configuration")
         case let .unavailable(reason):
             return String(localized: "Preview unavailable: \(reason)")
+        case let .notApplicable(reason):
+            return reason
         }
     }
 }
@@ -98,6 +144,8 @@ extension ConfigurationDocumentProbe where Value == ConfigurationReport {
             return String(localized: "This kernel cannot report the last apply")
         case let .unavailable(reason):
             return String(localized: "Last apply unavailable: \(reason)")
+        case let .notApplicable(reason):
+            return reason
         }
     }
 }
@@ -114,6 +162,8 @@ extension ConfigurationDocumentProbe where Value == ConfigurationRecovery {
             return String(localized: "This kernel cannot report a recovery")
         case let .unavailable(reason):
             return String(localized: "Recovery unavailable: \(reason)")
+        case let .notApplicable(reason):
+            return reason
         }
     }
 }

@@ -206,11 +206,123 @@ public class ExtensionProfile: ObservableObject {
         try manager.connection.startVPNTunnel(options: options)
     }
 
+    /// Applies whatever is currently selected, and confirms it with the extension's receipt.
+    ///
+    /// # Why this is no longer "send and check for an empty answer"
+    ///
+    /// The extension used to answer `nil` on success and an error string on failure, so this entry
+    /// treated any non-empty answer as a failure. That contract changed: every exit of
+    /// `handleAppMessage` now answers with a receipt envelope, INCLUDING success - so the old rule
+    /// would have thrown a JSON document at every caller on every successful reload. There are six
+    /// production callers (the two shortcut intents, the macOS status bar, the dashboard's profile
+    /// switch and the two override panels), and none of them may tell the user an apply failed when
+    /// it worked.
+    ///
+    /// The answer is read the same way the profile path reads it: build the snapshot from the
+    /// selection, and throw only when the outcome is not "the requested document is running".
     public func reloadService() async throws {
-        if isMock {
+        guard !isMock else {
             return
         }
-        let options = try await prepareStartOptions()
+        let profileID = await SharedPreferences.selectedProfileID.get()
+        guard let profile = try await ProfileManager.get(profileID) else {
+            throw NSError(domain: "ExtensionProfile", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Missing selected profile",
+            ])
+        }
+        let content = try await profile.readAsync()
+        let snapshot = StartSnapshot(
+            profileID: profileID,
+            requestID: UUID().uuidString,
+            bodyRevision: ConfigurationBodyRevision.fingerprint(of: content),
+            configContent: content
+        )
+        // The SAME attribution the profile path uses: a receipt only counts when it names this
+        // request, this profile and this body. Matching the request id alone would accept a reply
+        // about another profile's document, and that is the one mistake this entry can make that the
+        // user cannot see.
+        let ticket = ProfileUpdateTicket(
+            profileID: snapshot.profileID,
+            requestID: snapshot.requestID,
+            remoteURL: profile.remoteURL,
+            storedBodyRevision: snapshot.bodyRevision
+        )
+        let receipt = try await reloadService(snapshot)
+        guard let receipt,
+              case let .matches(matched) = ProfileUpdateOwnership.ownership(
+                  of: receipt,
+                  ticket: ticket,
+                  expectedBodyRevision: snapshot.bodyRevision
+              )
+        else {
+            // No receipt this call can attribute to itself. Reporting success would claim an apply
+            // nothing confirmed; reporting a failure would claim the opposite. The caller only has
+            // "throw or not", so it throws - and the message says exactly that.
+            throw ExtensionApplyError(message: String(localized: "the extension did not confirm the configuration"))
+        }
+        try Self.confirmApplied(matched.outcome)
+    }
+
+    /// Throws unless the outcome means the requested document is the one running.
+    ///
+    /// `nonisolated` because it is a pure decision over a value: the two callers that only handle
+    /// errors - this legacy entry and `Profile.onProfileUpdated()` - are `nonisolated` themselves, and
+    /// a synchronous call into this `@MainActor` class from one of them is a compile error, not a
+    /// style question. It touches no actor state, so crossing the boundary would buy nothing.
+    nonisolated static func confirmApplied(_ outcome: ExtensionApplyOutcome) throws {
+        switch outcome {
+        case .applied:
+            return
+        case .recovered:
+            throw ExtensionApplyError(
+                message: String(localized: "the new configuration failed and the service recovered to the saved one")
+            )
+        case .interrupted:
+            throw ExtensionApplyError(message: String(localized: "the tunnel stopped and nothing is running"))
+        case let .failed(reason, _):
+            throw ExtensionApplyError(message: reason)
+        case let .undetermined(reason):
+            throw ExtensionApplyError(message: reason)
+        }
+    }
+
+    /// One apply request, as this side defines it.
+    ///
+    /// The identity, the body and the caller's own fingerprint of that body travel together, because
+    /// the extension echoes them back and the receipt is only usable if it names the same three
+    /// things. Reading any of them separately at send time is how a reload ends up applying a body
+    /// the caller did not write.
+    public struct StartSnapshot: Equatable, Sendable {
+        public let profileID: Int64
+        public let requestID: String
+        public let bodyRevision: String
+        public let configContent: String
+
+        public init(profileID: Int64, requestID: String, bodyRevision: String, configContent: String) {
+            self.profileID = profileID
+            self.requestID = requestID
+            self.bodyRevision = bodyRevision
+            self.configContent = configContent
+        }
+    }
+
+    /// Sends one apply request and returns the receipt the extension proved, or nil when it answered
+    /// nothing this call can attribute to itself.
+    ///
+    /// # Why nil is a value and not a throw
+    ///
+    /// `sendProviderMessage` calls its handler with nil when the message could not be delivered, and
+    /// an extension that predates the receipt envelope answers nil on SUCCESS. A nil answer is
+    /// therefore "unconfirmed": throwing here would make the caller report a failure for an apply
+    /// that may well have worked, and the caller has no way to tell.
+    ///
+    /// Only a transport error - no tunnel session, or the send itself failing - is thrown, because
+    /// that one is a fact about this call.
+    public func reloadService(_ snapshot: StartSnapshot) async throws -> ExtensionApplyReceipt? {
+        if isMock {
+            return nil
+        }
+        let options = await buildStartOptions(snapshot)
         let data = try ExtensionStartOptions.encode(options)
         guard let session = connection as? NETunnelProviderSession else {
             throw NSError(domain: "ExtensionStartOptions", code: -1, userInfo: [
@@ -226,29 +338,51 @@ public class ExtensionProfile: ObservableObject {
                 continuation.resume(throwing: error)
             }
         }
-        if let response, !response.isEmpty {
-            let message = String(data: response, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "ExtensionStartOptions", code: -1, userInfo: [
-                NSLocalizedDescriptionKey: message,
-            ])
+        switch ExtensionApplyReceiptParser.parse(response, expecting: snapshot.requestID) {
+        case let .receipt(receipt):
+            return receipt
+        case .noReceipt, .otherRequest, .unreadable:
+            // Not attributable to this request, so this call has no answer of its own. The caller
+            // reports it as unconfirmed; nothing is retried and nothing is rolled back.
+            return nil
         }
     }
 
+    /// The start options for the currently selected profile.
+    ///
+    /// A start is the one place where "whatever is selected" is the right input: the user pressed
+    /// connect, and the selection is what they asked to connect with.
     private func prepareStartOptions() async throws -> [String: NSObject] {
-        var options: [String: NSObject] = [
-            "manualStart": NSNumber(value: true),
-            "locale": NSString(string: ApplicationLocale.preferredIdentifier),
-        ]
-
         let profileID = await SharedPreferences.selectedProfileID.get()
         guard let profile = try await ProfileManager.get(profileID) else {
             throw NSError(domain: "ExtensionProfile", code: -1, userInfo: [
                 NSLocalizedDescriptionKey: "Missing selected profile",
             ])
         }
-
         let configContent = try await profile.readAsync()
-        options["configContent"] = NSString(string: configContent)
+        return await buildStartOptions(
+            StartSnapshot(
+                profileID: profileID,
+                requestID: UUID().uuidString,
+                bodyRevision: ConfigurationBodyRevision.fingerprint(of: configContent),
+                configContent: configContent
+            )
+        )
+    }
+
+    /// The start options for one explicit snapshot.
+    ///
+    /// Everything about the platform that the extension needs, plus the request identity the receipt
+    /// echoes. Nothing here re-reads the selection: the caller's snapshot IS the request.
+    private func buildStartOptions(_ snapshot: StartSnapshot) async -> [String: NSObject] {
+        var options: [String: NSObject] = [
+            "manualStart": NSNumber(value: true),
+            "locale": NSString(string: ApplicationLocale.preferredIdentifier),
+            "requestID": NSString(string: snapshot.requestID),
+            "profileID": NSNumber(value: snapshot.profileID),
+            "bodyRevision": NSString(string: snapshot.bodyRevision),
+            "configContent": NSString(string: snapshot.configContent),
+        ]
 
         #if os(macOS)
             options["oomKillerEnabled"] = await NSNumber(value: SharedPreferences.oomKillerEnabled.get())
