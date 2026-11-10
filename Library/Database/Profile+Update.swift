@@ -18,7 +18,28 @@ public extension Profile {
         // The real path supplies the real metadata probe. It is not a default of
         // `refreshRemoteProfile` because that would put a live network request on the tests'
         // path, which inject a canned response and must stay offline.
-        _ = try await updateRemoteProfileReporting()
+        //
+        // The report is CONSUMED here, not dropped: this is the wrapper the shortcut calls, and it
+        // can only answer "throw or not". A structured failure reported as success is the one mistake
+        // this entry can make that the user cannot see - so every outcome that is not a clean apply
+        // throws, with the report's own sentence as the message. `.saved` and `.superseded` are not
+        // exceptions to that: the shortcut asked for an update, and neither means "the running
+        // service is now using the new configuration".
+        let report = try await updateRemoteProfileReporting()
+        switch report.config {
+        case .applied, .unchanged, .saved:
+            // The three outcomes the shortcut asked for: the document runs, the document already ran,
+            // or the profile was saved for a service that is running something else. `.saved` is a
+            // real result for a non-selected profile, not an error.
+            return
+        case .applyFailed, .invalidConfig, .downloadFailed, .recovered, .interrupted,
+             .superseded, .applyUnconfirmed:
+            // Everything else means the shortcut's promise - "your update took effect" - is not what
+            // happened, so it must not answer `true`. The report's own sentence is the user-readable
+            // message; `ProfileUpdateFailure` is the framework's own type, because this wrapper lives
+            // in the framework and cannot see the app's presentation layer.
+            throw ProfileUpdateFailure(report: report)
+        }
     }
 
     /// The same refresh, returning both halves of the result.
@@ -37,15 +58,18 @@ public extension Profile {
     /// unrelated restart moves it.
     nonisolated func updateRemoteProfileReporting() async throws -> RemoteProfileUpdateReport {
         let storedBody = try? await readAsync()
+        // The metadata half's compare-and-set uses the timestamps AS STORED, with NULL preserved.
+        // `Profile.lastUpdated` is a DISPLAY default (`init(row:)` substitutes `Date()` for a NULL), so
+        // two reads of an untouched row differ and the comparison would refuse every refresh of a
+        // profile that has never been refreshed.
+        let storedTimestamps = try? await storedMetadataTimestamps()
         let ticket = ProfileUpdateTicket(
             profileID: id ?? 0,
             requestID: UUID().uuidString,
             remoteURL: remoteURL,
             storedBodyRevision: storedBody.map(ConfigurationBodyRevision.fingerprint(of:)),
-            // The metadata half's compare-and-set: captured from the same state the decision is based
-            // on, and compared inside the database write.
-            expectedLastUpdated: lastUpdated,
-            expectedCapturedAt: subscriptionInfoUpdatedAt
+            expectedLastUpdated: storedTimestamps?.lastUpdated,
+            expectedCapturedAt: storedTimestamps?.capturedAt
         )
         return try await refreshRemoteProfile(
             ticket: ticket,
@@ -121,6 +145,25 @@ public extension Profile {
                 try self.write(body)
                 return ProfileBodyCommit.committed(newRevision: ConfigurationBodyRevision.fingerprint(of: body))
             }
+        }
+    }
+
+    /// The metadata timestamps exactly as stored, with NULL preserved.
+    ///
+    /// One row, two columns, read through the writer so it sees committed state - and read WITHOUT
+    /// `Profile.init(row:)`, whose `Date()` default for a NULL `lastUpdated` turns an untouched row into
+    /// a moving value. Both sides of the compare-and-set come from here: the ticket before the update,
+    /// and `ProfileManager.update(_:ticket:)` inside its write transaction.
+    nonisolated func storedMetadataTimestamps() async throws -> StoredMetadataTimestamps? {
+        guard let id else {
+            return nil
+        }
+        return try await Database.sharedWriter.read { db in
+            try StoredMetadataTimestamps.fetchOne(
+                db,
+                sql: "SELECT lastUpdated, subscriptionInfoUpdatedAt FROM profiles WHERE id = ?",
+                arguments: [id]
+            )
         }
     }
 
@@ -234,13 +277,14 @@ public extension Profile {
         // capture time cannot disagree about when "now" was.
         let now = Date()
         let storedBodyRevision = currentBody.map(ConfigurationBodyRevision.fingerprint(of:))
+        let storedTimestamps = try? await storedMetadataTimestamps()
         let effectiveTicket = ticket ?? ProfileUpdateTicket(
             profileID: id ?? 0,
             requestID: UUID().uuidString,
             remoteURL: url,
             storedBodyRevision: storedBodyRevision,
-            expectedLastUpdated: lastUpdated,
-            expectedCapturedAt: subscriptionInfoUpdatedAt
+            expectedLastUpdated: storedTimestamps?.lastUpdated,
+            expectedCapturedAt: storedTimestamps?.capturedAt
         )
         let outcome: RemoteRefreshOutcome
         do {
@@ -361,13 +405,14 @@ public extension Profile {
             return
         }
         let content = try await readAsync()
+        let storedTimestamps = try? await storedMetadataTimestamps()
         let ticket = ProfileUpdateTicket(
             profileID: id ?? 0,
             requestID: UUID().uuidString,
             remoteURL: remoteURL,
             storedBodyRevision: ConfigurationBodyRevision.fingerprint(of: content),
-            expectedLastUpdated: lastUpdated,
-            expectedCapturedAt: subscriptionInfoUpdatedAt
+            expectedLastUpdated: storedTimestamps?.lastUpdated,
+            expectedCapturedAt: storedTimestamps?.capturedAt
         )
         switch try await applyBody(content, ticket: ticket) {
         case .none:

@@ -130,6 +130,31 @@ public final class BodyCommitLock: @unchecked Sendable {
     }
 }
 
+/// The metadata timestamps exactly as the database stores them.
+///
+/// # Why this type exists instead of reading `Profile`
+///
+/// `Profile.init(row:)` turns a NULL `lastUpdated` into `Date()` - a display default, because a row
+/// that has never been refreshed should still show something. That default is not a stored value: two
+/// reads of the same untouched row produce two different dates, so a comparison between them always
+/// says "the row advanced" and a refresh of a profile that has never been refreshed is refused as
+/// superseded.
+///
+/// The comparison therefore uses THIS representation, where NULL stays `nil`, and both sides come from
+/// the same place: the ticket captures it before the update, the database write transaction re-reads
+/// it. Display keeps using `Profile.lastUpdated`.
+public struct StoredMetadataTimestamps: Equatable, Sendable {
+    /// The row's `lastUpdated`, `nil` when the column is NULL.
+    public let lastUpdated: Date?
+    /// The row's `subscriptionInfoUpdatedAt`, `nil` when the column is NULL.
+    public let capturedAt: Date?
+
+    public init(lastUpdated: Date?, capturedAt: Date?) {
+        self.lastUpdated = lastUpdated
+        self.capturedAt = capturedAt
+    }
+}
+
 /// The outcome of one test-and-set body commit.
 ///
 /// It is a RETURN VALUE of a single operation, not two calls the caller has to keep adjacent: the

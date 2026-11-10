@@ -78,6 +78,9 @@ public enum RemoteProviderRefreshStatus: Equatable, Sendable {
     case unsupported
     /// The RPC failed for another reason.
     case unavailable
+    /// Not attempted: this update did not own the instance it would have refreshed. The winner of the
+    /// race owns that refresh, and a request that lost its claim must leave no side effect behind.
+    case skipped
 }
 
 public struct RemoteProviderRefreshCounts: Equatable, Sendable {

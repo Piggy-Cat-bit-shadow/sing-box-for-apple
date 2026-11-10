@@ -795,6 +795,26 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         let candidate = platformSettings(options)
         let platformChange = PlatformSettingsPolicy.change(from: appliedPlatformSettings, to: candidate)
         var mayNeedPlatformRebuild = false
+        // The candidate is only COMMITTED to the extension's memory when the apply succeeds.
+        //
+        // `applyStartOptions` overwrites `tunnelOptions` and `overridePreferences`, and those two are
+        // what an option-less `reloadService()` and a later On-Demand start read. Writing them before
+        // the core has looked at the candidate means a rejected document becomes the input for the
+        // next reload: the disk still holds the previous record, the tunnel still runs the previous
+        // document, and the extension answers the next reload from the candidate nobody accepted.
+        //
+        // The snapshot plus this flag is the smallest shape that covers every exit: each failure path
+        // returns a receipt, and the restore runs on the way out. Success sets `committedOptions`,
+        // which disarms the restore.
+        let previousTunnelOptions = tunnelOptions
+        let previousOverridePreferences = overridePreferences
+        var committedOptions = false
+        defer {
+            if !committedOptions {
+                tunnelOptions = previousTunnelOptions
+                overridePreferences = previousOverridePreferences
+            }
+        }
         switch platformChange {
         case .unchanged:
             break
@@ -897,6 +917,8 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                     level: .error
                 )
             }
+            // The candidate is now the running document: memory and disk agree from here on.
+            committedOptions = true
             return encodeReceipt(
                 requestID: requestID,
                 profileID: profileID,

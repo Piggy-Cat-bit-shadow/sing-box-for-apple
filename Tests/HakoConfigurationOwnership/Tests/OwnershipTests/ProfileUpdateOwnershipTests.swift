@@ -154,6 +154,36 @@ final class ProfileUpdateOwnershipTests: XCTestCase {
         )
     }
 
+    /// A row that was never refreshed has NULL timestamps, and NULL matches NULL.
+    ///
+    /// This is the case that made the first version of the comparison refuse every refresh of an
+    /// untouched profile: the ticket was built from `Profile.lastUpdated`, whose `Date()` default for a
+    /// NULL makes two reads of the same row differ. The comparison now runs on the stored representation
+    /// on both sides, where "no timestamps" is a value that can match itself.
+    func testAnOldRowWithoutTimestampsMatchesItself() {
+        let captured = ProfileUpdateTicket(
+            profileID: 7,
+            requestID: "r",
+            remoteURL: "https://panel.example/sub",
+            storedBodyRevision: nil,
+            expectedLastUpdated: nil,
+            expectedCapturedAt: nil
+        )
+        XCTAssertEqual(
+            ProfileUpdateOwnership.metadataVerdict(
+                ticket: captured,
+                storedRemoteURL: captured.remoteURL,
+                storedLastUpdated: nil,
+                storedCapturedAt: nil
+            ),
+            .commit,
+            "NULL must match NULL: a display default is not a stored value"
+        )
+        // And the stored representation can express "still nothing" without inventing a date.
+        XCTAssertEqual(StoredMetadataTimestamps(lastUpdated: nil, capturedAt: nil),
+                       StoredMetadataTimestamps(lastUpdated: nil, capturedAt: nil))
+    }
+
     /// A row that gained metadata where this update read none was written after the read.
     func testMetadataAppearingAfterTheReadIsANewerCommit() {
         let captured = ticket(storedBodyRevision: nil)

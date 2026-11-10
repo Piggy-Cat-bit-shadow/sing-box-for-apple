@@ -81,6 +81,17 @@ public enum ProfileManager {
     public nonisolated static func update(_ profile: Profile, ticket: ProfileUpdateTicket) async throws {
         _ = try await Database.sharedWriter.write { db in
             let stored = try profile.id.flatMap { try Profile.fetchOne(db, id: $0) }
+            // The raw timestamps, read the same way the caller read them: NULL stays nil. Reading them
+            // through `Profile` would compare against `init(row:)`'s `Date()` display default, which
+            // differs on every read and refuses every refresh of a profile that has never been
+            // refreshed.
+            let storedTimestamps = try profile.id.flatMap { id in
+                try StoredMetadataTimestamps.fetchOne(
+                    db,
+                    sql: "SELECT lastUpdated, subscriptionInfoUpdatedAt FROM profiles WHERE id = ?",
+                    arguments: [id]
+                )
+            }
             // The whole metadata ownership test, INSIDE this write transaction: the source, and the
             // timestamps that say whether anyone committed newer figures for that source while this
             // update was in flight. Because SQLite serialises writers across processes, this is a
@@ -88,8 +99,8 @@ public enum ProfileManager {
             if case let .superseded(reason) = ProfileUpdateOwnership.metadataVerdict(
                 ticket: ticket,
                 storedRemoteURL: stored?.remoteURL,
-                storedLastUpdated: stored?.lastUpdated,
-                storedCapturedAt: stored?.subscriptionInfoUpdatedAt
+                storedLastUpdated: storedTimestamps?.lastUpdated,
+                storedCapturedAt: storedTimestamps?.capturedAt
             ) {
                 throw ProfileSupersededError(reason: reason, requestID: ticket.requestID)
             }
@@ -157,5 +168,17 @@ public enum ProfileManager {
             }
             counter += 1
         }
+    }
+}
+
+/// The contract file keeps `StoredMetadataTimestamps` free of GRDB so it can be exercised without a
+/// database; the row decoder is the database layer's half, and it reads the columns by their own names
+/// so NULL survives as `nil`.
+extension StoredMetadataTimestamps: FetchableRecord {
+    public init(row: Row) throws {
+        self.init(
+            lastUpdated: row["lastUpdated"],
+            capturedAt: row["subscriptionInfoUpdatedAt"]
+        )
     }
 }

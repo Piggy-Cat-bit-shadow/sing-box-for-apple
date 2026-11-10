@@ -111,17 +111,31 @@ final class RemoteProviderRefreshTests: XCTestCase {
                        "the provider half is probed after the apply, and the receipt is the confirmation")
     }
 
-    func testARefusedReloadStillProbesTheOldInstance() async throws {
+    /// A refused reload leaves the provider half alone.
+    ///
+    /// The older version of this test asserted the opposite - that a failed apply still probed the
+    /// running instance's providers - which attached a live side effect (HTTP to each provider, nodes
+    /// published) to an update that never reached the service.
+    func testARefusedReloadLeavesTheProvidersAlone() async throws {
+        var probes = 0
         let report = try await RemoteRefreshApplier.applyReporting(
             outcome(bodyChanged: true),
             applyMetadata: {},
             persist: {},
             commitBody: { _ in .committed(newRevision: "test") },
             reloadService: { _ in throw NSError(domain: "test", code: 1) },
-            refreshProviders: { .notRunning }
+            refreshProviders: {
+                probes += 1
+                return .notRunning
+            }
         )
-        XCTAssertEqual(report.config, .applyFailed("The operation couldn’t be completed. (test error 1.)"))
-        XCTAssertEqual(report.providers.status, .notRunning)
+        guard case let .applyFailed(reason) = report.config else {
+            return XCTFail("a refused reload is a failure, got \(report.config)")
+        }
+        XCTAssertTrue(reason?.contains("test error 1") ?? false, "the cause survives: \(reason ?? "nil")")
+        XCTAssertEqual(probes, 0, "the instance is not serving this update's document")
+        XCTAssertEqual(report.providers.status, .skipped)
+        XCTAssertEqual(report.providers.detail, ProviderRefreshSkip.notApplied.rawValue)
     }
 
     func testAProfileThatIsNotRunningSavesTheBodyAndDoesNotReload() async throws {
@@ -136,7 +150,9 @@ final class RemoteProviderRefreshTests: XCTestCase {
             refreshProviders: { .notActive }
         )
         XCTAssertEqual(report.config, .saved)
-        XCTAssertEqual(report.providers.status, .notActive)
+        XCTAssertEqual(report.providers.status, .skipped)
+        XCTAssertEqual(report.providers.detail, ProviderRefreshSkip.notRunningThisProfile.rawValue,
+                       "the running instance serves another profile; its providers are not this update's")
         XCTAssertFalse(reloaded)
     }
 
@@ -169,8 +185,9 @@ final class RemoteProviderRefreshTests: XCTestCase {
         )
         XCTAssertEqual(report.config, .superseded)
         XCTAssertEqual(reloads, 0)
-        XCTAssertEqual(probes, 1)
-        XCTAssertEqual(report.providers.status, .notActive)
+        XCTAssertEqual(probes, 0, "a superseded request leaves no side effect on the instance")
+        XCTAssertEqual(report.providers.status, .skipped)
+        XCTAssertEqual(report.providers.detail, ProviderRefreshSkip.superseded.rawValue)
     }
 
     func testASwitchDuringReloadIsSupersededNotApplied() async throws {

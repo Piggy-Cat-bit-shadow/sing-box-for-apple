@@ -35,6 +35,57 @@ public enum RemoteProviderRefreshProbe: Equatable, Sendable {
     case notRunning
     case unsupported
     case failed(String)
+    /// Not attempted because this update lost ownership of the profile: the winner owns the refresh.
+    case skipped(ProviderRefreshSkip)
+}
+
+/// Why a refresh left the provider half alone.
+public enum ProviderRefreshSkip: String, Equatable, Sendable {
+    /// Another update committed the same profile first.
+    case superseded
+    /// The body was saved, but the running instance serves a different profile.
+    case notRunningThisProfile
+    /// The document did not reach the running service: the instance is not serving this update's body,
+    /// so its providers are not this update's to refresh.
+    case notApplied
+}
+
+/// An update that did not end with the running service using the new configuration.
+///
+/// It lives in the database layer, not in the app's presentation layer, because the wrapper the
+/// shortcuts call is there: `Profile.updateRemoteProfile()` can only say "throw or not", and it must
+/// say it from the framework that owns the update. The app's `RemoteProfileUpdateError` remains the
+/// type its own UI entries throw, because that one carries the full presentation.
+public struct ProfileUpdateFailure: LocalizedError, Equatable {
+    public let report: RemoteProfileUpdateReport
+
+    public init(report: RemoteProfileUpdateReport) {
+        self.report = report
+    }
+
+    /// Plain sentences on purpose: this type is compiled by the contract package as well, where
+    /// `String(localized:)` is unavailable. The app's own entries present the localized wording.
+    public var errorDescription: String? {
+        switch report.config {
+        case .applied, .unchanged, .saved:
+            return nil
+        case let .applyFailed(reason):
+            return reason ?? "The configuration could not be applied"
+        case let .invalidConfig(reason):
+            return reason ?? "The downloaded configuration is not valid"
+        case let .downloadFailed(reason):
+            return reason ?? "The subscription could not be downloaded"
+        case let .recovered(activeRevision):
+            return activeRevision.map { "The service recovered to an earlier configuration (\($0))" }
+                ?? "The service recovered to an earlier configuration"
+        case let .interrupted(reason):
+            return reason ?? "The service stopped and nothing is running"
+        case .superseded:
+            return "A newer update replaced this one before it was applied"
+        case .applyUnconfirmed:
+            return "The extension did not confirm the configuration"
+        }
+    }
 }
 
 /// The two halves of one update, as one value.
@@ -123,6 +174,8 @@ extension RemoteProviderRefreshProbe {
             RemoteProviderRefreshSummary(status: .unsupported, counts: .init(), detail: nil)
         case let .failed(message):
             RemoteProviderRefreshSummary(status: .unavailable, counts: .init(), detail: message)
+        case let .skipped(reason):
+            RemoteProviderRefreshSummary(status: .skipped, counts: .init(), detail: reason.rawValue)
         }
     }
 }

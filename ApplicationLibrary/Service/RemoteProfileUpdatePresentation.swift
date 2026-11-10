@@ -90,6 +90,11 @@ extension RemoteProviderRefreshSummary {
         case .unavailable:
             return detail.map { String(localized: "Provider refresh unavailable: \($0)") }
                 ?? String(localized: "Provider refresh unavailable")
+        case .skipped:
+            // The reason distinguishes the three ways a refresh can be somebody else's: another update
+            // won, the profile is not the running one, or the document never reached the service.
+            return detail.map { String(localized: "Providers not refreshed: \($0)") }
+                ?? String(localized: "Providers not refreshed")
         }
     }
 }

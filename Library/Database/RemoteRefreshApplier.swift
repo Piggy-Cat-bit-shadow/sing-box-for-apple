@@ -94,17 +94,22 @@ public enum RemoteRefreshApplier {
         // and a write later is how a slower update replaces a newer body and then reads its own bytes
         // back as proof that it won.
         guard case .committed = try await commitBody(body) else {
+            // A superseded request has NO side effects on the live instance - including the provider
+            // half. The update that won owns the refresh, and refreshing here would publish another
+            // profile's nodes for a request that lost its claim.
             return RemoteProfileUpdateReport(
                 config: .superseded,
-                providers: await refreshProviders().summary
+                providers: RemoteProviderRefreshProbe.skipped(.superseded).summary
             )
         }
         // The body is saved whether or not this profile is the running one; a profile that is not
         // selected (or a disconnected tunnel) must not pretend to have applied it.
         if let canApply, await canApply() == false {
+            // Saved, not applied. The running instance is serving a different profile, so its
+            // providers are not this update's to refresh.
             return RemoteProfileUpdateReport(
                 config: .saved,
-                providers: await refreshProviders().summary
+                providers: RemoteProviderRefreshProbe.skipped(.notRunningThisProfile).summary
             )
         }
         // Last boundary before touching the daemon: a switch that landed while the body was being
@@ -112,7 +117,7 @@ public enum RemoteRefreshApplier {
         if let isStillCurrent, await isStillCurrent() == false {
             return RemoteProfileUpdateReport(
                 config: .superseded,
-                providers: await refreshProviders().summary
+                providers: RemoteProviderRefreshProbe.skipped(.superseded).summary
             )
         }
         // ... and the stored-body comparison belongs HERE, immediately before the send, not earlier.
@@ -125,7 +130,7 @@ public enum RemoteRefreshApplier {
         if let storedBody, await storedBody() != body {
             return RemoteProfileUpdateReport(
                 config: .superseded,
-                providers: await refreshProviders().summary
+                providers: RemoteProviderRefreshProbe.skipped(.superseded).summary
             )
         }
         var config: RemoteConfigUpdateOutcome
@@ -162,9 +167,19 @@ public enum RemoteRefreshApplier {
                 config = .applyFailed(error.localizedDescription)
             }
         }
-        return RemoteProfileUpdateReport(
-            config: config,
-            providers: await refreshProviders().summary
-        )
+        // The provider half runs only when this update's document reached the running service. A
+        // failure, an interruption, a recovery to another document and an unconfirmed apply all mean
+        // the instance is not serving what this update wrote; refreshing its providers would attach a
+        // side effect to a claim it does not own.
+        let providers: RemoteProviderRefreshProbe
+        switch config {
+        case .applied:
+            providers = await refreshProviders()
+        case .superseded:
+            providers = .skipped(.superseded)
+        default:
+            providers = .skipped(.notApplied)
+        }
+        return RemoteProfileUpdateReport(config: config, providers: providers.summary)
     }
 }
