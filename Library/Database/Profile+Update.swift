@@ -2,13 +2,6 @@ import Foundation
 import GRDB
 import Libbox
 
-/// Serialises the body commits this process performs.
-///
-/// It is a lock rather than an actor because the protected region is a pair of synchronous file calls
-/// inside one `BlockingIO` block: there is nothing to suspend on, and the smallest correct mechanism
-/// adds no new concurrency concept. It is ONE lock for all profiles on purpose - a per-profile map
-/// would need its own lifetime rules for a lock that is held for the duration of one file write.
-private let bodyCommitLock = NSLock()
 
 public extension Profile {
     /// Fetch this remote profile and apply everything a successful refresh carries.
@@ -111,22 +104,38 @@ public extension Profile {
     /// `BlockingIO` runs its blocks on a CONCURRENT queue, so "read the revision" and "write the body"
     /// as two calls can interleave with another update's calls: both read the old revision, both
     /// decide they own the profile, and the later write wins - which is the race this exists to
-    /// remove. One blocking section plus one in-process lock is the smallest implementation that makes
-    /// the read and the write indivisible here. (Cross-process writers - the Intents extension - are a
-    /// separate boundary; the design for closing that is recorded in the handoff.)
+    /// remove. One blocking section plus one in-process lock (`BodyCommitLock.shared`, shared with the
+    /// editor's save) is the smallest implementation that makes the read and the write indivisible
+    /// here. (Cross-process writers - the Intents extension - are a separate boundary; the design for
+    /// closing that is recorded in the handoff.)
     ///
     /// The file is the authority for the body: the profile row records metadata, not content.
     nonisolated func commitBody(_ body: String, ticket: ProfileUpdateTicket) async throws -> ProfileBodyCommit {
         try await BlockingIO.run {
-            Self.bodyCommitLock.lock()
-            defer { Self.bodyCommitLock.unlock() }
-            let stored = try? self.read()
-            let storedRevision = stored.map(ConfigurationBodyRevision.fingerprint(of:))
-            guard storedRevision == ticket.storedBodyRevision else {
-                return ProfileBodyCommit.superseded(storedRevision: storedRevision)
+            try BodyCommitLock.shared.withLock {
+                let stored = try? self.read()
+                let storedRevision = stored.map(ConfigurationBodyRevision.fingerprint(of:))
+                guard storedRevision == ticket.storedBodyRevision else {
+                    return ProfileBodyCommit.superseded(storedRevision: storedRevision)
+                }
+                try self.write(body)
+                return ProfileBodyCommit.committed(newRevision: ConfigurationBodyRevision.fingerprint(of: body))
             }
-            try self.write(body)
-            return ProfileBodyCommit.committed(newRevision: ConfigurationBodyRevision.fingerprint(of: body))
+        }
+    }
+
+    /// Writes a body this process authored - an editor save - under the same lock as a remote commit.
+    ///
+    /// Unconditional on purpose: a save is the user's decision, so it does not compare revisions. What
+    /// it must not do is land BETWEEN a refresh's comparison and its write, because then the refresh
+    /// discards the save while both operations report success. Taking the lock puts the two in a
+    /// defined order: either the save lands first (the refresh sees it and supersedes) or the refresh
+    /// commits first and the save then wins, which is what the user asked for.
+    nonisolated func saveBody(_ content: String) async throws {
+        try await BlockingIO.run {
+            try BodyCommitLock.shared.withLock {
+                try self.write(content)
+            }
         }
     }
 

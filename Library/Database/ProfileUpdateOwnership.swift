@@ -109,6 +109,27 @@ public enum ProfileCommitVerdict: Equatable, Sendable {
     case superseded(ProfileSupersedeReason)
 }
 
+/// The one lock every writer of a profile's body takes in this process.
+///
+/// A remote refresh and an editor save are two writers of the same file. The refresh's commit is a
+/// read-compare-write; if the editor's write is not serialised with it, it can land between the
+/// comparison and the write, and the refresh silently discards a save the user just made. The lock is
+/// the smallest thing that makes the two indivisible with respect to each other - it cannot cross a
+/// process boundary, which is why the body's cross-process story is still the open item.
+public final class BodyCommitLock: @unchecked Sendable {
+    public static let shared = BodyCommitLock()
+
+    private let lock = NSLock()
+
+    public init() {}
+
+    public func withLock<Value>(_ body: () throws -> Value) rethrows -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+}
+
 /// The outcome of one test-and-set body commit.
 ///
 /// It is a RETURN VALUE of a single operation, not two calls the caller has to keep adjacent: the

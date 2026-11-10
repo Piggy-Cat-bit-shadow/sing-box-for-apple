@@ -123,6 +123,9 @@ public final class EditProfileContentViewModel: BaseViewModel {
 
     private nonisolated func saveContentBackground(_ profile: Profile) async throws {
         let profileContent = await profileContent
-        try await profile.writeAsync(profileContent)
+        // Through the same critical section a remote refresh uses: a save that lands between the
+        // refresh's comparison and its write would be silently discarded, with both sides reporting
+        // success.
+        try await profile.saveBody(profileContent)
     }
 }
