@@ -78,7 +78,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             applyMetadata: { events.append("metadata") },
             persist: { events.append("persist") },
             writeBody: { _ in events.append("write") },
-            reloadService: { events.append("reload") },
+            reloadService: { _ in events.append("reload"); return nil },
             refreshProviders: {
                 events.append("providers")
                 return .response(#"{"results":[{"tag":"pp","status":"unchanged"}]}"#)
@@ -96,7 +96,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             applyMetadata: { events.append("metadata") },
             persist: { events.append("persist") },
             writeBody: { _ in events.append("write") },
-            reloadService: { events.append("reload") },
+            reloadService: { _ in events.append("reload"); return nil },
             confirmStartedAt: {
                 events.append("confirm")
                 return true
@@ -117,7 +117,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             applyMetadata: {},
             persist: {},
             writeBody: { _ in },
-            reloadService: { throw NSError(domain: "test", code: 1) },
+            reloadService: { _ in throw NSError(domain: "test", code: 1) },
             refreshProviders: { .notRunning }
         )
         XCTAssertEqual(report.config, .applyFailed("The operation couldn’t be completed. (test error 1.)"))
@@ -131,7 +131,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             applyMetadata: {},
             persist: {},
             writeBody: { _ in },
-            reloadService: { reloaded = true },
+            reloadService: { _ in reloaded = true; return nil },
             canApply: { false },
             refreshProviders: { .notActive }
         )
@@ -146,7 +146,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             applyMetadata: {},
             persist: {},
             writeBody: { _ in },
-            reloadService: {},
+            reloadService: { _ in nil },
             confirmStartedAt: { false },
             refreshProviders: { .notActive }
         )
@@ -161,7 +161,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             applyMetadata: {},
             persist: {},
             writeBody: { _ in },
-            reloadService: { reloads += 1 },
+            reloadService: { _ in reloads += 1; return nil },
             isStillCurrent: { false },
             refreshProviders: {
                 probes += 1
@@ -181,7 +181,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             applyMetadata: {},
             persist: {},
             writeBody: { _ in },
-            reloadService: {},
+            reloadService: { _ in nil },
             isStillCurrent: {
                 checks += 1
                 return checks == 1
@@ -199,7 +199,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             applyMetadata: {},
             persist: {},
             writeBody: { _ in XCTFail("must not write") },
-            reloadService: { XCTFail("must not reload") },
+            reloadService: { _ in XCTFail("must not reload"); return nil },
             isStillCurrent: { false },
             refreshProviders: {
                 probes += 1
@@ -218,7 +218,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             persist: {},
             writeBody: { _ in },
             storedBody: { "a newer body" },
-            reloadService: { XCTFail("must not reload a replaced body") },
+            reloadService: { _ in XCTFail("must not reload a replaced body"); return nil },
             refreshProviders: { .notActive }
         )
         XCTAssertEqual(report.config, .superseded)

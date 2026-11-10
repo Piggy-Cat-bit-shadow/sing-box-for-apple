@@ -63,6 +63,37 @@ public enum ProfileManager {
         }
     }
 
+    /// Commits an update's metadata, but only onto the profile the update read.
+    ///
+    /// # Why the check is inside the transaction
+    ///
+    /// The remote URL is the ownership key for the metadata: a refresh resolved a source, downloaded
+    /// from it, and fetched a quota that describes THAT subscription. If the user edits the URL while
+    /// the request is in flight, the row now describes another subscription, and committing panel A's
+    /// figures onto it shows A's traffic for B. Reading the stored URL inside the same write
+    /// transaction that the comparison protects is what makes the answer true at the instant of the
+    /// write rather than at the instant of the read.
+    ///
+    /// The body is NOT checked here. The file is its authority, and the caller checks it immediately
+    /// before writing it (`RemoteRefreshApplier`). This function checks what it can actually see.
+    ///
+    /// - Throws: `ProfileSupersededError` when the profile now points at another source.
+    public nonisolated static func update(_ profile: Profile, ticket: ProfileUpdateTicket) async throws {
+        _ = try await Database.sharedWriter.write { db in
+            let stored = try profile.id.flatMap { try Profile.fetchOne(db, id: $0) }
+            if case let .superseded(reason) = ProfileUpdateOwnership.sourceVerdict(
+                ticket: ticket,
+                storedRemoteURL: stored?.remoteURL
+            ) {
+                throw ProfileSupersededError(reason: reason, requestID: ticket.requestID)
+            }
+            if let id = profile.id {
+                profile.normalizeRemoteSourceChange(previousURL: stored?.remoteURL)
+            }
+            try profile.updateChanges(db)
+        }
+    }
+
     public nonisolated static func update(_ profileList: [Profile]) async throws {
         // TODO: batch update
         try await Database.sharedWriter.write { db in

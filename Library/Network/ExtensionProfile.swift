@@ -234,21 +234,103 @@ public class ExtensionProfile: ObservableObject {
         }
     }
 
-    private func prepareStartOptions() async throws -> [String: NSObject] {
-        var options: [String: NSObject] = [
-            "manualStart": NSNumber(value: true),
-            "locale": NSString(string: ApplicationLocale.preferredIdentifier),
-        ]
+    /// One apply request, as this side defines it.
+    ///
+    /// The identity, the body and the caller's own fingerprint of that body travel together, because
+    /// the extension echoes them back and the receipt is only usable if it names the same three
+    /// things. Reading any of them separately at send time is how a reload ends up applying a body
+    /// the caller did not write.
+    public struct StartSnapshot: Equatable, Sendable {
+        public let profileID: Int64
+        public let requestID: String
+        public let bodyRevision: String
+        public let configContent: String
 
+        public init(profileID: Int64, requestID: String, bodyRevision: String, configContent: String) {
+            self.profileID = profileID
+            self.requestID = requestID
+            self.bodyRevision = bodyRevision
+            self.configContent = configContent
+        }
+    }
+
+    /// Sends one apply request and returns the receipt the extension proved, or nil when it answered
+    /// nothing this call can attribute to itself.
+    ///
+    /// # Why nil is a value and not a throw
+    ///
+    /// `sendProviderMessage` calls its handler with nil when the message could not be delivered, and
+    /// an extension that predates the receipt envelope answers nil on SUCCESS. A nil answer is
+    /// therefore "unconfirmed": throwing here would make the caller report a failure for an apply
+    /// that may well have worked, and the caller has no way to tell.
+    ///
+    /// Only a transport error - no tunnel session, or the send itself failing - is thrown, because
+    /// that one is a fact about this call.
+    public func reloadService(_ snapshot: StartSnapshot) async throws -> ExtensionApplyReceipt? {
+        if isMock {
+            return nil
+        }
+        let options = await buildStartOptions(snapshot)
+        let data = try ExtensionStartOptions.encode(options)
+        guard let session = connection as? NETunnelProviderSession else {
+            throw NSError(domain: "ExtensionStartOptions", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Tunnel session unavailable",
+            ])
+        }
+        let response = try await withCheckedThrowingContinuation { continuation in
+            do {
+                try session.sendProviderMessage(data) { response in
+                    continuation.resume(returning: response)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+        switch ExtensionApplyReceiptParser.parse(response, expecting: snapshot.requestID) {
+        case let .receipt(receipt):
+            return receipt
+        case .noReceipt, .otherRequest, .unreadable:
+            // Not attributable to this request, so this call has no answer of its own. The caller
+            // reports it as unconfirmed; nothing is retried and nothing is rolled back.
+            return nil
+        }
+    }
+
+    /// The start options for the currently selected profile.
+    ///
+    /// A start is the one place where "whatever is selected" is the right input: the user pressed
+    /// connect, and the selection is what they asked to connect with.
+    private func prepareStartOptions() async throws -> [String: NSObject] {
         let profileID = await SharedPreferences.selectedProfileID.get()
         guard let profile = try await ProfileManager.get(profileID) else {
             throw NSError(domain: "ExtensionProfile", code: -1, userInfo: [
                 NSLocalizedDescriptionKey: "Missing selected profile",
             ])
         }
-
         let configContent = try await profile.readAsync()
-        options["configContent"] = NSString(string: configContent)
+        return await buildStartOptions(
+            StartSnapshot(
+                profileID: profileID ?? 0,
+                requestID: UUID().uuidString,
+                bodyRevision: ConfigurationBodyRevision.fingerprint(of: configContent),
+                configContent: configContent
+            )
+        )
+    }
+
+    /// The start options for one explicit snapshot.
+    ///
+    /// Everything about the platform that the extension needs, plus the request identity the receipt
+    /// echoes. Nothing here re-reads the selection: the caller's snapshot IS the request.
+    private func buildStartOptions(_ snapshot: StartSnapshot) async -> [String: NSObject] {
+        var options: [String: NSObject] = [
+            "manualStart": NSNumber(value: true),
+            "locale": NSString(string: ApplicationLocale.preferredIdentifier),
+            "requestID": NSString(string: snapshot.requestID),
+            "profileID": NSNumber(value: snapshot.profileID),
+            "bodyRevision": NSString(string: snapshot.bodyRevision),
+            "configContent": NSString(string: snapshot.configContent),
+        ]
 
         #if os(macOS)
             options["oomKillerEnabled"] = await NSNumber(value: SharedPreferences.oomKillerEnabled.get())

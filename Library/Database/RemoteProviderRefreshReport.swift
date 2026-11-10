@@ -35,15 +35,25 @@ public struct RemoteProviderRefreshResponse: Equatable, Sendable {
     public let results: [RemoteProviderRefreshEntry]
     public let cancelled: Bool
     public let boxChanged: Bool
+    /// False when the kernel answered "this RPC does not exist here".
+    ///
+    /// The Go side translates gRPC's Unimplemented into a successful document carrying
+    /// `"supported": false`, because a gomobile call that returns an error loses its value in the
+    /// generated bridge. A client that only inspected the error therefore never saw the capability
+    /// gap; a client that only inspects `results` would read it as "no providers", which is a
+    /// different and wrong fact.
+    public let supported: Bool
 
     public init(
         results: [RemoteProviderRefreshEntry],
         cancelled: Bool = false,
-        boxChanged: Bool = false
+        boxChanged: Bool = false,
+        supported: Bool = true
     ) {
         self.results = results
         self.cancelled = cancelled
         self.boxChanged = boxChanged
+        self.supported = supported
     }
 }
 
@@ -108,6 +118,11 @@ public enum RemoteProviderRefreshParser {
     }
 
     public static func summarize(_ response: RemoteProviderRefreshResponse) -> RemoteProviderRefreshSummary {
+        if !response.supported {
+            /// The kernel answered "this RPC does not exist here". It is not a refresh that ran and
+            /// found nothing: it is a capability the running kernel does not have.
+            return RemoteProviderRefreshSummary(status: .unsupported, counts: .init(), detail: nil)
+        }
         if response.boxChanged {
             return RemoteProviderRefreshSummary(status: .boxChanged, counts: .init(), detail: nil)
         }
@@ -170,7 +185,8 @@ public enum RemoteProviderRefreshParser {
                 )
             },
             cancelled: value.cancelled ?? false,
-            boxChanged: value.boxChanged ?? false
+            boxChanged: value.boxChanged ?? false,
+            supported: value.supported ?? true
         )
     }
 
@@ -178,11 +194,14 @@ public enum RemoteProviderRefreshParser {
         let results: [WireEntry]?
         let cancelled: Bool?
         let boxChanged: Bool?
+        /// Absent on every kernel that has the RPC: only a kernel without it answers `false`.
+        let supported: Bool?
 
         enum CodingKeys: String, CodingKey {
             case results
             case cancelled
             case boxChanged = "box_changed"
+            case supported
         }
     }
 

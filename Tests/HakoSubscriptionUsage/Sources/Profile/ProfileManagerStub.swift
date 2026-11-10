@@ -1,3 +1,4 @@
+import Core
 import Foundation
 
 // `Profile.updateRemoteProfile()` commits through `ProfileManager.update` in the app. Here that call
@@ -16,6 +17,15 @@ public enum ProfileManager {
 
     public static func update(_ profile: Profile) async throws {
         _ = profile
+        throw NoDatabase()
+    }
+
+    /// The test-and-set variant the refresh path uses. Same answer, same reason: without a database
+    /// there is nothing to compare the ticket against, and pretending to commit would be worse than
+    /// refusing.
+    public static func update(_ profile: Profile, ticket: ProfileUpdateTicket) async throws {
+        _ = profile
+        _ = ticket
         throw NoDatabase()
     }
 }

@@ -29,6 +29,19 @@ extension RemoteProfileUpdateReport {
                 ?? String(localized: "Subscription download failed")
         case .superseded:
             configText = String(localized: "Update superseded by a newer action")
+        case let .recovered(activeRevision):
+            // The service is running - just not this document. Saying "failed" sends the user
+            // looking for a dead tunnel; saying "applied" hides that their profile is not in force.
+            if let activeRevision, !activeRevision.isEmpty {
+                configText = String(
+                    localized: "The new configuration failed; the service recovered to the saved one (\(configurationRevisionLabel(activeRevision)))"
+                )
+            } else {
+                configText = String(localized: "The new configuration failed; the service recovered to the saved one")
+            }
+        case let .interrupted(message):
+            configText = message.map { String(localized: "The tunnel stopped and nothing is running: \($0)") }
+                ?? String(localized: "The tunnel stopped and nothing is running")
         }
         return "\(configText) · \(providers.localizedDescription)"
     }

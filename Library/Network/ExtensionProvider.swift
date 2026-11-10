@@ -17,6 +17,22 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     public var tunnelOptions: [String: NSObject]?
     private var startOptionsURL: URL?
 
+    /// Identifies this tunnel SESSION, not this process.
+    ///
+    /// A reload keeps it - the TUN, the Box and the process are the same. A new session gets a new
+    /// one, so a receipt from a previous session is recognisable as belonging to a tunnel that no
+    /// longer exists. That is the third identity the app needs: the request, the body it applied and
+    /// the tunnel that applied it.
+    private var tunnelSessionID = UUID().uuidString
+
+    /// The platform settings the system last installed for this tunnel.
+    ///
+    /// Set after every successful apply, and the reason a settings-only change can be detected at
+    /// all: the profile document is byte-identical, the core answers "already runs this document",
+    /// and only a rebuild reinstalls the routes and proxy the platform owns. Nil before the first
+    /// apply - see `PlatformSettingsPolicy.change(from:to:)` for why that is not a rebuild.
+    private var appliedPlatformSettings: PlatformSettingsSnapshot?
+
     /// Serialises the service lifecycle so a teardown cannot overlap a start.
     ///
     /// # Why this is needed, and why it is not an actor
@@ -215,6 +231,10 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     }
 
     override open func startTunnel(options startOptions: [String: NSObject]?) async throws {
+        // A new tunnel session, even when the platform reuses this provider instance.
+        tunnelSessionID = UUID().uuidString
+        appliedPlatformSettings = nil
+
         let basePath: String
         let workingPath: String
         let tempPath: String
@@ -381,7 +401,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             }
         #endif
 
-        try await startService()
+        _ = try await startService()
         writeMessage("(packet-tunnel): Here I stand")
         #if os(iOS)
             startScreenStateObserver()
@@ -476,7 +496,20 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// outcome this whole file is arranged to avoid, and on the device it is indistinguishable from
     /// "the tunnel stopped working". The other two uses of `commandServer` in this function's family
     /// are folded in for the same reason.
-    private func startService(isReload: Bool = false) async throws {
+    ///
+    /// # Why the apply goes through the report entry
+    ///
+    /// `startOrReloadService` returns an error or nothing, and an interrupted or recovered apply
+    /// returns NOTHING - so the extension could not tell "my document is running" from "the daemon
+    /// recovered to another one". `applyServiceChangeReport` returns the report the call itself
+    /// produced, which is what the receipt the app reads is built from. The error-only contract is
+    /// kept in the kernel for every other embedder; this one no longer needs it.
+    ///
+    /// - Parameter reinstallsPlatformSettings: true when this apply is happening because the
+    ///   platform's own settings changed. The document may be identical, so the core will satisfy
+    ///   the request in place and never call `openTun`; the platform half must therefore be treated
+    ///   as a NEW install and confirmed with the takeover check.
+    private func startService(isReload: Bool = false, reinstallsPlatformSettings: Bool = false) async throws -> LibboxApplyOutcomeDocument? {
         guard let configContent = tunnelOptions?["configContent"] as? String else {
             throw ExtensionStartupError("(packet-tunnel) error: missing configContent in tunnel options")
         }
@@ -500,24 +533,41 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         #endif
         #if os(iOS)
             // A new tunnel session must not inherit the previous session's success. A reload keeps
-            // the running TUN and deliberately does not re-check.
-            if !isReload {
+            // the running TUN and deliberately does not re-check - unless it is reinstalling the
+            // platform's settings, which is exactly what the check exists to confirm.
+            if !isReload || reinstallsPlatformSettings {
                 tunnelTakeoverChecked = false
                 ExtensionPlatformInterface.resetTunnelTakeoverCheck()
             }
         #endif
-        // Held only across `startOrReloadService` and the generation bump. The takeover wait below
-        // is NOT in this region: it can take three seconds, and `stopService()` (called from the
-        // core's gRPC goroutine) must not block behind it. The generation makes that safe.
+        // Held only across the apply and the generation bump. The takeover wait below is NOT in this
+        // region: it can take three seconds, and `stopService()` (called from the core's gRPC
+        // goroutine) must not block behind it. The generation makes that safe.
         var generation: UInt64 = 0
+        var document: LibboxApplyOutcomeDocument?
         do {
             try withServiceLifecycleLock {
                 serviceLifecycleGeneration &+= 1
                 generation = serviceLifecycleGeneration
-                try commandServer.startOrReloadService(configContent, options: options)
+                guard let box = commandServer.applyServiceChangeReport(configContent, options: options) else {
+                    throw ExtensionStartupError("(packet-tunnel) the command server returned no apply report")
+                }
+                document = LibboxApplyOutcomeDocument.decode(box.value)
             }
         } catch {
             throw ExtensionStartupError("(packet-tunnel) error: start service: \(error.localizedDescription)")
+        }
+        guard let document, let result = document.outcomeStatus else {
+            // The bridge answered something this build cannot read. Treating that as success is the
+            // one option that must not be taken: the app would show a configuration that nothing
+            // confirmed.
+            throw ExtensionStartupError("(packet-tunnel) the apply report could not be read")
+        }
+        if document.ok == false, result != .recovered {
+            // `recovered` is not a failure: the daemon is running the stored last-good document, and
+            // the tunnel works. Every other not-ok status means the requested document is not what
+            // runs.
+            throw ExtensionStartupError(document.error ?? "(packet-tunnel) the configuration was not applied")
         }
         #if os(iOS)
             // A tunnel that started but never asked the system to route through it is connected and
@@ -550,6 +600,12 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 locationManager!.requestLocation()
             }
         #endif
+        // What the system now has installed. Recorded even for the initial start: without it the
+        // first reload would compare against "unknown", and "unknown" is deliberately not a rebuild.
+        if let tunnelOptions {
+            appliedPlatformSettings = platformSettings(tunnelOptions)
+        }
+        return document
     }
 
     #if os(macOS)
@@ -596,7 +652,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         defer {
             reasserting = false
         }
-        try await startService(isReload: true)
+        _ = try await startService(isReload: true)
     }
 
     override open func stopTunnel(with reason: NEProviderStopReason) async {
@@ -656,15 +712,219 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         #endif
     }
 
+    /// The app's apply channel: decode the request, decide whether the platform half changed, apply,
+    /// and answer with a receipt.
+    ///
+    /// # Why the answer is never nil
+    ///
+    /// `sendProviderMessage` calls its handler with nil when the message could not be delivered, so
+    /// an extension that answers nil on SUCCESS makes "applied", "crashed" and "never arrived" one
+    /// value to the app. Every exit from here - including a failure - answers with the envelope
+    /// `ExtensionApplyReceiptParser` decodes.
+    ///
+    /// # Why the platform settings are compared here
+    ///
+    /// A switch that only moves the platform's own settings (the APNs exclusion, the default-route
+    /// exclusion, `include_all_networks`) leaves the profile document byte-identical. The core then
+    /// answers "already runs this document" - truthfully, for the document - and may satisfy the
+    /// reload by refreshing a provider in place, so `openTun` is never called and the new routes are
+    /// never installed. The change is invisible to every comparison the kernel can make, so it is
+    /// made here, where the settings live.
     override open func handleAppMessage(_ messageData: Data) async -> Data? {
+        let options: [String: NSObject]
         do {
-            let options = try ExtensionStartOptions.decode(messageData)
+            options = try ExtensionStartOptions.decode(messageData)
+        } catch {
+            return encodeReceipt(
+                requestID: "",
+                profileID: nil,
+                bodyRevision: nil,
+                ok: false,
+                status: ExtensionApplyStatus.failed.rawValue,
+                targetRevision: nil,
+                activeRevision: nil,
+                retained: nil,
+                restartRequired: nil,
+                persistence: nil,
+                reason: "(packet-tunnel) the request could not be decoded: \(error.localizedDescription)"
+            )
+        }
+        let requestID = options["requestID"] as? String ?? ""
+        let profileID = (options["profileID"] as? NSNumber)?.int64Value
+        let bodyRevision = options["bodyRevision"] as? String
+        guard let configContent = options["configContent"] as? String else {
+            return encodeReceipt(
+                requestID: requestID,
+                profileID: profileID,
+                bodyRevision: bodyRevision,
+                ok: false,
+                status: ExtensionApplyStatus.failed.rawValue,
+                targetRevision: nil,
+                activeRevision: nil,
+                retained: nil,
+                restartRequired: nil,
+                persistence: nil,
+                reason: "(packet-tunnel) the request carries no configuration"
+            )
+        }
+
+        let candidate = platformSettings(options)
+        let platformChange = PlatformSettingsPolicy.change(from: appliedPlatformSettings, to: candidate)
+        var reinstallsPlatformSettings = false
+        switch platformChange {
+        case .unchanged:
+            break
+        case .proxyOnly:
+            // The platform can re-apply the proxy to the installed settings; the document apply
+            // below still happens, because the profile itself may have changed too.
+            writeMessage("(packet-tunnel) the system proxy switch changed; it is applied to the installed settings", level: .info)
+            // A no-op when the installed settings carry no proxy: that is the same state the switch
+            // describes.
+            try? platformInterface.setSystemProxyEnabled(candidate.systemProxyEnabled)
+        case let .needsRebuild(keys):
+            reinstallsPlatformSettings = true
+            writeMessage(
+                "(packet-tunnel) the platform settings changed (\(keys.joined(separator: ", "))); the tunnel is rebuilt so the system reinstalls them",
+                level: .info
+            )
+        }
+
+        do {
             try applyStartOptions(options)
             try persistStartOptions(options)
-            try await reloadService()
-            return nil
         } catch {
-            return error.localizedDescription.data(using: .utf8)
+            return encodeReceipt(
+                requestID: requestID,
+                profileID: profileID,
+                bodyRevision: bodyRevision,
+                ok: false,
+                status: ExtensionApplyStatus.failed.rawValue,
+                targetRevision: nil,
+                activeRevision: nil,
+                retained: nil,
+                restartRequired: nil,
+                persistence: nil,
+                reason: "(packet-tunnel) the request could not be applied: \(error.localizedDescription)"
+            )
+        }
+
+        do {
+            let document = try await performApply(reinstallsPlatformSettings: reinstallsPlatformSettings)
+            appliedPlatformSettings = candidate
+            return encodeReceipt(
+                requestID: requestID,
+                profileID: profileID,
+                bodyRevision: bodyRevision,
+                ok: document?.ok ?? false,
+                status: document?.status ?? ExtensionApplyStatus.failed.rawValue,
+                targetRevision: document?.report?.plan?.targetRevision,
+                activeRevision: document?.report?.activeRevision,
+                retained: document?.report?.retained,
+                restartRequired: document?.report?.restartRequired,
+                persistence: document?.report?.persistence,
+                reason: document?.report?.reason ?? document?.error
+            )
+        } catch {
+            return encodeReceipt(
+                requestID: requestID,
+                profileID: profileID,
+                bodyRevision: bodyRevision,
+                ok: false,
+                status: ExtensionApplyStatus.failed.rawValue,
+                targetRevision: nil,
+                activeRevision: nil,
+                retained: nil,
+                restartRequired: nil,
+                persistence: nil,
+                reason: error.localizedDescription
+            )
+        }
+    }
+
+    /// One apply attempt, holding `reasserting` across a rebuild.
+    ///
+    /// `defer` runs at the end of its enclosing SCOPE, so the flag is set and cleared in a function
+    /// of its own: inside the `if` it would be cleared the moment the close returned, which is
+    /// exactly the gap the app draws as "the tunnel came back" while nothing is running.
+    private func performApply(reinstallsPlatformSettings: Bool) async throws -> LibboxApplyOutcomeDocument? {
+        reasserting = reinstallsPlatformSettings
+        defer {
+            reasserting = false
+        }
+        if reinstallsPlatformSettings {
+            writeMessage("(packet-tunnel) reloading service (rebuild)", level: .info)
+            // Close first: the core's own restart path would also close the old Box, but the
+            // document is IDENTICAL here, so it would take the live path instead and never ask the
+            // platform to open a TUN. Closing is what makes the next apply a fresh start.
+            stopService()
+        }
+        return try await startService(
+            isReload: !reinstallsPlatformSettings,
+            reinstallsPlatformSettings: reinstallsPlatformSettings
+        )
+    }
+
+    /// The platform settings an apply would install, as one comparable value.
+    ///
+    /// Both halves are here because both reach the system: the protocol configuration is what iOS
+    /// routes on, and the start options carry the platform's own route and proxy decisions.
+    private func platformSettings(_ options: [String: NSObject]) -> PlatformSettingsSnapshot {
+        var snapshot = PlatformSettingsSnapshot(
+            systemProxyEnabled: (options["systemProxyEnabled"] as? NSNumber)?.boolValue ?? true,
+            excludeDefaultRoute: (options["excludeDefaultRoute"] as? NSNumber)?.boolValue ?? false,
+            autoRouteUseSubRangesByDefault: (options["autoRouteUseSubRangesByDefault"] as? NSNumber)?.boolValue ?? false,
+            excludeAPNsRoute: (options["excludeAPNsRoute"] as? NSNumber)?.boolValue ?? false,
+            localSigningLoopback: (options["localSigningLoopback"] as? NSNumber)?.boolValue ?? false
+        )
+        #if !os(tvOS)
+            snapshot.includeAllNetworks = protocolConfiguration.includeAllNetworks
+            snapshot.excludeLocalNetworks = protocolConfiguration.excludeLocalNetworks
+            snapshot.enforceRoutes = protocolConfiguration.enforceRoutes
+            if #available(iOS 16.4, macOS 13.3, *) {
+                snapshot.excludeAPNs = protocolConfiguration.excludeAPNs
+                snapshot.excludeCellularServices = protocolConfiguration.excludeCellularServices
+            }
+            if #available(iOS 17.4, macOS 14.4, *) {
+                snapshot.excludeDeviceCommunication = protocolConfiguration.excludeDeviceCommunication
+            }
+        #endif
+        return snapshot
+    }
+
+    /// Encodes one receipt. It is the ONLY shape this extension answers with, so the app has one
+    /// decoder and one set of rules.
+    private func encodeReceipt(
+        requestID: String,
+        profileID: Int64?,
+        bodyRevision: String?,
+        ok: Bool,
+        status: String,
+        targetRevision: String?,
+        activeRevision: String?,
+        retained: Bool?,
+        restartRequired: Bool?,
+        persistence: String?,
+        reason: String?
+    ) -> Data? {
+        let message = ExtensionApplyReceiptMessage(
+            requestID: requestID,
+            sessionID: tunnelSessionID,
+            profileID: profileID,
+            bodyRevision: bodyRevision,
+            ok: ok,
+            status: status,
+            targetRevision: targetRevision,
+            activeRevision: activeRevision,
+            retained: retained,
+            restartRequired: restartRequired,
+            persistence: persistence,
+            reason: reason
+        )
+        do {
+            return try JSONEncoder().encode(message)
+        } catch {
+            Self.logger.error("encode apply receipt: \(error.localizedDescription)")
+            return nil
         }
     }
 
