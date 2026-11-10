@@ -44,6 +44,21 @@ extension ConfigurationStatus {
                 label: String(localized: "Reading"),
                 value: sourceDescription
             ),
+        ]
+        if targetChanged {
+            // The one state where the three rows below are NOT the answer: the session moved between
+            // capturing the target and asking for its client, so the page says that instead of
+            // describing a daemon the user has left.
+            lines.append(
+                ConfigurationStatusLine(
+                    id: "target-changed",
+                    label: String(localized: "Reading"),
+                    value: String(localized: "The target changed while this page was opening; nothing was read.")
+                )
+            )
+            return lines
+        }
+        lines.append(contentsOf: [
             ConfigurationStatusLine(
                 id: "plan",
                 label: String(localized: "Configuration Plan"),
@@ -54,7 +69,7 @@ extension ConfigurationStatus {
                 label: String(localized: "Last Apply"),
                 value: lastChange.localizedDescription
             ),
-        ]
+        ])
         if let recovery = lastRecovery.localizedDescription {
             lines.append(
                 ConfigurationStatusLine(
