@@ -409,8 +409,12 @@ struct HakoProfilePickerSheet: View {
 
     private func updateProfile(_ profile: ProfilePreview) async {
         do {
-            try await profile.origin.updateRemoteProfile()
+            let report = try await profile.origin.updateRemoteProfileReporting()
             environments.profileUpdate.send()
+            alert = AlertState(
+                title: String(localized: "Update"),
+                message: "\(profile.name): \(report.localizedDescription)"
+            )
         } catch {
             alert = AlertState(action: "update remote profile", error: error)
         }
@@ -432,9 +436,23 @@ struct HakoProfilePickerSheet: View {
         }
         isUpdatingAll = true
         defer { isUpdatingAll = false }
+        var lines: [String] = []
         for profile in remoteProfiles {
-            await updateProfile(profile)
+            do {
+                // The reporting variant is what carries both halves. For the profiles that are
+                // not the selected/connected one it returns `.saved` + `notActive` without
+                // touching the live Box, so the batch probes only the instance it actually owns.
+                let report = try await profile.origin.updateRemoteProfileReporting()
+                lines.append("\(profile.name): \(report.localizedDescription)")
+            } catch {
+                lines.append("\(profile.name): \(error.localizedDescription)")
+            }
         }
+        environments.profileUpdate.send()
+        alert = AlertState(
+            title: String(localized: "Update All"),
+            message: lines.joined(separator: "\n")
+        )
     }
 
     private func moveProfile(from source: IndexSet, to destination: Int) {

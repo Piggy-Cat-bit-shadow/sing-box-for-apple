@@ -52,8 +52,10 @@ public enum RemoteRefreshApplier {
         applyMetadata: () -> Void,
         persist: () async throws -> Void,
         writeBody: (String) async throws -> Void,
+        storedBody: (() async -> String?)? = nil,
         reloadService: () async throws -> Void,
         canApply: (() async -> Bool)? = nil,
+        isStillCurrent: (() async -> Bool)? = nil,
         confirmStartedAt: (() async -> Bool)? = nil,
         refreshProviders: () async -> RemoteProviderRefreshProbe
     ) async throws -> RemoteProfileUpdateReport {
@@ -61,13 +63,24 @@ public enum RemoteRefreshApplier {
         try await persist()
         guard outcome.writeBody, let body = outcome.bodyToWrite else {
             // Metadata-only refresh: no reload, but the running instance's providers may still be
-            // refreshed by the same user action.
+            // refreshed by the same user action. If the profile stopped being current, the answer
+            // belongs to whoever is current now, so it is not reported as this profile's update.
+            let current = await isStillCurrent?() ?? true
             return RemoteProfileUpdateReport(
-                config: .unchanged,
+                config: current ? .unchanged : .superseded,
                 providers: await refreshProviders().summary
             )
         }
         try await writeBody(body)
+        // The body we just wrote must still be the stored one: another update of the same profile
+        // can replace it while this operation is between the write and the daemon call. Reloading
+        // then would apply someone else's document and report it as ours.
+        if let storedBody, await storedBody() != body {
+            return RemoteProfileUpdateReport(
+                config: .superseded,
+                providers: await refreshProviders().summary
+            )
+        }
         // The body is saved whether or not this profile is the running one; a profile that is not
         // selected (or a disconnected tunnel) must not pretend to have applied it.
         if let canApply, await canApply() == false {
@@ -76,16 +89,36 @@ public enum RemoteRefreshApplier {
                 providers: await refreshProviders().summary
             )
         }
-        let config: RemoteConfigUpdateOutcome
+        // Last boundary before touching the daemon: a switch that landed while the body was being
+        // written must not turn into a reload of the new selection.
+        if let isStillCurrent, await isStillCurrent() == false {
+            return RemoteProfileUpdateReport(
+                config: .superseded,
+                providers: await refreshProviders().summary
+            )
+        }
+        var config: RemoteConfigUpdateOutcome
         do {
             try await reloadService()
-            if let confirmStartedAt, await confirmStartedAt() == false {
+            if let isStillCurrent, await isStillCurrent() == false {
+                config = .superseded
+            } else if let storedBody, await storedBody() != body {
+                // A newer body replaced ours while the daemon was reloading; the Box may be serving
+                // either one, so this operation cannot claim the apply.
+                config = .superseded
+            } else if let confirmStartedAt, await confirmStartedAt() == false {
                 config = .applyUnconfirmed
             } else {
                 config = .applied
             }
         } catch {
-            config = .applyFailed(error.localizedDescription)
+            // A failed reload of an operation that no longer owns the selection is not evidence
+            // about the profile that does; it is a superseded result.
+            if let isStillCurrent, await isStillCurrent() == false {
+                config = .superseded
+            } else {
+                config = .applyFailed(error.localizedDescription)
+            }
         }
         return RemoteProfileUpdateReport(
             config: config,

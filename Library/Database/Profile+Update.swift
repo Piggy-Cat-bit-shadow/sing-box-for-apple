@@ -26,27 +26,49 @@ public extension Profile {
     /// and must not touch the running instance's providers; the selected one confirms the reload
     /// with the daemon's per-Box `startedAt` rather than assuming the RPC returned means applied.
     nonisolated func updateRemoteProfileReporting() async throws -> RemoteProfileUpdateReport {
-        let selected = await SharedPreferences.selectedProfileID.get() == id
-        let running = selected && await Self.tunnelConnected()
-        let before = running ? await Self.tunnelStartedAt() : nil
+        let selectedAtStart = await Self.isSelected(id)
+        let runningAtStart = selectedAtStart ? await Self.tunnelConnected() : false
+        var before: Int64?
+        if runningAtStart {
+            before = await Self.tunnelStartedAt()
+        }
         return try await refreshRemoteProfile(
             metadataProbe: { try await RemoteProfileFetcher.captureMetadata($0) },
             reloadService: { try await onProfileUpdated() },
-            canApply: { running },
+            // Re-read the world at each boundary instead of trusting the download-time snapshot:
+            // a profile switch during the fetch must not let this attempt apply or refresh the
+            // profile that is now selected.
+            canApply: {
+                guard await Self.isSelected(id) else { return false }
+                return await Self.tunnelConnected()
+            },
+            isStillCurrent: { await Self.isSelected(id) },
             confirmStartedAt: {
+                guard await Self.isSelected(id) else { return false }
                 guard let before, let after = await Self.tunnelStartedAt() else { return false }
                 return after > before
             },
-            refreshProviders: {
-                if !selected {
-                    return .notActive
-                }
-                if !running {
-                    return .notRunning
-                }
-                return await Self.probeProviderRefresh()
-            }
+            refreshProviders: { await Self.providerProbeIfCurrent(id) },
+            providersOnFailure: { await Self.providerProbeIfCurrent(id) }
         )
+    }
+
+    /// Whether [id] is still the profile the UI has selected.
+    nonisolated static func isSelected(_ id: Int64?) async -> Bool {
+        await SharedPreferences.selectedProfileID.get() == id
+    }
+
+    /// Probes the live Box only while [id] is still the selected, connected profile.
+    ///
+    /// Re-checked after the probe as well: if the selection moved while the RPC was in flight,
+    /// the answer belongs to another instance and is reported as `notActive` instead of being
+    /// attributed to this profile.
+    nonisolated static func providerProbeIfCurrent(_ id: Int64?) async -> RemoteProviderRefreshProbe {
+        guard await isSelected(id) else { return .notActive }
+        guard await tunnelConnected() else { return .notRunning }
+        let probe = await probeProviderRefresh()
+        guard await isSelected(id) else { return .notActive }
+        return probe
     }
 
     /// Whether the tunnel is connected right now.
@@ -107,8 +129,10 @@ public extension Profile {
         persist: ((Profile) async throws -> Void)? = nil,
         reloadService: (() async throws -> Void)? = nil,
         canApply: (() async -> Bool)? = nil,
+        isStillCurrent: (() async -> Bool)? = nil,
         confirmStartedAt: (() async -> Bool)? = nil,
-        refreshProviders: (() async -> RemoteProviderRefreshProbe)? = nil
+        refreshProviders: (() async -> RemoteProviderRefreshProbe)? = nil,
+        providersOnFailure: (() async -> RemoteProviderRefreshProbe)? = nil
     ) async throws -> RemoteProfileUpdateReport {
         if type != .remote {
             return RemoteProfileUpdateReport(
@@ -124,15 +148,31 @@ public extension Profile {
         // One instant for both facts this refresh may write, so `lastUpdated` and the quota's
         // capture time cannot disagree about when "now" was.
         let now = Date()
-        let outcome = try await RemoteProfileRefresh.evaluate(
-            remoteURL: url,
-            previous: previous,
-            currentBody: currentBody,
-            now: now,
-            fetch: fetch,
-            validate: validate,
-            metadataProbe: metadataProbe
-        )
+        let outcome: RemoteRefreshOutcome
+        do {
+            outcome = try await RemoteProfileRefresh.evaluate(
+                remoteURL: url,
+                previous: previous,
+                currentBody: currentBody,
+                now: now,
+                fetch: fetch,
+                validate: validate,
+                metadataProbe: metadataProbe
+            )
+        } catch let error as RemoteRefreshValidationError {
+            // The body downloaded but the core would not load it. The stored body is untouched,
+            // and the old instance's providers are still a separate fact worth reporting when this
+            // profile is still the selected, connected one.
+            return RemoteProfileUpdateReport(
+                config: .invalidConfig(error.localizedDescription),
+                providers: await (providersOnFailure ?? { .notActive })().summary
+            )
+        } catch {
+            return RemoteProfileUpdateReport(
+                config: .downloadFailed(error.localizedDescription),
+                providers: await (providersOnFailure ?? { .notActive })().summary
+            )
+        }
         let persist = persist ?? { try await ProfileManager.update($0) }
         return try await RemoteRefreshApplier.applyReporting(
             outcome,
@@ -146,8 +186,10 @@ public extension Profile {
             },
             persist: { try await persist(self) },
             writeBody: { try await writeAsync($0) },
+            storedBody: { try? await readAsync() },
             reloadService: reloadService ?? { try await onProfileUpdated() },
             canApply: canApply,
+            isStillCurrent: isStillCurrent,
             confirmStartedAt: confirmStartedAt,
             refreshProviders: refreshProviders ?? { .notActive }
         )

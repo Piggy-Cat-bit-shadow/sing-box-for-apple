@@ -152,4 +152,75 @@ final class RemoteProviderRefreshTests: XCTestCase {
         )
         XCTAssertEqual(report.config, .applyUnconfirmed)
     }
+
+    func testASwitchBeforeReloadIsSupersededAndDoesNotReload() async throws {
+        var reloads = 0
+        var probes = 0
+        let report = try await RemoteRefreshApplier.applyReporting(
+            outcome(bodyChanged: true),
+            applyMetadata: {},
+            persist: {},
+            writeBody: { _ in },
+            reloadService: { reloads += 1 },
+            isStillCurrent: { false },
+            refreshProviders: {
+                probes += 1
+                return .notActive
+            }
+        )
+        XCTAssertEqual(report.config, .superseded)
+        XCTAssertEqual(reloads, 0)
+        XCTAssertEqual(probes, 1)
+        XCTAssertEqual(report.providers.status, .notActive)
+    }
+
+    func testASwitchDuringReloadIsSupersededNotApplied() async throws {
+        var checks = 0
+        let report = try await RemoteRefreshApplier.applyReporting(
+            outcome(bodyChanged: true),
+            applyMetadata: {},
+            persist: {},
+            writeBody: { _ in },
+            reloadService: {},
+            isStillCurrent: {
+                checks += 1
+                return checks == 1
+            },
+            confirmStartedAt: { true },
+            refreshProviders: { .notActive }
+        )
+        XCTAssertEqual(report.config, .superseded)
+    }
+
+    func testMetadataOnlySwitchDoesNotProbeTheNewInstance() async throws {
+        var probes = 0
+        let report = try await RemoteRefreshApplier.applyReporting(
+            outcome(bodyChanged: false),
+            applyMetadata: {},
+            persist: {},
+            writeBody: { _ in XCTFail("must not write") },
+            reloadService: { XCTFail("must not reload") },
+            isStillCurrent: { false },
+            refreshProviders: {
+                probes += 1
+                return .notActive
+            }
+        )
+        XCTAssertEqual(report.config, .superseded)
+        XCTAssertEqual(report.providers.status, .notActive)
+        XCTAssertEqual(probes, 1)
+    }
+
+    func testAReplacedBodyIsNotReloadedOrReportedAsApplied() async throws {
+        let report = try await RemoteRefreshApplier.applyReporting(
+            outcome(bodyChanged: true),
+            applyMetadata: {},
+            persist: {},
+            writeBody: { _ in },
+            storedBody: { "a newer body" },
+            reloadService: { XCTFail("must not reload a replaced body") },
+            refreshProviders: { .notActive }
+        )
+        XCTAssertEqual(report.config, .superseded)
+    }
 }
