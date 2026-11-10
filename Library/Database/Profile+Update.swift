@@ -48,7 +48,11 @@ public extension Profile {
             profileID: id ?? 0,
             requestID: UUID().uuidString,
             remoteURL: remoteURL,
-            storedBodyRevision: storedBody.map(ConfigurationBodyRevision.fingerprint(of:))
+            storedBodyRevision: storedBody.map(ConfigurationBodyRevision.fingerprint(of:)),
+            // The metadata half's compare-and-set: captured from the same state the decision is based
+            // on, and compared inside the database write.
+            expectedLastUpdated: lastUpdated,
+            expectedCapturedAt: subscriptionInfoUpdatedAt
         )
         return try await refreshRemoteProfile(
             ticket: ticket,
@@ -225,7 +229,9 @@ public extension Profile {
             profileID: id ?? 0,
             requestID: UUID().uuidString,
             remoteURL: url,
-            storedBodyRevision: storedBodyRevision
+            storedBodyRevision: storedBodyRevision,
+            expectedLastUpdated: lastUpdated,
+            expectedCapturedAt: subscriptionInfoUpdatedAt
         )
         let outcome: RemoteRefreshOutcome
         do {
@@ -350,7 +356,9 @@ public extension Profile {
             profileID: id ?? 0,
             requestID: UUID().uuidString,
             remoteURL: remoteURL,
-            storedBodyRevision: ConfigurationBodyRevision.fingerprint(of: content)
+            storedBodyRevision: ConfigurationBodyRevision.fingerprint(of: content),
+            expectedLastUpdated: lastUpdated,
+            expectedCapturedAt: subscriptionInfoUpdatedAt
         )
         switch try await applyBody(content, ticket: ticket) {
         case .none:

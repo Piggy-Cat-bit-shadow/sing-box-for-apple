@@ -81,9 +81,15 @@ public enum ProfileManager {
     public nonisolated static func update(_ profile: Profile, ticket: ProfileUpdateTicket) async throws {
         _ = try await Database.sharedWriter.write { db in
             let stored = try profile.id.flatMap { try Profile.fetchOne(db, id: $0) }
-            if case let .superseded(reason) = ProfileUpdateOwnership.sourceVerdict(
+            // The whole metadata ownership test, INSIDE this write transaction: the source, and the
+            // timestamps that say whether anyone committed newer figures for that source while this
+            // update was in flight. Because SQLite serialises writers across processes, this is a
+            // real compare-and-set for another process too - which the in-process body lock cannot be.
+            if case let .superseded(reason) = ProfileUpdateOwnership.metadataVerdict(
                 ticket: ticket,
-                storedRemoteURL: stored?.remoteURL
+                storedRemoteURL: stored?.remoteURL,
+                storedLastUpdated: stored?.lastUpdated,
+                storedCapturedAt: stored?.subscriptionInfoUpdatedAt
             ) {
                 throw ProfileSupersededError(reason: reason, requestID: ticket.requestID)
             }

@@ -66,12 +66,29 @@ public struct ProfileUpdateTicket: Equatable, Sendable {
     /// The revision of the stored body at decision time, or nil when there was none / it could not
     /// be read. This is the value the body write is test-and-set against.
     public let storedBodyRevision: String?
+    /// The metadata timestamps this update read, with the body, at decision time.
+    ///
+    /// They are the metadata half's compare-and-set: the URL says WHICH subscription the figures
+    /// describe, these say WHETHER anyone committed newer ones since. Without them a late refresh of
+    /// the same URL overwrites a newer quota and a newer capture time - the source check cannot see
+    /// that, because the source did not change.
+    public let expectedLastUpdated: Date?
+    public let expectedCapturedAt: Date?
 
-    public init(profileID: Int64, requestID: String, remoteURL: String?, storedBodyRevision: String?) {
+    public init(
+        profileID: Int64,
+        requestID: String,
+        remoteURL: String?,
+        storedBodyRevision: String?,
+        expectedLastUpdated: Date? = nil,
+        expectedCapturedAt: Date? = nil
+    ) {
         self.profileID = profileID
         self.requestID = requestID
         self.remoteURL = remoteURL
         self.storedBodyRevision = storedBodyRevision
+        self.expectedLastUpdated = expectedLastUpdated
+        self.expectedCapturedAt = expectedCapturedAt
     }
 }
 
@@ -81,6 +98,9 @@ public enum ProfileSupersedeReason: Equatable, Sendable {
     case bodyReplaced(storedRevision: String?)
     /// The profile now points at a different remote source.
     case sourceChanged(storedURL: String?)
+    /// Someone committed metadata for the SAME source after this update read it: a newer quota, or
+    /// a newer capture time. The URL check cannot see this - the source did not change.
+    case metadataAdvanced(storedLastUpdated: Date?, storedCapturedAt: Date?)
 }
 
 /// Whether a commit may proceed.
@@ -122,6 +142,12 @@ public struct ProfileSupersededError: LocalizedError, Equatable, Sendable {
             return "the stored body is no longer the one this update read (\(storedRevision ?? "none"))"
         case let .sourceChanged(storedURL):
             return "the profile now points at \(storedURL ?? "another source")"
+        case let .metadataAdvanced(storedLastUpdated, storedCapturedAt):
+            // Rendered without the dates on purpose: this string reaches a user-facing alert, and a
+            // wall-clock timestamp there reads as a failure the user caused.
+            _ = storedLastUpdated
+            _ = storedCapturedAt
+            return "a newer update committed this subscription's metadata while this one was running"
         }
     }
 }
@@ -151,19 +177,49 @@ public enum ProfileUpdateOwnership {
 
     /// The verdict for committing the metadata, checked inside the database write.
     ///
-    /// The source is checked as well as the body: metadata describes one subscription, and committing
-    /// panel A's figures onto a profile that now points at panel B is the same defect one level up.
+    /// Two questions, because the database knows two things: which subscription the row is about (the
+    /// URL), and whether somebody committed newer FIGURES for that subscription while this update was
+    /// in flight (the timestamps). It cannot answer the third - whether the body it describes is still
+    /// the stored one - because the body's authority is the file; that comparison is part of the body
+    /// commit, which happens in the file's own critical section.
+    ///
+    /// The timestamps are the cross-process half. Reading the row and deciding inside the same write
+    /// transaction that performs the commit makes this a real compare-and-set for another process
+    /// (the shortcuts extension) too, because SQLite serialises writers across processes. A strict
+    /// "stored is newer than expected" is the test: equal timestamps mean nobody committed anything
+    /// after this update read them.
     public static func metadataVerdict(
         ticket: ProfileUpdateTicket,
         storedRemoteURL: String?,
-        storedBodyRevision: String?
+        storedLastUpdated: Date?,
+        storedCapturedAt: Date?
     ) -> ProfileCommitVerdict {
         switch sourceVerdict(ticket: ticket, storedRemoteURL: storedRemoteURL) {
         case let .superseded(reason):
             return .superseded(reason)
         case .commit:
-            return bodyVerdict(ticket: ticket, storedBodyRevision: storedBodyRevision)
+            break
         }
+        if isNewer(storedLastUpdated, than: ticket.expectedLastUpdated)
+            || isNewer(storedCapturedAt, than: ticket.expectedCapturedAt)
+        {
+            return .superseded(.metadataAdvanced(storedLastUpdated: storedLastUpdated, storedCapturedAt: storedCapturedAt))
+        }
+        return .commit
+    }
+
+    /// Whether a stored timestamp is evidence of a commit that happened AFTER this update read.
+    ///
+    /// A stored value where the update read none is such evidence: the row gained metadata after the
+    /// read. A stored value that is merely equal is not.
+    private static func isNewer(_ stored: Date?, than expected: Date?) -> Bool {
+        guard let stored else {
+            return false
+        }
+        guard let expected else {
+            return true
+        }
+        return stored > expected
     }
 }
 

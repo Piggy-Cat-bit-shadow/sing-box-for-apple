@@ -77,7 +77,8 @@ final class ProfileUpdateOwnershipTests: XCTestCase {
             ProfileUpdateOwnership.metadataVerdict(
                 ticket: captured,
                 storedRemoteURL: "https://panel-b.example/sub",
-                storedBodyRevision: version
+                storedLastUpdated: nil,
+                storedCapturedAt: nil
             ),
             .superseded(.sourceChanged(storedURL: "https://panel-b.example/sub")),
             "panel A's figures must not be written onto a profile that now points at panel B"
@@ -86,9 +87,84 @@ final class ProfileUpdateOwnershipTests: XCTestCase {
             ProfileUpdateOwnership.metadataVerdict(
                 ticket: captured,
                 storedRemoteURL: "https://panel-a.example/sub",
-                storedBodyRevision: version
+                storedLastUpdated: nil,
+                storedCapturedAt: nil
             ),
             .commit
+        )
+    }
+
+    /// The cross-process half of the metadata: for the SAME source, a later refresh must not overwrite
+    /// figures another writer committed after this update read the profile. The comparison runs inside
+    /// the database write, so it holds for the shortcuts extension too - SQLite serialises writers
+    /// across processes.
+    func testMetadataCommittedAfterThisUpdateReadItIsNotOverwritten() {
+        let capturedAt = Date(timeIntervalSince1970: 1_000)
+        let readAt = Date(timeIntervalSince1970: 1_010)
+        var captured = ticket(storedBodyRevision: nil)
+        captured = ProfileUpdateTicket(
+            profileID: captured.profileID,
+            requestID: captured.requestID,
+            remoteURL: captured.remoteURL,
+            storedBodyRevision: nil,
+            expectedLastUpdated: readAt,
+            expectedCapturedAt: capturedAt
+        )
+
+        // Nobody wrote since: the same timestamps commit.
+        XCTAssertEqual(
+            ProfileUpdateOwnership.metadataVerdict(
+                ticket: captured,
+                storedRemoteURL: captured.remoteURL,
+                storedLastUpdated: readAt,
+                storedCapturedAt: capturedAt
+            ),
+            .commit
+        )
+        // A newer quota (a newer capture time) refuses the write.
+        XCTAssertEqual(
+            ProfileUpdateOwnership.metadataVerdict(
+                ticket: captured,
+                storedRemoteURL: captured.remoteURL,
+                storedLastUpdated: readAt,
+                storedCapturedAt: capturedAt.addingTimeInterval(1)
+            ),
+            .superseded(.metadataAdvanced(storedLastUpdated: readAt, storedCapturedAt: capturedAt.addingTimeInterval(1)))
+        )
+        // A newer configuration commit refuses it too, even without a new capture time.
+        XCTAssertEqual(
+            ProfileUpdateOwnership.metadataVerdict(
+                ticket: captured,
+                storedRemoteURL: captured.remoteURL,
+                storedLastUpdated: readAt.addingTimeInterval(1),
+                storedCapturedAt: capturedAt
+            ),
+            .superseded(.metadataAdvanced(storedLastUpdated: readAt.addingTimeInterval(1), storedCapturedAt: capturedAt))
+        )
+        // An OLDER stored value is not evidence of a newer commit: an update that read a stale object
+        // still owns the row.
+        XCTAssertEqual(
+            ProfileUpdateOwnership.metadataVerdict(
+                ticket: captured,
+                storedRemoteURL: captured.remoteURL,
+                storedLastUpdated: readAt.addingTimeInterval(-1),
+                storedCapturedAt: capturedAt.addingTimeInterval(-1)
+            ),
+            .commit
+        )
+    }
+
+    /// A row that gained metadata where this update read none was written after the read.
+    func testMetadataAppearingAfterTheReadIsANewerCommit() {
+        let captured = ticket(storedBodyRevision: nil)
+        XCTAssertEqual(
+            ProfileUpdateOwnership.metadataVerdict(
+                ticket: captured,
+                storedRemoteURL: captured.remoteURL,
+                storedLastUpdated: Date(timeIntervalSince1970: 5),
+                storedCapturedAt: nil
+            ),
+            .superseded(.metadataAdvanced(storedLastUpdated: Date(timeIntervalSince1970: 5), storedCapturedAt: nil))
         )
     }
 
