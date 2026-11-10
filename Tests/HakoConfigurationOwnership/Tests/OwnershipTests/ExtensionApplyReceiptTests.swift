@@ -85,6 +85,22 @@ final class ExtensionApplyReceiptTests: XCTestCase {
         XCTAssertEqual(receipt.outcome, .failed(reason: "provider refused", retained: true))
     }
 
+    /// A failure whose retention nobody established is NOT "the tunnel stopped". The three values of
+    /// `retained` are the reason the outcome carries an optional: `false` is the only one that may
+    /// claim nothing is running, and it is only set when the daemon said so.
+    func testAnUnknownRetentionIsNotReportedAsStopped() {
+        var failed = message(status: "failed", ok: false)
+        failed.reason = "the command server is not running"
+        failed.retained = nil
+        let classified = ExtensionApplyReceiptParser.classify(failed, expecting: "req-1")
+        guard case let .receipt(receipt) = classified else {
+            return XCTFail("a failure must decode")
+        }
+        XCTAssertEqual(receipt.outcome, .failed(reason: "the command server is not running", retained: nil))
+        XCTAssertEqual(receipt.outcome.configOutcome, .applyFailed("the command server is not running"),
+                       "unknown retention must not become 'the tunnel stopped'")
+    }
+
     func testAReplyForAnotherRequestIsNotThisUpdatesAnswer() {
         let data = try? JSONEncoder().encode(message(requestID: "req-2"))
         guard let data, case let .otherRequest(expected, received) = ExtensionApplyReceiptParser.parse(data, expecting: "req-1") else {

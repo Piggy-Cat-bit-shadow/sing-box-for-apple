@@ -100,15 +100,6 @@ public enum RemoteRefreshApplier {
             )
         }
         try await writeBody(body)
-        // A writer that replaced the body between the check above and the daemon call would still
-        // make this report a claim about someone else's document, so the stored body is compared
-        // once more before the daemon is touched.
-        if let storedBody, await storedBody() != body {
-            return RemoteProfileUpdateReport(
-                config: .superseded,
-                providers: await refreshProviders().summary
-            )
-        }
         // The body is saved whether or not this profile is the running one; a profile that is not
         // selected (or a disconnected tunnel) must not pretend to have applied it.
         if let canApply, await canApply() == false {
@@ -120,6 +111,19 @@ public enum RemoteRefreshApplier {
         // Last boundary before touching the daemon: a switch that landed while the body was being
         // written must not turn into a reload of the new selection.
         if let isStillCurrent, await isStillCurrent() == false {
+            return RemoteProfileUpdateReport(
+                config: .superseded,
+                providers: await refreshProviders().summary
+            )
+        }
+        // ... and the stored-body comparison belongs HERE, immediately before the send, not earlier.
+        //
+        // It used to run right after the write, which left two awaits between the check and the
+        // commit: another writer could replace the body in that gap and this operation would then
+        // apply the older one while both updates report a coherent story. The check cannot be atomic
+        // with the send (the send is the commit, and it crosses a process), but putting it as late as
+        // it can be is what keeps the residual window to the send itself.
+        if let storedBody, await storedBody() != body {
             return RemoteProfileUpdateReport(
                 config: .superseded,
                 providers: await refreshProviders().summary

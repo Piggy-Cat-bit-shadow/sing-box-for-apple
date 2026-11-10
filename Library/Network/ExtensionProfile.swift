@@ -206,31 +206,65 @@ public class ExtensionProfile: ObservableObject {
         try manager.connection.startVPNTunnel(options: options)
     }
 
+    /// Applies whatever is currently selected, and confirms it with the extension's receipt.
+    ///
+    /// # Why this is no longer "send and check for an empty answer"
+    ///
+    /// The extension used to answer `nil` on success and an error string on failure, so this entry
+    /// treated any non-empty answer as a failure. That contract changed: every exit of
+    /// `handleAppMessage` now answers with a receipt envelope, INCLUDING success - so the old rule
+    /// would have thrown a JSON document at every caller on every successful reload. There are six
+    /// production callers (the two shortcut intents, the macOS status bar, the dashboard's profile
+    /// switch and the two override panels), and none of them may tell the user an apply failed when
+    /// it worked.
+    ///
+    /// The answer is read the same way the profile path reads it: build the snapshot from the
+    /// selection, and throw only when the outcome is not "the requested document is running".
     public func reloadService() async throws {
-        if isMock {
+        guard !isMock else {
             return
         }
-        let options = try await prepareStartOptions()
-        let data = try ExtensionStartOptions.encode(options)
-        guard let session = connection as? NETunnelProviderSession else {
-            throw NSError(domain: "ExtensionStartOptions", code: -1, userInfo: [
-                NSLocalizedDescriptionKey: "Tunnel session unavailable",
+        let profileID = await SharedPreferences.selectedProfileID.get()
+        guard let profile = try await ProfileManager.get(profileID) else {
+            throw NSError(domain: "ExtensionProfile", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Missing selected profile",
             ])
         }
-        let response = try await withCheckedThrowingContinuation { continuation in
-            do {
-                try session.sendProviderMessage(data) { response in
-                    continuation.resume(returning: response)
-                }
-            } catch {
-                continuation.resume(throwing: error)
-            }
+        let content = try await profile.readAsync()
+        let snapshot = StartSnapshot(
+            profileID: profileID,
+            requestID: UUID().uuidString,
+            bodyRevision: ConfigurationBodyRevision.fingerprint(of: content),
+            configContent: content
+        )
+        guard let receipt = try await reloadService(snapshot) else {
+            // No receipt this call can attribute to itself. Reporting success would claim an apply
+            // nothing confirmed; reporting a failure would claim the opposite. The caller only has
+            // "throw or not", so it throws - and the message says exactly that.
+            throw ExtensionApplyError(message: String(localized: "the extension did not confirm the configuration"))
         }
-        if let response, !response.isEmpty {
-            let message = String(data: response, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "ExtensionStartOptions", code: -1, userInfo: [
-                NSLocalizedDescriptionKey: message,
-            ])
+        try Self.confirmApplied(receipt.outcome)
+    }
+
+    /// Throws unless the outcome means the requested document is the one running.
+    ///
+    /// One implementation for the two callers that only handle errors - this legacy entry and
+    /// `Profile.onProfileUpdated()` (the editor's "apply now") - so they cannot disagree about what a
+    /// recovery or an interruption means.
+    static func confirmApplied(_ outcome: ExtensionApplyOutcome) throws {
+        switch outcome {
+        case .applied:
+            return
+        case .recovered:
+            throw ExtensionApplyError(
+                message: String(localized: "the new configuration failed and the service recovered to the saved one")
+            )
+        case .interrupted:
+            throw ExtensionApplyError(message: String(localized: "the tunnel stopped and nothing is running"))
+        case let .failed(reason, _):
+            throw ExtensionApplyError(message: reason)
+        case let .undetermined(reason):
+            throw ExtensionApplyError(message: reason)
         }
     }
 
@@ -310,7 +344,7 @@ public class ExtensionProfile: ObservableObject {
         let configContent = try await profile.readAsync()
         return await buildStartOptions(
             StartSnapshot(
-                profileID: profileID ?? 0,
+                profileID: profileID,
                 requestID: UUID().uuidString,
                 bodyRevision: ConfigurationBodyRevision.fingerprint(of: configContent),
                 configContent: configContent

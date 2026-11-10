@@ -82,8 +82,13 @@ public enum ExtensionApplyOutcome: Equatable, Sendable {
     case recovered(activeRevision: String?)
     /// Nothing is running.
     case interrupted
-    /// The apply failed. `retained` says whether the previous document is still serving.
-    case failed(reason: String, retained: Bool)
+    /// The apply failed. `retained` says whether the previous document is still serving: `true`
+    /// when the daemon reported it, `false` only when the daemon said nothing is left, and `nil`
+    /// when this build does not know.
+    ///
+    /// `nil` is not `false`. Reporting "the tunnel stopped" for an apply whose retention nobody
+    /// established is the one error that sends a user to look at a tunnel that is working.
+    case failed(reason: String, retained: Bool?)
     /// The extension answered, but not with a decision this build can read.
     case undetermined(reason: String)
 
@@ -325,7 +330,7 @@ public enum ExtensionApplyReceiptParser {
             case .interrupted:
                 return .interrupted
             case .failed:
-                return .failed(reason: message.reason ?? "the daemon refused the configuration", retained: message.retained ?? false)
+                return .failed(reason: message.reason ?? "the daemon refused the configuration", retained: message.retained)
             case .started, .unchanged, .appliedLive, .restarted:
                 return .applied(status, activeRevision: message.activeRevision)
             }
@@ -335,7 +340,7 @@ public enum ExtensionApplyReceiptParser {
             return .applied(.unchanged, activeRevision: message.activeRevision)
         }
         if message.ok == false {
-            return .failed(reason: message.reason ?? "the extension refused the apply", retained: message.retained ?? false)
+            return .failed(reason: message.reason ?? "the extension refused the apply", retained: message.retained)
         }
         return .undetermined(reason: "the extension answered without a status")
     }

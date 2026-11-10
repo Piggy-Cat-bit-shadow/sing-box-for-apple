@@ -221,6 +221,11 @@ final class ProfileUpdateOwnershipTests: XCTestCase {
             .interrupted(reason: "dropped"),
             "a failure that took the service down is not a failure that kept it running"
         )
+        XCTAssertEqual(
+            receipt(outcome: .failed(reason: "unknown", retained: nil)).configOutcome(ticket: captured, expectedBodyRevision: "rev-1"),
+            .applyFailed("unknown"),
+            "unknown retention is a failed apply, never 'nothing is running'"
+        )
     }
 
     /// The report's own reading of "failure" has to agree with the new cases.

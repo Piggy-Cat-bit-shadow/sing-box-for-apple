@@ -148,11 +148,11 @@ public enum ConfigurationStatusProbe {
 
     /// The client scope a target is reached through.
     ///
-    /// A remote session's reports come from the remote daemon - that is what they are about - so the
-    /// scope is `.session` there. The preview never reaches this decision on a remote target because
-    /// the policy refuses it first.
+    /// The preview's scope comes from the policy, so "a local document may only go to the local
+    /// tunnel" is decided in one place. A target the policy refuses (a remote session) still has its
+    /// two REPORTS read - they are that daemon's own facts - so the fallback there is `.session`.
     private static func scope(for target: CommandTargetToken) -> CommandScope {
-        target.isLocalTunnel ? .localTunnel : .session
+        CommandTarget.scope(for: target) ?? .session
     }
 
     private static func probeOnCurrentTarget<Value: Decodable & Sendable>(

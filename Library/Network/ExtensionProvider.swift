@@ -560,14 +560,21 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         guard let document, let result = document.outcomeStatus else {
             // The bridge answered something this build cannot read. Treating that as success is the
             // one option that must not be taken: the app would show a configuration that nothing
-            // confirmed.
-            throw ExtensionStartupError("(packet-tunnel) the apply report could not be read")
+            // confirmed. The (unreadable) document still travels with the failure so the receipt can
+            // say what did arrive.
+            throw ExtensionApplyFailure(
+                message: "(packet-tunnel) the apply report could not be read",
+                document: document
+            )
         }
         if document.ok == false, result != .recovered {
             // `recovered` is not a failure: the daemon is running the stored last-good document, and
             // the tunnel works. Every other not-ok status means the requested document is not what
-            // runs.
-            throw ExtensionStartupError(document.error ?? "(packet-tunnel) the configuration was not applied")
+            // runs - and the document's `retained` says whether the previous one still serves.
+            throw ExtensionApplyFailure(
+                message: document.error ?? "(packet-tunnel) the configuration was not applied",
+                document: document
+            )
         }
         #if os(iOS)
             // A tunnel that started but never asked the system to route through it is connected and
@@ -600,9 +607,13 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 locationManager!.requestLocation()
             }
         #endif
-        // What the system now has installed. Recorded even for the initial start: without it the
-        // first reload would compare against "unknown", and "unknown" is deliberately not a rebuild.
-        if let tunnelOptions {
+        // What the system now has installed - and only when this apply is what installed it.
+        //
+        // A live apply (`unchanged`/`applied_live`) never reopened the TUN, so the settings the
+        // caller asked for are NOT in the system yet. Recording them anyway would make the next
+        // attempt on the same settings compare equal and never force the rebuild that is still
+        // missing - a switch that quietly stops working after one failed rebuild.
+        if let tunnelOptions, result.reinstalledTunnel {
             appliedPlatformSettings = platformSettings(tunnelOptions)
         }
         return document
@@ -827,14 +838,19 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             // the core cannot parse is refused BEFORE the running Box is touched, so a bad document
             // can no longer cost the tunnel by closing it first.
             var document = try await startService(isReload: true)
-            if mayNeedPlatformRebuild, let applied = document?.outcomeStatus, !applied.reinstalledTunnel {
+            // Only the two LIVE statuses need a forced rebuild: they are the ones where the daemon
+            // satisfied the request without reopening the TUN. `recovered`, `interrupted` and
+            // `failed` never reach here - `startService` throws for them (except `recovered`, whose
+            // document is the last-good one and must not be closed again).
+            if mayNeedPlatformRebuild, let applied = document?.outcomeStatus,
+               applied == .unchanged || applied == .appliedLive
+            {
                 writeMessage(
                     "(packet-tunnel) the daemon applied the document without reopening the tunnel; rebuilding so the system installs the new settings",
                     level: .info
                 )
                 document = try await performApply(reinstallsPlatformSettings: true)
             }
-            appliedPlatformSettings = candidate
             return encodeReceipt(
                 requestID: requestID,
                 profileID: profileID,
@@ -848,7 +864,28 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 persistence: document?.report?.persistence,
                 reason: document?.report?.reason ?? document?.error
             )
+        } catch let failure as ExtensionApplyFailure {
+            // The daemon answered, and its answer is a failure. The receipt keeps the daemon's own
+            // fields - `retained` above all - because "the previous document is still serving" and
+            // "nothing is running" are different outcomes for the user, and only the document says
+            // which one this is.
+            return encodeReceipt(
+                requestID: requestID,
+                profileID: profileID,
+                bodyRevision: bodyRevision,
+                ok: false,
+                status: failure.document?.status ?? ExtensionApplyStatus.failed.rawValue,
+                targetRevision: failure.document?.report?.plan?.targetRevision,
+                activeRevision: failure.document?.report?.activeRevision,
+                retained: failure.document?.report?.retained,
+                restartRequired: failure.document?.report?.restartRequired,
+                persistence: failure.document?.report?.persistence,
+                reason: failure.document?.report?.reason ?? failure.message
+            )
         } catch {
+            // Nothing reached a decision: the request could not be decoded, carried no configuration,
+            // or the command server was gone. `retained` is deliberately nil - nobody established
+            // whether a tunnel is running, so the app must not be told it stopped.
             return encodeReceipt(
                 requestID: requestID,
                 profileID: profileID,
@@ -886,6 +923,21 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             isReload: !reinstallsPlatformSettings,
             reinstallsPlatformSettings: reinstallsPlatformSettings
         )
+    }
+
+    /// One apply attempt that reached the daemon and did not end with the requested document running.
+    ///
+    /// It carries the daemon's own outcome document, because the receipt the app reads has to keep
+    /// `retained`, the revisions and the persistence state even when the attempt failed. Throwing a
+    /// plain error string here is what made "the previous document is still serving" arrive at the
+    /// app as "nothing is running".
+    struct ExtensionApplyFailure: LocalizedError {
+        let message: String
+        let document: LibboxApplyOutcomeDocument?
+
+        var errorDescription: String? {
+            message
+        }
     }
 
     /// The platform settings an apply would install, as one comparable value.

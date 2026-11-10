@@ -322,20 +322,9 @@ public extension Profile {
             // is told the apply was not confirmed rather than that it failed.
             throw ExtensionApplyError(message: String(localized: "the extension did not confirm the configuration"))
         case let .some(outcome):
-            switch outcome {
-            case .applied:
-                return
-            case .recovered:
-                throw ExtensionApplyError(
-                    message: String(localized: "the new configuration failed and the service recovered to the saved one")
-                )
-            case .interrupted:
-                throw ExtensionApplyError(message: String(localized: "the tunnel stopped and nothing is running"))
-            case let .failed(reason, _):
-                throw ExtensionApplyError(message: reason)
-            case let .undetermined(reason):
-                throw ExtensionApplyError(message: reason)
-            }
+            // One implementation of "this is not an applied document", shared with the legacy
+            // reload entry: a recovery and an interruption must read the same from both.
+            try ExtensionProfile.confirmApplied(outcome)
         }
     }
 }

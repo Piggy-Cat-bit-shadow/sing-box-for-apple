@@ -66,6 +66,52 @@ final class InterleavingTests: XCTestCase {
         XCTAssertEqual(wrote, [newerBody])
     }
 
+    /// The stored-body check is the LAST thing before the send, not the first thing after the write.
+    ///
+    /// That ordering is the whole narrowing: with the check right after the write there were two
+    /// awaits (`canApply`, `isStillCurrent`) between the proof and the commit, and another writer
+    /// replacing the body in that gap made this operation apply the older document while both
+    /// updates reported a coherent story. The check cannot be atomic with the send - the send is the
+    /// commit and it crosses a process - but it can be adjacent to it.
+    func testTheStoredBodyIsCheckedImmediatelyBeforeTheSend() async throws {
+        var events: [String] = []
+        let report = try await RemoteRefreshApplier.applyReporting(
+            outcome(body: newerBody),
+            applyMetadata: { events.append("metadata") },
+            persist: { events.append("persist") },
+            writeBody: { _ in events.append("write") },
+            storedBodyRevision: {
+                events.append("revision")
+                return ConfigurationBodyRevision.fingerprint(of: self.olderBody)
+            },
+            expectedBodyRevision: ConfigurationBodyRevision.fingerprint(of: olderBody),
+            storedBody: {
+                events.append("storedBody")
+                return self.newerBody
+            },
+            reloadService: { _ in
+                events.append("reload")
+                return .applied(.restarted, activeRevision: "newer")
+            },
+            canApply: {
+                events.append("canApply")
+                return true
+            },
+            isStillCurrent: {
+                events.append("isStillCurrent")
+                return true
+            },
+            refreshProviders: { .notActive }
+        )
+        XCTAssertEqual(report.config, .applied)
+        XCTAssertEqual(
+            events,
+            ["metadata", "persist", "revision", "write", "canApply", "isStillCurrent", "storedBody", "reload",
+             "isStillCurrent", "storedBody"],
+            "the stored-body proof sits between the last cheap check and the send, and is repeated afterwards"
+        )
+    }
+
     /// A failed apply must not roll the body back. The new body is what the user asked for and what
     /// is on disk; the failure is about the running instance, and the daemon's own report says
     /// whether the previous document is still serving. There is no restore path here, and a second

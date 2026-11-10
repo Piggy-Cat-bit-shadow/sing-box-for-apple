@@ -34,11 +34,11 @@ public enum CommandScope: Equatable, Sendable {
 
 /// The identity of a command target at one instant.
 ///
-/// Carried by an operation from the moment it decides what to talk to until it reports a result, so
-/// the result can be attributed to the target it was produced by. Two facts make that checkable:
-/// which KIND of target it was, and, for a remote session, the generation of the session's
-/// selection - a switch to another server (or back to local) starts a new generation, and a reply
-/// that arrives afterwards belongs to the old one.
+/// It records WHICH daemon an operation resolved, and it is carried into the result so a page can
+/// name the source of every row it shows. Attribution is structural rather than re-checked later:
+/// the client is resolved from this token once per read, and `CommandTarget.setRemoteServer`
+/// discards the session's shared remote channel whenever the selection changes - so a client a
+/// reader already holds cannot silently start talking to another daemon.
 public struct CommandTargetToken: Equatable, Sendable {
     public enum Kind: String, Equatable, Sendable {
         case localTunnel
@@ -46,20 +46,17 @@ public struct CommandTargetToken: Equatable, Sendable {
     }
 
     public let kind: Kind
-    /// Monotonic number of the session's remote selection; 0 for the local tunnel.
-    public let generation: UInt64
     /// A non-secret label of the remote server, for reports and UI. Never the URL, never the secret:
     /// a connection URL can carry both.
     public let remoteLabel: String?
 
-    public init(kind: Kind, generation: UInt64, remoteLabel: String?) {
+    public init(kind: Kind, remoteLabel: String?) {
         self.kind = kind
-        self.generation = generation
         self.remoteLabel = remoteLabel
     }
 
     /// This device's tunnel.
-    public static let localTunnel = CommandTargetToken(kind: .localTunnel, generation: 0, remoteLabel: nil)
+    public static let localTunnel = CommandTargetToken(kind: .localTunnel, remoteLabel: nil)
 
     /// Whether this token describes a target a local document may be sent to.
     public var isLocalTunnel: Bool {
@@ -80,13 +77,13 @@ public enum LocalProfileCommandDecision: Equatable, Sendable {
 public enum CommandTargetPolicy {
     /// The target a session resolves to.
     ///
-    /// - Parameter remote: the selected server's label and the generation of that selection, or
-    ///   nil when the session is on this device's tunnel.
-    public static func token(remote: (label: String, generation: UInt64)?) -> CommandTargetToken {
-        guard let remote else {
+    /// - Parameter remote: the selected server's non-secret label, or nil when the session is on this
+    ///   device's tunnel.
+    public static func token(remoteLabel: String?) -> CommandTargetToken {
+        guard let remoteLabel else {
             return .localTunnel
         }
-        return CommandTargetToken(kind: .remoteSession, generation: remote.generation, remoteLabel: remote.label)
+        return CommandTargetToken(kind: .remoteSession, remoteLabel: remoteLabel)
     }
 
     /// Whether an operation that touches the LOCAL profile may run against `token`.
@@ -99,26 +96,6 @@ public enum CommandTargetPolicy {
             return .permitted(token)
         case .remoteSession:
             return .refused(token, reason: refusalReason(token))
-        }
-    }
-
-    /// Whether a result received now still belongs to the operation that captured `captured`.
-    ///
-    /// A pinned local operation always does: its target is this process's own tunnel, which the
-    /// user's remote selection cannot move. A session operation belongs to the generation it
-    /// captured - a reply that arrives after the session moved to another server describes the old
-    /// server, and attributing it to the new one is the misattribution this check exists to stop.
-    public static func stillOwns(_ captured: CommandTargetToken, now: CommandTargetToken) -> Bool {
-        switch captured.kind {
-        case .localTunnel:
-            return true
-        case .remoteSession:
-            guard now.kind == .remoteSession, now.generation == captured.generation else {
-                return false
-            }
-            // A generation is one selection; the label is carried for reports, and a token that
-            // claims the same generation with a different server is not the same target.
-            return now.remoteLabel == captured.remoteLabel
         }
     }
 

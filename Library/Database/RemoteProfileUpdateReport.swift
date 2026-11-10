@@ -73,9 +73,15 @@ public extension ExtensionApplyOutcome {
         case .interrupted:
             return .interrupted(reason: nil)
         case let .failed(reason, retained):
-            // A failure that kept the previous document is a different user-visible state from one
-            // that took the service down with it.
-            return retained ? .applyFailed(reason) : .interrupted(reason: reason)
+            // Retention is a separate fact and it has three values. `true` is a failure that kept
+            // the previous document serving; `false` is the one case that took the service down;
+            // `nil` is "nobody established it", which must not be reported as "the tunnel stopped".
+            switch retained {
+            case .some(false):
+                return .interrupted(reason: reason)
+            case .some(true), .none:
+                return .applyFailed(reason)
+            }
         case .undetermined:
             return .applyUnconfirmed
         }
