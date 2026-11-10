@@ -34,7 +34,7 @@ public extension Profile {
         }
         return try await refreshRemoteProfile(
             metadataProbe: { try await RemoteProfileFetcher.captureMetadata($0) },
-            reloadService: { try await onProfileUpdated() },
+            reloadService: { try await self.onProfileUpdated() },
             // Re-read the world at each boundary instead of trusting the download-time snapshot:
             // a profile switch during the fetch must not let this attempt apply or refresh the
             // profile that is now selected.
@@ -98,7 +98,7 @@ public extension Profile {
                 return .notRunning
             }
             do {
-                let box = try client.refreshRemoteProviders("", 15_000)
+                let box = try client.refreshRemoteProviders("", timeoutMilliseconds: 15_000)
                 guard let box else {
                     return .failed("empty provider refresh response")
                 }
@@ -187,7 +187,7 @@ public extension Profile {
             persist: { try await persist(self) },
             writeBody: { try await writeAsync($0) },
             storedBody: { try? await readAsync() },
-            reloadService: reloadService ?? { try await onProfileUpdated() },
+            reloadService: reloadService ?? { try await self.onProfileUpdated() },
             canApply: canApply,
             isStillCurrent: isStillCurrent,
             confirmStartedAt: confirmStartedAt,
