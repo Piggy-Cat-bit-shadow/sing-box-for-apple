@@ -42,8 +42,11 @@ public extension Profile {
             // a profile switch during the fetch must not let this attempt apply or refresh the
             // profile that is now selected.
             canApply: {
-                guard await Self.isSelected(self.id) else { return false }
-                return await Self.tunnelConnected()
+                guard await Self.isSelected(self.id), await Self.tunnelConnected() else { return false }
+                // The same id can come back after A -> B -> A on a new Box. The download started
+                // against `before`; only that instance may receive this body.
+                guard let before, await Self.tunnelStartedAt() == before else { return false }
+                return true
             },
             isStillCurrent: { await Self.isSelected(self.id) },
             confirmStartedAt: {
@@ -94,19 +97,19 @@ public extension Profile {
             break
         }
         guard await Self.isSelected(id) else {
-            return RemoteProfileUpdateReport(config: .saved, providers: .notActive.summary)
+            return RemoteProfileUpdateReport(config: .saved, providers: RemoteProviderRefreshProbe.notActive.summary)
         }
         guard await Self.tunnelConnected(), let before = await Self.tunnelStartedAt() else {
-            return RemoteProfileUpdateReport(config: .saved, providers: .notRunning.summary)
+            return RemoteProfileUpdateReport(config: .saved, providers: RemoteProviderRefreshProbe.notRunning.summary)
         }
         guard let stored = try? await readAsync(), let preparedBody = prepared.body else {
             return RemoteProfileUpdateReport(
                 config: .applyFailed("stored body unavailable"),
-                providers: .notActive.summary
+                providers: RemoteProviderRefreshProbe.notActive.summary
             )
         }
         guard stored == preparedBody else {
-            return RemoteProfileUpdateReport(config: .superseded, providers: .notActive.summary)
+            return RemoteProfileUpdateReport(config: .superseded, providers: RemoteProviderRefreshProbe.notActive.summary)
         }
         if prepared.report.config == .unchanged {
             let providers = await Self.providerProbeIfCurrent(id, expectedStartedAt: before)
@@ -122,7 +125,7 @@ public extension Profile {
             )
         }
         guard await Self.isSelected(id), let after = await Self.tunnelStartedAt(), after > before else {
-            return RemoteProfileUpdateReport(config: .superseded, providers: .notActive.summary)
+            return RemoteProfileUpdateReport(config: .superseded, providers: RemoteProviderRefreshProbe.notActive.summary)
         }
         let providers = await Self.providerProbeIfCurrent(id, expectedStartedAt: after)
         return RemoteProfileUpdateReport(config: .applied, providers: providers.summary)
