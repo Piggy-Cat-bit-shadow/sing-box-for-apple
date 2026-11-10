@@ -77,7 +77,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             outcome(bodyChanged: false),
             applyMetadata: { events.append("metadata") },
             persist: { events.append("persist") },
-            writeBody: { _ in events.append("write") },
+            commitBody: { _ in events.append("write"); return .committed(newRevision: "test") },
             reloadService: { _ in events.append("reload"); return nil },
             refreshProviders: {
                 events.append("providers")
@@ -95,7 +95,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             outcome(bodyChanged: true),
             applyMetadata: { events.append("metadata") },
             persist: { events.append("persist") },
-            writeBody: { _ in events.append("write") },
+            commitBody: { _ in events.append("write"); return .committed(newRevision: "test") },
             reloadService: { _ in
                 events.append("reload")
                 return .applied(.restarted, activeRevision: "active")
@@ -116,7 +116,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             outcome(bodyChanged: true),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "test") },
             reloadService: { _ in throw NSError(domain: "test", code: 1) },
             refreshProviders: { .notRunning }
         )
@@ -130,7 +130,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             outcome(bodyChanged: true),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "test") },
             reloadService: { _ in reloaded = true; return nil },
             canApply: { false },
             refreshProviders: { .notActive }
@@ -145,7 +145,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             outcome(bodyChanged: true),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "test") },
             reloadService: { _ in nil },
             refreshProviders: { .notActive }
         )
@@ -159,7 +159,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             outcome(bodyChanged: true),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "test") },
             reloadService: { _ in reloads += 1; return nil },
             isStillCurrent: { false },
             refreshProviders: {
@@ -179,7 +179,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             outcome(bodyChanged: true),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "test") },
             reloadService: { _ in .applied(.appliedLive, activeRevision: "active") },
             isStillCurrent: {
                 checks += 1
@@ -196,7 +196,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             outcome(bodyChanged: false),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in XCTFail("must not write") },
+            commitBody: { _ in XCTFail("must not commit"); return .superseded(storedRevision: nil) },
             reloadService: { _ in XCTFail("must not reload"); return nil },
             isStillCurrent: { false },
             refreshProviders: {
@@ -214,7 +214,7 @@ final class RemoteProviderRefreshTests: XCTestCase {
             outcome(bodyChanged: true),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "test") },
             storedBody: { "a newer body" },
             reloadService: { _ in XCTFail("must not reload a replaced body"); return nil },
             refreshProviders: { .notActive }

@@ -2,6 +2,14 @@ import Foundation
 import GRDB
 import Libbox
 
+/// Serialises the body commits this process performs.
+///
+/// It is a lock rather than an actor because the protected region is a pair of synchronous file calls
+/// inside one `BlockingIO` block: there is nothing to suspend on, and the smallest correct mechanism
+/// adds no new concurrency concept. It is ONE lock for all profiles on purpose - a per-profile map
+/// would need its own lifetime rules for a lock that is held for the duration of one file write.
+private let bodyCommitLock = NSLock()
+
 public extension Profile {
     /// Fetch this remote profile and apply everything a successful refresh carries.
     ///
@@ -89,6 +97,32 @@ public extension Profile {
             // A reply this update cannot claim is not a confirmation of it. The applier reports
             // `applyUnconfirmed`; nothing here retries or rolls back.
             return nil
+        }
+    }
+
+    /// Commits one body against the revision this update read, as a single operation.
+    ///
+    /// # Why the lock and the single blocking section are both needed
+    ///
+    /// `BlockingIO` runs its blocks on a CONCURRENT queue, so "read the revision" and "write the body"
+    /// as two calls can interleave with another update's calls: both read the old revision, both
+    /// decide they own the profile, and the later write wins - which is the race this exists to
+    /// remove. One blocking section plus one in-process lock is the smallest implementation that makes
+    /// the read and the write indivisible here. (Cross-process writers - the Intents extension - are a
+    /// separate boundary; the design for closing that is recorded in the handoff.)
+    ///
+    /// The file is the authority for the body: the profile row records metadata, not content.
+    nonisolated func commitBody(_ body: String, ticket: ProfileUpdateTicket) async throws -> ProfileBodyCommit {
+        try await BlockingIO.run {
+            Self.bodyCommitLock.lock()
+            defer { Self.bodyCommitLock.unlock() }
+            let stored = try? self.read()
+            let storedRevision = stored.map(ConfigurationBodyRevision.fingerprint(of:))
+            guard storedRevision == ticket.storedBodyRevision else {
+                return ProfileBodyCommit.superseded(storedRevision: storedRevision)
+            }
+            try self.write(body)
+            return ProfileBodyCommit.committed(newRevision: ConfigurationBodyRevision.fingerprint(of: body))
         }
     }
 
@@ -235,9 +269,12 @@ public extension Profile {
                     lastUpdated = now
                 },
                 persist: { try await persistProfile(self) },
-                writeBody: { try await self.writeAsync($0) },
-                storedBodyRevision: { (try? await self.readAsync()).map(ConfigurationBodyRevision.fingerprint(of:)) },
-                expectedBodyRevision: effectiveTicket.storedBodyRevision,
+                commitBody: { body in
+                    // ONE critical section: read, compare, write. The comparison and the write must
+                    // not be separated by an await, or another update can install a newer body in
+                    // between and this one overwrites it.
+                    try await self.commitBody(body, ticket: effectiveTicket)
+                },
                 storedBody: { try? await self.readAsync() },
                 reloadService: reloadService ?? { body in
                     try await self.applyBody(body, ticket: effectiveTicket)

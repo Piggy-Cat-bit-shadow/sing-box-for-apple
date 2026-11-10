@@ -237,21 +237,39 @@ public class ExtensionProfile: ObservableObject {
             bodyRevision: ConfigurationBodyRevision.fingerprint(of: content),
             configContent: content
         )
-        guard let receipt = try await reloadService(snapshot) else {
+        // The SAME attribution the profile path uses: a receipt only counts when it names this
+        // request, this profile and this body. Matching the request id alone would accept a reply
+        // about another profile's document, and that is the one mistake this entry can make that the
+        // user cannot see.
+        let ticket = ProfileUpdateTicket(
+            profileID: snapshot.profileID,
+            requestID: snapshot.requestID,
+            remoteURL: profile.remoteURL,
+            storedBodyRevision: snapshot.bodyRevision
+        )
+        let receipt = try await reloadService(snapshot)
+        guard let receipt,
+              case let .matches(matched) = ProfileUpdateOwnership.ownership(
+                  of: receipt,
+                  ticket: ticket,
+                  expectedBodyRevision: snapshot.bodyRevision
+              )
+        else {
             // No receipt this call can attribute to itself. Reporting success would claim an apply
             // nothing confirmed; reporting a failure would claim the opposite. The caller only has
             // "throw or not", so it throws - and the message says exactly that.
             throw ExtensionApplyError(message: String(localized: "the extension did not confirm the configuration"))
         }
-        try Self.confirmApplied(receipt.outcome)
+        try Self.confirmApplied(matched.outcome)
     }
 
     /// Throws unless the outcome means the requested document is the one running.
     ///
-    /// One implementation for the two callers that only handle errors - this legacy entry and
-    /// `Profile.onProfileUpdated()` (the editor's "apply now") - so they cannot disagree about what a
-    /// recovery or an interruption means.
-    static func confirmApplied(_ outcome: ExtensionApplyOutcome) throws {
+    /// `nonisolated` because it is a pure decision over a value: the two callers that only handle
+    /// errors - this legacy entry and `Profile.onProfileUpdated()` - are `nonisolated` themselves, and
+    /// a synchronous call into this `@MainActor` class from one of them is a compile error, not a
+    /// style question. It touches no actor state, so crossing the boundary would buy nothing.
+    nonisolated static func confirmApplied(_ outcome: ExtensionApplyOutcome) throws {
         switch outcome {
         case .applied:
             return

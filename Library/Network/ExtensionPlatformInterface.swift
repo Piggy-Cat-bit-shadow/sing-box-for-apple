@@ -758,11 +758,22 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         if proxySettings.httpEnabled == isEnabled {
             return
         }
+        // The installed settings must not record a switch the SYSTEM refused. Committing the value
+        // first would make a retry with the same value return at the guard above and never reach the
+        // system again, so the failure is undone before it is thrown.
+        let previous = proxySettings.httpEnabled
         proxySettings.httpEnabled = isEnabled
         proxySettings.httpsEnabled = isEnabled
         networkSettings.proxySettings = proxySettings
-        try runBlocking {
-            try await self.tunnel.setTunnelNetworkSettings(networkSettings)
+        do {
+            try runBlocking {
+                try await self.tunnel.setTunnelNetworkSettings(networkSettings)
+            }
+        } catch {
+            proxySettings.httpEnabled = previous
+            proxySettings.httpsEnabled = previous
+            networkSettings.proxySettings = proxySettings
+            throw error
         }
     }
 

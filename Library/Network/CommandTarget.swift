@@ -33,14 +33,49 @@ public enum CommandTarget {
         remoteServer != nil
     }
 
-    /// The target the session is on, as a value an operation can carry and report.
-    public static func currentToken() -> CommandTargetToken {
+    /// One selection of the session's target, captured together with the server it names.
+    ///
+    /// A token alone is not enough to READ from: resolving it later asks the session again, and a
+    /// session that moved in between would answer with another server's documents while the caller
+    /// still labels them with the captured target's name. A binding keeps the server object, so the
+    /// read and the label are about the same daemon.
+    public struct Binding {
+        public let token: CommandTargetToken
+        fileprivate let server: RemoteServer?
+    }
+
+    /// Captures the session's target in one step.
+    public static func bind() -> Binding {
         lock.lock()
         defer { lock.unlock() }
-        guard let server = activeRemoteServer else {
-            return .localTunnel
+        if let server = activeRemoteServer {
+            return Binding(token: CommandTargetPolicy.token(remoteLabel: server.displayName), server: server)
         }
-        return CommandTargetPolicy.token(remoteLabel: server.displayName)
+        return Binding(token: .localTunnel, server: nil)
+    }
+
+    /// The client for a binding captured earlier, or nil when the session has moved since.
+    ///
+    /// The check and the client resolution happen under the SAME lock, so there is no window
+    /// between "the target is still current" and "here is its client" - the two facts a status page
+    /// needs to describe one daemon. Nil means the page's reads would describe a target the user has
+    /// left, which is reported instead of answered.
+    public static func sessionClient(for binding: Binding) throws -> LibboxCommandClient? {
+        lock.lock()
+        defer { lock.unlock() }
+        switch (activeRemoteServer, binding.server) {
+        case (nil, nil):
+            return LibboxNewStandaloneCommandClient()!
+        case let (active?, bound?) where active === bound:
+            if let client = sharedRemoteClient {
+                return client
+            }
+            let client = try newStandaloneClient(for: active)
+            sharedRemoteClient = client
+            return client
+        default:
+            return nil
+        }
     }
 
     public static func libboxOptions(_ server: RemoteServer) -> LibboxRemoteConnectionOptions {
@@ -101,20 +136,6 @@ public enum CommandTarget {
             return try standaloneClient()
         case .localTunnel:
             return LibboxNewStandaloneCommandClient()!
-        }
-    }
-
-    /// The scope an operation on this target must use, or nil when the operation may not run.
-    ///
-    /// Kept as the typed bridge between the policy and the client factory: a caller that has a token
-    /// asks this instead of re-deriving `.localTunnel`/`.session` from `isRemote`, which is the
-    /// derivation that used to send a local document to the session's target.
-    public static func scope(for token: CommandTargetToken) -> CommandScope? {
-        switch CommandTargetPolicy.localProfileDecision(token) {
-        case .permitted:
-            return .localTunnel
-        case .refused:
-            return nil
         }
     }
 

@@ -55,12 +55,14 @@ public enum RemoteRefreshApplier {
     /// - Parameters:
     ///   - outcome: the decision produced by `RemoteProfileRefresh.evaluate`.
     ///   - applyMetadata: stores the merged metadata on the profile. Always called exactly once.
-    ///   - persist: commits the profile. Always called exactly once, and before any body write.
-    ///   - writeBody: rewrites the configuration file. Called only when the body changed.
-    ///   - storedBodyRevision: reads the revision of the body currently stored. Called once, before
-    ///     the write, and is the test-and-set read.
-    ///   - expectedBodyRevision: the revision the caller read when it decided to update. `nil` means
-    ///     "there was no body"; it is not a wildcard.
+    ///   - persist: commits the profile. Always called exactly once, and before any body commit.
+    ///   - commitBody: performs the whole test-and-set for the body - read the currently stored
+    ///     revision, compare it with the one this update read, write atomically only if it matches -
+    ///     in ONE operation. It is a single closure on purpose: a separate "read the revision" and
+    ///     "write the body" pair leaves the comparison and the write apart, which is where a slower
+    ///     update overwrites a newer body.
+    ///   - storedBody: reads the body as it is stored now. Used for the supersede check that sits
+    ///     immediately before the daemon is touched.
     ///   - reloadService: asks the running service to apply `body` and returns what the extension
     ///     proved about the attempt, or nil when the extension answered nothing usable.
     ///   - refreshProviders: the provider half, which is a separate failure domain from the body.
@@ -68,9 +70,7 @@ public enum RemoteRefreshApplier {
         _ outcome: RemoteRefreshOutcome,
         applyMetadata: () -> Void,
         persist: () async throws -> Void,
-        writeBody: (String) async throws -> Void,
-        storedBodyRevision: (() async -> String?)? = nil,
-        expectedBodyRevision: String? = nil,
+        commitBody: (String) async throws -> ProfileBodyCommit,
         storedBody: (() async -> String?)? = nil,
         reloadService: (String) async throws -> ExtensionApplyOutcome?,
         canApply: (() async -> Bool)? = nil,
@@ -89,17 +89,16 @@ public enum RemoteRefreshApplier {
                 providers: await refreshProviders().summary
             )
         }
-        // The test-and-set, immediately before the write and with nothing between them: the value
-        // this update read when it decided to update must still be the stored one. A slower update
-        // of the same profile loses here instead of overwriting a newer body and then reading its
-        // own bytes back as proof that it won.
-        if let storedBodyRevision, await storedBodyRevision() != expectedBodyRevision {
+        // The test-and-set, as ONE operation: it reads the stored revision, compares it with the one
+        // this update read, and writes - inside the caller's own critical section. A comparison here
+        // and a write later is how a slower update replaces a newer body and then reads its own bytes
+        // back as proof that it won.
+        guard case .committed = try await commitBody(body) else {
             return RemoteProfileUpdateReport(
                 config: .superseded,
                 providers: await refreshProviders().summary
             )
         }
-        try await writeBody(body)
         // The body is saved whether or not this profile is the running one; a profile that is not
         // selected (or a disconnected tunnel) must not pretend to have applied it.
         if let canApply, await canApply() == false {

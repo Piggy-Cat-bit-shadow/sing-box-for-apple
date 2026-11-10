@@ -2,9 +2,11 @@ import XCTest
 
 @testable import Contract
 
-/// The applier's two new boundaries: a commit that can lose, and a confirmation that has to be
+/// The applier's boundaries: a body commit that can lose, and a confirmation that has to be
 /// attributable.
 final class ApplierOwnershipTests: XCTestCase {
+    private let body = "{\"outbounds\":[]}"
+
     private func outcome(body: String?) -> RemoteRefreshOutcome {
         RemoteRefreshOutcome(
             subscriptionInfo: nil,
@@ -17,23 +19,15 @@ final class ApplierOwnershipTests: XCTestCase {
         )
     }
 
-    private let body = "{\"outbounds\":[]}"
-    private var revision: String {
-        ConfigurationBodyRevision.fingerprint(of: body)
-    }
-
-    /// The superseded update: the stored body is no longer the one this update read, so it must not
-    /// write, must not reload, and must not report the apply.
-    func testABodyReplacedBeforeTheWriteLosesTheCommit() async throws {
-        var wrote = false
+    /// The superseded update: the stored body is no longer the one this update read, so its commit
+    /// loses and it must not reload or report the apply.
+    func testABodyReplacedBeforeTheCommitLosesIt() async throws {
         var reloaded = false
         let report = try await RemoteRefreshApplier.applyReporting(
             outcome(body: body),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in wrote = true },
-            storedBodyRevision: { "someone-else" },
-            expectedBodyRevision: revision,
+            commitBody: { _ in .superseded(storedRevision: "someone-else") },
             reloadService: { _ in
                 reloaded = true
                 return nil
@@ -41,7 +35,6 @@ final class ApplierOwnershipTests: XCTestCase {
             refreshProviders: { .notActive }
         )
         XCTAssertEqual(report.config, .superseded)
-        XCTAssertFalse(wrote, "a superseded update must not touch the body")
         XCTAssertFalse(reloaded)
     }
 
@@ -51,15 +44,14 @@ final class ApplierOwnershipTests: XCTestCase {
             outcome(body: body),
             applyMetadata: { events.append("metadata") },
             persist: { events.append("persist") },
-            writeBody: { written in
-                events.append("write")
+            commitBody: { written in
+                events.append("commit")
                 XCTAssertEqual(written, body)
+                return .committed(newRevision: ConfigurationBodyRevision.fingerprint(of: body))
             },
-            storedBodyRevision: { self.revision },
-            expectedBodyRevision: revision,
             reloadService: { sent in
                 events.append("reload")
-                XCTAssertEqual(sent, body, "the reload must be given the body this operation wrote")
+                XCTAssertEqual(sent, body, "the reload must be given the body this operation committed")
                 return .applied(.restarted, activeRevision: "active")
             },
             refreshProviders: {
@@ -68,18 +60,18 @@ final class ApplierOwnershipTests: XCTestCase {
             }
         )
         XCTAssertEqual(report.config, .applied)
-        XCTAssertEqual(events, ["metadata", "persist", "write", "reload", "providers"])
+        XCTAssertEqual(events, ["metadata", "persist", "commit", "reload", "providers"])
     }
 
-    /// The receipt is the ONLY confirmation. There is no fallback to the daemon's start timestamp:
-    /// a hot reload keeps it, and an unrelated restart moves it, so it cannot answer "is MY document
+    /// The receipt is the ONLY confirmation. There is no fallback to the daemon's start timestamp: a
+    /// hot reload keeps it, and an unrelated restart moves it, so it cannot answer "is MY document
     /// running" - it could only turn "unknown" into a guess.
     func testTheReceiptIsTheOnlyConfirmation() async throws {
         let report = try await RemoteRefreshApplier.applyReporting(
             outcome(body: body),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "rev") },
             reloadService: { _ in .applied(.appliedLive, activeRevision: "active") },
             refreshProviders: { .notActive }
         )
@@ -91,7 +83,7 @@ final class ApplierOwnershipTests: XCTestCase {
             outcome(body: body),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "rev") },
             reloadService: { _ in .recovered(activeRevision: "stored") },
             refreshProviders: { .notActive }
         )
@@ -104,7 +96,7 @@ final class ApplierOwnershipTests: XCTestCase {
             outcome(body: body),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "rev") },
             reloadService: { _ in .interrupted },
             refreshProviders: { .notActive }
         )
@@ -114,12 +106,12 @@ final class ApplierOwnershipTests: XCTestCase {
 
     /// An extension that answers nothing, beside no other confirmation, is unconfirmed - never
     /// applied, and never retried by this code path.
-    func testNoReceiptAndNoTimestampIsUnconfirmed() async throws {
+    func testNoReceiptIsUnconfirmed() async throws {
         let report = try await RemoteRefreshApplier.applyReporting(
             outcome(body: body),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "rev") },
             reloadService: { _ in nil },
             refreshProviders: { .notActive }
         )
@@ -132,7 +124,7 @@ final class ApplierOwnershipTests: XCTestCase {
             outcome(body: body),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "rev") },
             reloadService: { _ in .failed(reason: "refused", retained: true) },
             refreshProviders: { .notActive }
         )
@@ -144,26 +136,42 @@ final class ApplierOwnershipTests: XCTestCase {
             outcome(body: body),
             applyMetadata: {},
             persist: {},
-            writeBody: { _ in },
+            commitBody: { _ in .committed(newRevision: "rev") },
             reloadService: { _ in .failed(reason: "dropped", retained: false) },
             refreshProviders: { .notActive }
         )
         XCTAssertEqual(report.config, .interrupted(reason: "dropped"))
     }
 
-    /// A metadata-only refresh still must not reload, and still probes the instance it belongs to.
-    func testAMetadataOnlyRefreshNeverWritesOrReloads() async throws {
+    /// A failure whose retention nobody established is a failed apply, never "the tunnel stopped".
+    func testAFailureWithUnknownRetentionIsNotAnInterruption() async throws {
+        let report = try await RemoteRefreshApplier.applyReporting(
+            outcome(body: body),
+            applyMetadata: {},
+            persist: {},
+            commitBody: { _ in .committed(newRevision: "rev") },
+            reloadService: { _ in .failed(reason: "unknown", retained: nil) },
+            refreshProviders: { .notActive }
+        )
+        XCTAssertEqual(report.config, .applyFailed("unknown"))
+    }
+
+    /// A metadata-only refresh still must not commit a body, and still probes the instance it belongs
+    /// to.
+    func testAMetadataOnlyRefreshNeverCommitsOrReloads() async throws {
         var events: [String] = []
         let report = try await RemoteRefreshApplier.applyReporting(
             outcome(body: nil),
             applyMetadata: { events.append("metadata") },
             persist: { events.append("persist") },
-            writeBody: { _ in events.append("write") },
-            storedBodyRevision: {
-                events.append("revision")
-                return self.revision
+            commitBody: { _ in
+                events.append("commit")
+                return .committed(newRevision: "rev")
             },
-            expectedBodyRevision: revision,
+            storedBody: {
+                events.append("storedBody")
+                return nil
+            },
             reloadService: { _ in
                 events.append("reload")
                 return nil

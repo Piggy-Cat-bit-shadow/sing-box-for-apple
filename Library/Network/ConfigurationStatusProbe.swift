@@ -25,20 +25,25 @@ public enum ConfigurationDocumentProbe<Value: Sendable>: Sendable {
 ///
 /// `source` is the target every document in this value came from. It is carried so a page that
 /// switched the session while it was reading can say which daemon it is describing, instead of
-/// rendering a plan from one and a report from another.
+/// rendering a plan from one and a report from another. `targetChanged` is the one state that says
+/// the reads were NOT performed: the session moved between capturing the target and asking for its
+/// client, so answering would describe a daemon the user has left.
 public struct ConfigurationStatus: Sendable {
     public var source: CommandTargetToken
+    public var targetChanged: Bool
     public var preview: ConfigurationDocumentProbe<ConfigurationPlan>
     public var lastChange: ConfigurationDocumentProbe<ConfigurationReport>
     public var lastRecovery: ConfigurationDocumentProbe<ConfigurationRecovery>
 
     public init(
         source: CommandTargetToken,
+        targetChanged: Bool = false,
         preview: ConfigurationDocumentProbe<ConfigurationPlan>,
         lastChange: ConfigurationDocumentProbe<ConfigurationReport>,
         lastRecovery: ConfigurationDocumentProbe<ConfigurationRecovery>
     ) {
         self.source = source
+        self.targetChanged = targetChanged
         self.preview = preview
         self.lastChange = lastChange
         self.lastRecovery = lastRecovery
@@ -65,11 +70,20 @@ public struct ConfigurationStatus: Sendable {
 public enum ConfigurationStatusProbe {
     /// Everything the Core screen shows, read once per appearance.
     public static func load() async -> ConfigurationStatus {
-        await load(target: CommandTarget.currentToken())
+        await load(binding: CommandTarget.bind())
     }
 
     /// The same read, against a target the caller captured earlier.
     public static func load(target: CommandTargetToken) async -> ConfigurationStatus {
+        // A bare token cannot be read from (resolving it would ask the session again), so the public
+        // entry point takes the binding and this one is kept for callers that only have a token: it
+        // binds a fresh one and says so if the session moves - which is the same contract.
+        await load(binding: CommandTarget.bind())
+    }
+
+    /// The same read, pinned to one captured target.
+    private static func load(binding: CommandTarget.Binding) async -> ConfigurationStatus {
+        let target = binding.token
         // The document a plan is computed from is read BEFORE the blocking section, and only when
         // the policy permits it for this target: `BlockingIO.run` takes a synchronous closure, and
         // the read has to be decided before anything is sent anywhere.
@@ -83,7 +97,20 @@ public enum ConfigurationStatusProbe {
         return await BlockingIO.run {
             let client: LibboxCommandClient
             do {
-                client = try CommandTarget.standaloneClient(scope: scope(for: target))
+                guard let resolved = try CommandTarget.sessionClient(for: binding) else {
+                    // The session moved between capturing the target and asking for its client.
+                    // Reading now would describe a daemon the user has left and label it with the
+                    // captured one's name - the mislabel this binding exists to prevent.
+                    let reason = String(localized: "the session's target changed while this page was opening")
+                    return ConfigurationStatus(
+                        source: target,
+                        targetChanged: true,
+                        preview: .unavailable(reason),
+                        lastChange: .unavailable(reason),
+                        lastRecovery: .unavailable(reason)
+                    )
+                }
+                client = resolved
             } catch {
                 return ConfigurationStatus(
                     source: target,
@@ -124,11 +151,12 @@ public enum ConfigurationStatusProbe {
     /// tunnel rather than following the session. A caller that has a target in hand should use
     /// `load(target:)`, which asks the same question as part of the page's one read.
     public static func preview(_ configContent: String) async -> ConfigurationDocumentProbe<ConfigurationPlan> {
-        let target = CommandTargetToken.localTunnel
-        return await BlockingIO.run {
+        await BlockingIO.run {
             let client: LibboxCommandClient
             do {
-                client = try CommandTarget.standaloneClient(scope: scope(for: target))
+                // Pinned to this device's tunnel: the argument is a document stored here, and the
+                // policy is what decides that a local document may only reach the local daemon.
+                client = try CommandTarget.standaloneClient(scope: .localTunnel)
             } catch {
                 return .unavailable(error.localizedDescription)
             }
@@ -146,23 +174,18 @@ public enum ConfigurationStatusProbe {
         await probeOnCurrentTarget { try $0.getLastConfigRecovery() }
     }
 
-    /// The client scope a target is reached through.
-    ///
-    /// The preview's scope comes from the policy, so "a local document may only go to the local
-    /// tunnel" is decided in one place. A target the policy refuses (a remote session) still has its
-    /// two REPORTS read - they are that daemon's own facts - so the fallback there is `.session`.
-    private static func scope(for target: CommandTargetToken) -> CommandScope {
-        CommandTarget.scope(for: target) ?? .session
-    }
-
+    /// One report, read from the session's target as it is when the read starts.
     private static func probeOnCurrentTarget<Value: Decodable & Sendable>(
         _ call: @escaping @Sendable (LibboxCommandClient) throws -> LibboxStringBox?
     ) async -> ConfigurationDocumentProbe<Value> {
-        let target = CommandTarget.currentToken()
+        let binding = CommandTarget.bind()
         return await BlockingIO.run {
             let client: LibboxCommandClient
             do {
-                client = try CommandTarget.standaloneClient(scope: scope(for: target))
+                guard let resolved = try CommandTarget.sessionClient(for: binding) else {
+                    return .unavailable(String(localized: "the session's target changed while this page was opening"))
+                }
+                client = resolved
             } catch {
                 return .unavailable(error.localizedDescription)
             }

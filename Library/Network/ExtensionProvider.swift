@@ -273,11 +273,13 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         if effectiveOptions["configContent"] == nil {
             throw ExtensionStartupError("(packet-tunnel) error: missing configContent in tunnel options")
         }
-        do {
-            try persistStartOptions(effectiveOptions)
-        } catch {
-            throw ExtensionStartupError("(packet-tunnel) error: persist start options: \(error.localizedDescription)")
-        }
+        // The start RECORD is committed after the start succeeds, not before it.
+        //
+        // It used to be written here, so a profile that failed to start still became the document
+        // `On-Demand` would start from: the running tunnel kept the old configuration while the disk
+        // promised the new one, and the next start without explicit options read the failed one. A
+        // record is evidence that a document is what runs, and evidence is written by the party that
+        // established it - see the commit after `startTunnel0()` below.
         let options = LibboxSetupOptions()
         options.basePath = basePath
         options.workingPath = workingPath
@@ -357,6 +359,17 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         // server, then the platform interface.
         do {
             try await startTunnel0()
+            // Now - and only now - the candidate is what runs, so the record may name it. A failed
+            // write does not fail the tunnel: it runs, and the next On-Demand start uses the previous
+            // record. That is the "committed but not persisted" state, reported rather than hidden.
+            do {
+                try persistStartOptions(effectiveOptions)
+            } catch {
+                writeMessage(
+                    "(packet-tunnel) the applied start options could not be saved; the next On-Demand start will use the previous record: \(error.localizedDescription)",
+                    level: .error
+                )
+            }
             #if os(macOS)
                 if Variant.useSystemExtension {
                     xpcService.markServiceReady()
@@ -789,9 +802,26 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             // The platform can re-apply the proxy to the installed settings; the document apply
             // below still happens, because the profile itself may have changed too.
             writeMessage("(packet-tunnel) the system proxy switch changed; it is applied to the installed settings", level: .info)
-            // A no-op when the installed settings carry no proxy: that is the same state the switch
-            // describes.
-            try? platformInterface.setSystemProxyEnabled(candidate.systemProxyEnabled)
+            do {
+                try platformInterface.setSystemProxyEnabled(candidate.systemProxyEnabled)
+            } catch {
+                // A system refusal is not a detail to swallow: the switch the user moved did not
+                // reach the system, and reporting the document apply as success would hide it. The
+                // platform undoes its own record first, so retrying the same value tries again.
+                return encodeReceipt(
+                    requestID: requestID,
+                    profileID: profileID,
+                    bodyRevision: bodyRevision,
+                    ok: false,
+                    status: ExtensionApplyStatus.failed.rawValue,
+                    targetRevision: nil,
+                    activeRevision: nil,
+                    retained: nil,
+                    restartRequired: nil,
+                    persistence: nil,
+                    reason: "(packet-tunnel) the system proxy switch could not be applied: \(error.localizedDescription)"
+                )
+            }
         case let .needsRebuild(keys):
             // Decision only; whether a rebuild is actually needed is known after the apply below.
             mayNeedPlatformRebuild = true
@@ -803,7 +833,6 @@ open class ExtensionProvider: NEPacketTunnelProvider {
 
         do {
             try applyStartOptions(options)
-            try persistStartOptions(options)
         } catch {
             return encodeReceipt(
                 requestID: requestID,
@@ -819,6 +848,11 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 reason: "(packet-tunnel) the request could not be applied: \(error.localizedDescription)"
             )
         }
+        // The start record is written AFTER the apply succeeds, never before it. Writing it first
+        // means a candidate the daemon refused is still the document `On-Demand` starts from, while
+        // the tunnel runs the previous one - the record and reality disagree, and the disagreement
+        // only surfaces on the next start.
+        var startRecordPersistence: String?
 
         do {
             // # Why the apply comes FIRST, and the forced rebuild only after it
@@ -851,6 +885,18 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 )
                 document = try await performApply(reinstallsPlatformSettings: true)
             }
+            // The candidate is what runs now, so the record may name it. A refused write does not
+            // fail the apply - the tunnel is running - but it is reported as `degraded`, because the
+            // next On-Demand start will read the PREVIOUS record.
+            do {
+                try persistStartOptions(options)
+            } catch {
+                startRecordPersistence = "degraded"
+                writeMessage(
+                    "(packet-tunnel) the applied start options could not be saved; the next On-Demand start will use the previous record: \(error.localizedDescription)",
+                    level: .error
+                )
+            }
             return encodeReceipt(
                 requestID: requestID,
                 profileID: profileID,
@@ -861,7 +907,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 activeRevision: document?.report?.activeRevision,
                 retained: document?.report?.retained,
                 restartRequired: document?.report?.restartRequired,
-                persistence: document?.report?.persistence,
+                persistence: startRecordPersistence ?? document?.report?.persistence,
                 reason: document?.report?.reason ?? document?.error
             )
         } catch let failure as ExtensionApplyFailure {

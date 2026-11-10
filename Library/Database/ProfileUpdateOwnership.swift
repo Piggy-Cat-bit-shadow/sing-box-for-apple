@@ -89,6 +89,19 @@ public enum ProfileCommitVerdict: Equatable, Sendable {
     case superseded(ProfileSupersedeReason)
 }
 
+/// The outcome of one test-and-set body commit.
+///
+/// It is a RETURN VALUE of a single operation, not two calls the caller has to keep adjacent: the
+/// comparison and the write have to happen in one critical section, or another writer can install a
+/// newer body between them and this update overwrites it. Handing the caller a "read the revision"
+/// closure and a "write the body" closure makes that mistake the easy one to make.
+public enum ProfileBodyCommit: Equatable, Sendable {
+    /// The body this update wrote is now the stored one.
+    case committed(newRevision: String)
+    /// The stored body was no longer the one this update read. Nothing was written.
+    case superseded(storedRevision: String?)
+}
+
 /// Thrown by the persistence path when an update no longer owns the profile it is committing to.
 ///
 /// It is an error rather than a return value because the commit happens inside a database
