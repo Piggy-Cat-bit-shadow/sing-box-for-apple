@@ -836,11 +836,16 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         // which disarms the restore.
         let previousTunnelOptions = tunnelOptions
         let previousOverridePreferences = overridePreferences
+        let previousLocale = previousTunnelOptions?["locale"] as? String
         var committedOptions = false
         defer {
             if !committedOptions {
                 tunnelOptions = previousTunnelOptions
                 overridePreferences = previousOverridePreferences
+                // The locale is a third piece of state the candidate can change: `applyStartOptions`
+                // pushes it into the kernel. Restoring the two stored values without it would leave a
+                // rejected candidate's language in effect until the next accepted apply.
+                try? ApplicationLocale.apply(previousLocale)
             }
         }
         switch platformChange {
