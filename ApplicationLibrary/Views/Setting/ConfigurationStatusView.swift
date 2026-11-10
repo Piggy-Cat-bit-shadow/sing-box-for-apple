@@ -246,6 +246,11 @@ extension ConfigurationRecovery {
 }
 
 /// The official UI's rows for the three documents.
+///
+/// `@MainActor` because the state object it creates is main-actor isolated: a View's body is main
+/// actor, but the stored property's initializer is not, and a Swift 6 language mode build treats
+/// that difference as an error rather than a warning.
+@MainActor
 struct ConfigurationStatusRows: View {
     @StateObject private var model = ConfigurationStatusModel()
 
