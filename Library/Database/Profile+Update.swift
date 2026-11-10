@@ -39,17 +39,17 @@ public extension Profile {
             // a profile switch during the fetch must not let this attempt apply or refresh the
             // profile that is now selected.
             canApply: {
-                guard await Self.isSelected(id) else { return false }
+                guard await Self.isSelected(self.id) else { return false }
                 return await Self.tunnelConnected()
             },
-            isStillCurrent: { await Self.isSelected(id) },
+            isStillCurrent: { await Self.isSelected(self.id) },
             confirmStartedAt: {
-                guard await Self.isSelected(id) else { return false }
+                guard await Self.isSelected(self.id) else { return false }
                 guard let before, let after = await Self.tunnelStartedAt() else { return false }
                 return after > before
             },
-            refreshProviders: { await Self.providerProbeIfCurrent(id) },
-            providersOnFailure: { await Self.providerProbeIfCurrent(id) }
+            refreshProviders: { await Self.providerProbeIfCurrent(self.id) },
+            providersOnFailure: { await Self.providerProbeIfCurrent(self.id) }
         )
     }
 
@@ -98,10 +98,10 @@ public extension Profile {
                 return .notRunning
             }
             do {
+                // gomobile imports a Go `(T, error)` method as a throwing non-optional, so there
+                // is no "empty response" case to guard: a failed call throws, and a successful one
+                // carries its box.
                 let box = try client.refreshRemoteProviders("", timeoutMilliseconds: 15_000)
-                guard let box else {
-                    return .failed("empty provider refresh response")
-                }
                 return .response(box.value)
             } catch {
                 // gRPC's Unimplemented is code 12. An older kernel answers this way, and it is a
@@ -185,8 +185,8 @@ public extension Profile {
                 lastUpdated = now
             },
             persist: { try await persist(self) },
-            writeBody: { try await writeAsync($0) },
-            storedBody: { try? await readAsync() },
+            writeBody: { try await self.writeAsync($0) },
+            storedBody: { try? await self.readAsync() },
             reloadService: reloadService ?? { try await self.onProfileUpdated() },
             canApply: canApply,
             isStillCurrent: isStillCurrent,
