@@ -118,42 +118,59 @@ extension ConfigurationDocumentProbe where Value == ConfigurationRecovery {
     }
 }
 
-private func configurationRevision(_ revision: String) -> String {
-    if revision.isEmpty {
-        return ""
+/// The revisions a plan moves between, or nil when the plan carries none.
+private func configurationVersionPair(current: String?, target: String?) -> String? {
+    let from = configurationRevisionLabel(current)
+    let to = configurationRevisionLabel(target)
+    switch (from.isEmpty, to.isEmpty) {
+    case (true, true):
+        return nil
+    case (false, true):
+        return from
+    case (true, false):
+        return to
+    case (false, false):
+        return "\(from) → \(to)"
     }
-    return revision.count > 12 ? String(revision.prefix(12)) : revision
 }
 
+/// The plan's sentence is chosen by `ConfigurationPlan.verdict`, which is the one place the
+/// `started` semantics are decided. This extension only renders: an inline revision pair or the
+/// restart reasons, when the verdict carries them.
 extension ConfigurationPlan {
     var localizedDescription: String {
-        if unchanged {
-            let revision = configurationRevision(targetRevision ?? "")
+        switch verdict {
+        case let .unchanged(target):
+            let revision = configurationRevisionLabel(target)
             return revision.isEmpty
                 ? String(localized: "The running service already runs this document")
                 : String(localized: "The running service already runs revision \(revision)")
-        }
-        if started {
-            return String(localized: "Applying this document starts a new instance")
-        }
-        if stale == true {
-            return String(localized: "The running configuration changed while this plan was computed")
-        }
-        var reasons: [String] = []
-        if changedDocument {
-            reasons.append(String(localized: "the document differs outside the live domains"))
-        }
-        if let changedSections, !changedSections.isEmpty {
-            reasons.append(changedSections.joined(separator: ", "))
-        }
-        if restartRequired {
+        case .stale:
+            return String(localized: "The plan is stale: the running configuration changed since it was computed")
+        case let .firstStart(target):
+            let revision = configurationRevisionLabel(target)
+            return revision.isEmpty
+                ? String(localized: "Applying this document starts a new instance")
+                : String(localized: "Applying this document starts a new instance (target revision \(revision))")
+        case let .restartRequired(current, target, reasons):
+            // The reasons are appended outside the localized sentence so the catalog key has one
+            // placeholder, not one per interpolated fragment.
             let detail = reasons.isEmpty ? "" : " (\(reasons.joined(separator: "; ")))"
-            return String(localized: "Applying restarts the service\(detail)")
+            if let versions = configurationVersionPair(current: current, target: target) {
+                return String(localized: "Applying this document restarts the service (\(versions))") + detail
+            }
+            return String(localized: "Applying this document restarts the service") + detail
+        case let .liveApply(current, target):
+            if let versions = configurationVersionPair(current: current, target: target) {
+                return String(localized: "Applying this document takes effect live, without restarting (\(versions))")
+            }
+            return String(localized: "Applying this document takes effect live, without restarting")
+        case let .needsNoRestart(current, target):
+            if let versions = configurationVersionPair(current: current, target: target) {
+                return String(localized: "Applying this document needs no restart (\(versions))")
+            }
+            return String(localized: "Applying this document needs no restart")
         }
-        if liveOnly {
-            return String(localized: "Applying takes effect live, without a restart")
-        }
-        return String(localized: "Applying needs no restart")
     }
 }
 
@@ -163,8 +180,9 @@ extension ConfigurationReport {
         if retained {
             parts.append(String(localized: "the previous document is still running"))
         }
-        if let activeRevision, !activeRevision.isEmpty {
-            parts.append(String(localized: "active \(configurationRevision(activeRevision))"))
+        let active = configurationRevisionLabel(activeRevision)
+        if !active.isEmpty {
+            parts.append(String(localized: "active \(active)"))
         }
         if persistence == "degraded" {
             parts.append(String(localized: "the last-good store is degraded"))
@@ -202,7 +220,7 @@ extension ConfigurationReport {
 extension ConfigurationProviderReport {
     var localizedDescription: String {
         guard let results, !results.isEmpty else {
-            return String(localized: "providers \(status)")
+            return String(localized: "providers: \(status)")
         }
         let entries = results.map { result -> String in
             var detail = "\(result.tag): \(result.status)"
@@ -214,7 +232,7 @@ extension ConfigurationProviderReport {
             }
             return detail
         }
-        return String(localized: "providers ") + entries.joined(separator: ", ")
+        return String(localized: "providers: \(entries.joined(separator: ", "))")
     }
 }
 
@@ -222,7 +240,7 @@ extension ConfigurationRecovery {
     var localizedDescription: String {
         String(
             localized:
-                "Recovered at \(time): \(configurationRevision(failedRevision)) failed, now running \(configurationRevision(activeRevision)) - \(error)"
+                "Recovered at \(time): \(configurationRevisionLabel(failedRevision)) failed, now running \(configurationRevisionLabel(activeRevision)) - \(error)"
         )
     }
 }

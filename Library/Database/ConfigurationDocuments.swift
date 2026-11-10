@@ -121,6 +121,78 @@ public enum ConfigurationDocumentError: Error, Equatable {
     case notAnObject
 }
 
+/// What applying a document would mean, decided once so both presentations agree with the kernel.
+///
+/// `ServiceChangePlan.Started` means a Box is RUNNING right now; `started: false` is the first
+/// start. Reading it as an inverted "will start" flag hides the live, restart and stale branches
+/// behind one wrong sentence, which is the P1 this type exists to make impossible: the decision is
+/// here, on the model, and both the phone and the shell only render it.
+public enum ConfigurationPlanVerdict: Equatable, Sendable {
+    /// The running Box already runs this document.
+    case unchanged(targetRevision: String?)
+    /// The plan lost its base; it must be recomputed before anything is applied.
+    case stale
+    /// There is no running Box: this is the first start.
+    case firstStart(targetRevision: String?)
+    /// A running Box must be rebuilt, and these are the reasons in the caller's own vocabulary.
+    case restartRequired(currentRevision: String?, targetRevision: String?, reasons: [String])
+    /// The running Box absorbs the change in place.
+    case liveApply(currentRevision: String?, targetRevision: String?)
+    /// A running document that differs, but nothing about the difference needs a restart.
+    case needsNoRestart(currentRevision: String?, targetRevision: String?)
+}
+
+public extension ConfigurationPlan {
+    /// The restart reasons, preferring the kernel's changed sections to the generic sentence.
+    var restartReasons: [String] {
+        var reasons: [String] = []
+        if let changedSections, !changedSections.isEmpty {
+            reasons.append(contentsOf: changedSections)
+        } else if changedDocument {
+            reasons.append("the document differs outside the live domains")
+        }
+        for domain in [mode, dns, rule] {
+            guard let domain, domain.restartRequired, let changes = domain.changes, !changes.isEmpty else {
+                continue
+            }
+            reasons.append("\(domain.domain): \(changes.map(\.kind).joined(separator: ", "))")
+        }
+        return reasons
+    }
+
+    /// The order is the contract: unchanged, stale, first start, restart, live, no restart.
+    var verdict: ConfigurationPlanVerdict {
+        if unchanged {
+            return .unchanged(targetRevision: targetRevision)
+        }
+        if stale == true {
+            return .stale
+        }
+        if !started {
+            return .firstStart(targetRevision: targetRevision)
+        }
+        if restartRequired {
+            return .restartRequired(
+                currentRevision: currentRevision,
+                targetRevision: targetRevision,
+                reasons: restartReasons
+            )
+        }
+        if liveOnly {
+            return .liveApply(currentRevision: currentRevision, targetRevision: targetRevision)
+        }
+        return .needsNoRestart(currentRevision: currentRevision, targetRevision: targetRevision)
+    }
+}
+
+/// A revision as a person compares it: the first twelve characters, and nothing for an absent one.
+public func configurationRevisionLabel(_ revision: String?) -> String {
+    guard let revision, !revision.isEmpty else {
+        return ""
+    }
+    return revision.count > 12 ? String(revision.prefix(12)) : revision
+}
+
 /// Classifies the JSON payload of a `JSONDocument` response.
 ///
 /// The libbox bridge answers an older kernel with the empty string, and the daemon answers "no
