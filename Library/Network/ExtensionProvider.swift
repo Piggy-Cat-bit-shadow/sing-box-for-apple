@@ -792,6 +792,32 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             )
         }
 
+        // The selection the request was built for, checked on the RECEIVING side before anything is
+        // staged.
+        //
+        // The app checks "is this still the selected profile" immediately before it sends, and that
+        // check cannot cover the gap between the send and this handler: a switch to B that lands in
+        // between leaves this request applying A's body to a session whose user has already left A.
+        // The selection is the authority both processes already share (`SharedPreferences`), so it is
+        // compared here, where the apply actually starts. A request for a profile that is no longer
+        // selected is refused with no side effect: nothing staged, nothing persisted, no daemon call.
+        // Requests without a profile id (none are produced by this app) keep the old behaviour.
+        if let profileID, await SharedPreferences.selectedProfileID.get() != profileID {
+            return encodeReceipt(
+                requestID: requestID,
+                profileID: profileID,
+                bodyRevision: bodyRevision,
+                ok: false,
+                status: ExtensionApplyStatus.failed.rawValue,
+                targetRevision: nil,
+                activeRevision: nil,
+                retained: nil,
+                restartRequired: nil,
+                persistence: nil,
+                reason: "(packet-tunnel) the selection moved to another profile before this request was received"
+            )
+        }
+
         let candidate = platformSettings(options)
         let platformChange = PlatformSettingsPolicy.change(from: appliedPlatformSettings, to: candidate)
         var mayNeedPlatformRebuild = false
