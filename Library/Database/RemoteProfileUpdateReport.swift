@@ -88,6 +88,54 @@ public struct ProfileUpdateFailure: LocalizedError, Equatable {
     }
 }
 
+/// Whether an update may touch the running instance's providers.
+///
+/// # Why this is a policy and not four `if`s
+///
+/// Refreshing providers is a live side effect: one HTTP request per provider, and the resulting nodes
+/// are published. It belongs to exactly one outcome - the update whose document reached the running
+/// service. Every other outcome means the instance is serving something else, so the side effect would
+/// be attached to a claim the update does not own.
+///
+/// The first version of that rule lived only in `RemoteRefreshApplier`'s final branch, and the profile
+/// path kept refreshing on its own three failure branches (invalid configuration, failed download,
+/// lost metadata commit) - the same side effect, reached around the guard. One function, called by
+/// every branch, is what keeps the next caller from reintroducing it.
+public enum ProviderRefreshPolicy {
+    public static func decision(for config: RemoteConfigUpdateOutcome) -> ProviderRefreshDecision {
+        switch config {
+        case .applied, .unchanged:
+            // .unchanged is a successful refresh that carried no new body (304, or a metadata-only
+            // update): the running instance IS the one this profile describes, so its providers are
+            // this update's to refresh.
+            return .refresh
+        case .saved:
+            // Saved, but the running instance serves a different profile.
+            return .skip(.notRunningThisProfile)
+        case .superseded:
+            return .skip(.superseded)
+        case .applyFailed, .invalidConfig, .downloadFailed, .recovered, .interrupted, .applyUnconfirmed:
+            return .skip(.notApplied)
+        }
+    }
+
+    /// The probe to report when the policy says "do not refresh", or nil when the refresh must run.
+    public static func skippedProbe(for config: RemoteConfigUpdateOutcome) -> RemoteProviderRefreshProbe? {
+        switch decision(for: config) {
+        case .refresh:
+            return nil
+        case let .skip(reason):
+            return .skipped(reason)
+        }
+    }
+}
+
+/// See `ProviderRefreshPolicy`.
+public enum ProviderRefreshDecision: Equatable, Sendable {
+    case refresh
+    case skip(ProviderRefreshSkip)
+}
+
 /// The two halves of one update, as one value.
 public struct RemoteProfileUpdateReport: Equatable, Sendable {
     public let config: RemoteConfigUpdateOutcome

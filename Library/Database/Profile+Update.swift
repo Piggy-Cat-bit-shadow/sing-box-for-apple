@@ -85,8 +85,7 @@ public extension Profile {
                 return await Self.tunnelConnected()
             },
             isStillCurrent: { await Self.isSelected(self.id) },
-            refreshProviders: { await Self.providerProbeIfCurrent(self.id) },
-            providersOnFailure: { await Self.providerProbeIfCurrent(self.id) }
+            refreshProviders: { await Self.providerProbeIfCurrent(self.id) }
         )
     }
 
@@ -259,8 +258,7 @@ public extension Profile {
         reloadService: ((String) async throws -> ExtensionApplyOutcome?)? = nil,
         canApply: (() async -> Bool)? = nil,
         isStillCurrent: (() async -> Bool)? = nil,
-        refreshProviders: (() async -> RemoteProviderRefreshProbe)? = nil,
-        providersOnFailure: (() async -> RemoteProviderRefreshProbe)? = nil
+        refreshProviders: (() async -> RemoteProviderRefreshProbe)? = nil
     ) async throws -> RemoteProfileUpdateReport {
         if type != .remote {
             return RemoteProfileUpdateReport(
@@ -303,12 +301,16 @@ public extension Profile {
             // profile is still the selected, connected one.
             return RemoteProfileUpdateReport(
                 config: .invalidConfig(error.localizedDescription),
-                providers: await (providersOnFailure ?? { .notActive })().summary
+                // No refresh: the running instance is not serving anything this update produced. The
+                // rule is the same one the applier uses, so the two paths cannot drift.
+                providers: ProviderRefreshPolicy.skippedProbe(for: .invalidConfig(error.localizedDescription))?.summary
+                    ?? RemoteProviderRefreshProbe.notActive.summary
             )
         } catch {
             return RemoteProfileUpdateReport(
                 config: .downloadFailed(error.localizedDescription),
-                providers: await (providersOnFailure ?? { .notActive })().summary
+                providers: ProviderRefreshPolicy.skippedProbe(for: .downloadFailed(error.localizedDescription))?.summary
+                    ?? RemoteProviderRefreshProbe.notActive.summary
             )
         }
         let persistProfile = persist ?? { profile in
@@ -348,7 +350,8 @@ public extension Profile {
             _ = error
             return RemoteProfileUpdateReport(
                 config: .superseded,
-                providers: await (providersOnFailure ?? { .notActive })().summary
+                providers: ProviderRefreshPolicy.skippedProbe(for: .superseded)?.summary
+                    ?? RemoteProviderRefreshProbe.notActive.summary
             )
         }
     }

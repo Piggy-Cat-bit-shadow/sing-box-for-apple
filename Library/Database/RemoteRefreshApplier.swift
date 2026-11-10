@@ -167,18 +167,14 @@ public enum RemoteRefreshApplier {
                 config = .applyFailed(error.localizedDescription)
             }
         }
-        // The provider half runs only when this update's document reached the running service. A
-        // failure, an interruption, a recovery to another document and an unconfirmed apply all mean
-        // the instance is not serving what this update wrote; refreshing its providers would attach a
-        // side effect to a claim it does not own.
+        // The provider half runs only when this update's document reached the running service; the
+        // rule itself is `ProviderRefreshPolicy`, so the profile path's failure branches cannot spell
+        // it differently.
         let providers: RemoteProviderRefreshProbe
-        switch config {
-        case .applied:
+        if let skipped = ProviderRefreshPolicy.skippedProbe(for: config) {
+            providers = skipped
+        } else {
             providers = await refreshProviders()
-        case .superseded:
-            providers = .skipped(.superseded)
-        default:
-            providers = .skipped(.notApplied)
         }
         return RemoteProfileUpdateReport(config: config, providers: providers.summary)
     }
