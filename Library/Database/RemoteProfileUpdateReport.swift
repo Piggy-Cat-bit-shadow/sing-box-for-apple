@@ -74,10 +74,18 @@ public struct RemoteProfileUpdateReport: Equatable, Sendable {
 public struct PreparedRemoteProfileUpdate: Sendable {
     public let report: RemoteProfileUpdateReport
     public let body: String?
+    /// The running instance observed when prepare saw this profile selected; nil when it was not
+    /// running then. Final apply uses it to distinguish "the old B" from a replacement Box.
+    public let startedAtAtPrepare: Int64?
 
-    public init(report: RemoteProfileUpdateReport, body: String?) {
+    public init(
+        report: RemoteProfileUpdateReport,
+        body: String?,
+        startedAtAtPrepare: Int64? = nil
+    ) {
         self.report = report
         self.body = body
+        self.startedAtAtPrepare = startedAtAtPrepare
     }
 }
 

@@ -81,7 +81,17 @@ public extension Profile {
             refreshProviders: { _ in .notActive },
             onStoredBody: { storedBody = $0 }
         )
-        return PreparedRemoteProfileUpdate(report: report, body: storedBody)
+        let startedAtAtPrepare: Int64?
+        if await Self.isSelected(id), await Self.tunnelConnected() {
+            startedAtAtPrepare = await Self.tunnelStartedAt()
+        } else {
+            startedAtAtPrepare = nil
+        }
+        return PreparedRemoteProfileUpdate(
+            report: report,
+            body: storedBody,
+            startedAtAtPrepare: startedAtAtPrepare
+        )
     }
 
     /// Applies the body [prepareRemoteProfileReporting] saved, once, to the current instance.
@@ -95,15 +105,16 @@ public extension Profile {
     ) async throws -> RemoteProfileUpdateReport {
         switch prepared.report.config {
         case .downloadFailed, .invalidConfig:
-            // The configuration half failed, but an old Box of this same profile may still be
-            // serving. Its Provider refresh is an independent fact and is bound to the start
-            // timestamp observed now; a replacement Box yields `.superseded` without an RPC.
+            // The configuration half failed, but the same old Box that was already serving at
+            // prepare time may still be there. A Box started after prepare is a replacement, not
+            // the instance this failure belongs to; do not probe it.
             let providers: RemoteProviderRefreshProbe
             if !(await Self.isSelected(id)) {
                 providers = .notActive
             } else if !(await Self.tunnelConnected()) {
                 providers = .notRunning
-            } else if let before = await Self.tunnelStartedAt() {
+            } else if let before = prepared.startedAtAtPrepare,
+                      (await Self.tunnelStartedAt()) == before {
                 providers = await Self.providerProbeIfCurrent(id, expectedStartedAt: before)
             } else {
                 providers = .superseded
@@ -123,6 +134,17 @@ public extension Profile {
         guard await Self.tunnelConnected(), let before = await Self.tunnelStartedAt() else {
             return RemoteProfileUpdateReport(config: .saved, providers: RemoteProviderRefreshProbe.notRunning.summary)
         }
+        if prepared.report.config == .unchanged {
+            let stored = try? await readAsync()
+            guard stored == prepared.body else {
+                return RemoteProfileUpdateReport(
+                    config: .superseded,
+                    providers: RemoteProviderRefreshProbe.notActive.summary
+                )
+            }
+            let providers = await Self.providerProbeIfCurrent(id, expectedStartedAt: before)
+            return RemoteProfileUpdateReport(config: .unchanged, providers: providers.summary)
+        }
         guard let stored = try? await readAsync(), let preparedBody = prepared.body else {
             return RemoteProfileUpdateReport(
                 config: .applyFailed("stored body unavailable"),
@@ -131,10 +153,6 @@ public extension Profile {
         }
         guard stored == preparedBody else {
             return RemoteProfileUpdateReport(config: .superseded, providers: RemoteProviderRefreshProbe.notActive.summary)
-        }
-        if prepared.report.config == .unchanged {
-            let providers = await Self.providerProbeIfCurrent(id, expectedStartedAt: before)
-            return RemoteProfileUpdateReport(config: .unchanged, providers: providers.summary)
         }
         do {
             try await onProfileUpdated()
