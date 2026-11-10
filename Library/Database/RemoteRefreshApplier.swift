@@ -82,12 +82,21 @@ public enum RemoteRefreshApplier {
         guard outcome.writeBody, let body = outcome.bodyToWrite else {
             // Metadata-only refresh: no reload, but the running instance's providers may still be
             // refreshed by the same user action. If the profile stopped being current, the answer
-            // belongs to whoever is current now, so it is not reported as this profile's update.
+            // belongs to whoever is current now, so it is not reported as this profile's update - and
+            // a superseded answer owes the instance nothing, including the provider half.
+            //
+            // The two outcomes share `ProviderRefreshPolicy` with every other branch, so this path
+            // cannot drift back into refreshing on a lost claim: `.unchanged` refreshes because the
+            // running instance IS this profile, `.superseded` skips.
             let current = await isStillCurrent?() ?? true
-            return RemoteProfileUpdateReport(
-                config: current ? .unchanged : .superseded,
-                providers: await refreshProviders().summary
-            )
+            let config: RemoteConfigUpdateOutcome = current ? .unchanged : .superseded
+            let providers: RemoteProviderRefreshProbe
+            if let skipped = ProviderRefreshPolicy.skippedProbe(for: config) {
+                providers = skipped
+            } else {
+                providers = await refreshProviders()
+            }
+            return RemoteProfileUpdateReport(config: config, providers: providers.summary)
         }
         // The test-and-set, as ONE operation: it reads the stored revision, compares it with the one
         // this update read, and writes - inside the caller's own critical section. A comparison here

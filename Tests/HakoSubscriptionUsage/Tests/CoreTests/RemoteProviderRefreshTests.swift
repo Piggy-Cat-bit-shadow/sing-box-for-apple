@@ -207,7 +207,13 @@ final class RemoteProviderRefreshTests: XCTestCase {
         XCTAssertEqual(report.config, .superseded)
     }
 
-    func testMetadataOnlySwitchDoesNotProbeTheNewInstance() async throws {
+    /// A metadata-only refresh that lost the profile must not probe anything.
+    ///
+    /// The older version of this test asserted one probe with `.notActive`: the request had already
+    /// stopped being current, and it still attached a live side effect (HTTP to each provider, nodes
+    /// published) to the instance it no longer owned. The rule is the same one every other branch
+    /// uses (`ProviderRefreshPolicy`): a superseded request refreshes nothing.
+    func testMetadataOnlySwitchDoesNotProbeAnyInstance() async throws {
         var probes = 0
         let report = try await RemoteRefreshApplier.applyReporting(
             outcome(bodyChanged: false),
@@ -222,8 +228,9 @@ final class RemoteProviderRefreshTests: XCTestCase {
             }
         )
         XCTAssertEqual(report.config, .superseded)
-        XCTAssertEqual(report.providers.status, .notActive)
-        XCTAssertEqual(probes, 1)
+        XCTAssertEqual(probes, 0, "a lost claim owes the running instance no provider refresh")
+        XCTAssertEqual(report.providers.status, .skipped)
+        XCTAssertEqual(report.providers.detail, ProviderRefreshSkip.superseded.rawValue)
     }
 
     func testAReplacedBodyIsNotReloadedOrReportedAsApplied() async throws {
