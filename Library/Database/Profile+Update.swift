@@ -298,27 +298,44 @@ public extension Profile {
 
     /// Commits one body against the revision this update read, as a single operation.
     ///
-    /// # Why the lock and the single blocking section are both needed
+    /// # Why a cross-process store and not just the in-process lock
     ///
     /// `BlockingIO` runs its blocks on a CONCURRENT queue, so "read the revision" and "write the body"
     /// as two calls can interleave with another update's calls: both read the old revision, both
     /// decide they own the profile, and the later write wins - which is the race this exists to
-    /// remove. One blocking section plus one in-process lock (`BodyCommitLock.shared`, shared with the
-    /// editor's save) is the smallest implementation that makes the read and the write indivisible
-    /// here. (Cross-process writers - the Intents extension - are a separate boundary; the design for
-    /// closing that is recorded in the handoff.)
+    /// remove. `BodyCommitLock` closes that race inside one process, but the shortcuts extension is a
+    /// second process writing the same file, with its own lock instance. `ProfileBodyStore` adds the
+    /// part the lock cannot have: an atomic directory lock (mkdir), a stored revision sidecar and a
+    /// commit journal, so the compare-and-set is real for both writers, and a crash between the body
+    /// write and the sidecar write is completed or refused on the next access instead of guessed.
     ///
     /// The file is the authority for the body: the profile row records metadata, not content.
     nonisolated func commitBody(_ body: String, ticket: ProfileUpdateTicket) async throws -> ProfileBodyCommit {
-        try await BlockingIO.run {
-            try BodyCommitLock.shared.withLock {
-                let stored = try? self.read()
-                let storedRevision = stored.map(ConfigurationBodyRevision.fingerprint(of:))
-                guard storedRevision == ticket.storedBodyRevision else {
-                    return ProfileBodyCommit.superseded(storedRevision: storedRevision)
+        switch type {
+        case .local, .remote:
+            let store = ProfileBodyStore(bodyURL: bodyURL)
+            let outcome = try await BlockingIO.run {
+                try store.commit(body, expecting: ticket.storedBodyRevision, writer: ticket.requestID)
+            }
+            switch outcome {
+            case let .committed(state), let .recovered(state):
+                return .committed(newRevision: state.revision)
+            case let .superseded(storedRevision):
+                return .superseded(storedRevision: storedRevision)
+            }
+        case .icloud:
+            // The iCloud copy is outside the extension's write path (its profiles are local or
+            // remote), so the in-process lock remains the only coordination it needs.
+            return try await BlockingIO.run {
+                try BodyCommitLock.shared.withLock {
+                    let stored = try? self.read()
+                    let storedRevision = stored.map(ConfigurationBodyRevision.fingerprint(of:))
+                    guard storedRevision == ticket.storedBodyRevision else {
+                        return ProfileBodyCommit.superseded(storedRevision: storedRevision)
+                    }
+                    try self.write(body)
+                    return ProfileBodyCommit.committed(newRevision: ConfigurationBodyRevision.fingerprint(of: body))
                 }
-                try self.write(body)
-                return ProfileBodyCommit.committed(newRevision: ConfigurationBodyRevision.fingerprint(of: body))
             }
         }
     }
@@ -342,7 +359,8 @@ public extension Profile {
         }
     }
 
-    /// Writes a body this process authored - an editor save - under the same lock as a remote commit.
+    /// Writes a body this process authored - an editor save - under the same cross-process lock as a
+    /// remote commit.
     ///
     /// Unconditional on purpose: a save is the user's decision, so it does not compare revisions. What
     /// it must not do is land BETWEEN a refresh's comparison and its write, because then the refresh
@@ -350,9 +368,17 @@ public extension Profile {
     /// defined order: either the save lands first (the refresh sees it and supersedes) or the refresh
     /// commits first and the save then wins, which is what the user asked for.
     nonisolated func saveBody(_ content: String) async throws {
-        try await BlockingIO.run {
-            try BodyCommitLock.shared.withLock {
-                try self.write(content)
+        switch type {
+        case .local, .remote:
+            let store = ProfileBodyStore(bodyURL: bodyURL)
+            _ = try await BlockingIO.run {
+                try store.save(content, writer: "editor-save")
+            }
+        case .icloud:
+            try await BlockingIO.run {
+                try BodyCommitLock.shared.withLock {
+                    try self.write(content)
+                }
             }
         }
     }

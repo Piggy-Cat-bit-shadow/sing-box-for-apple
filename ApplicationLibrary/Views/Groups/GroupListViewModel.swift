@@ -14,8 +14,16 @@ public class GroupListViewModel: BaseViewModel {
     /// spinner on the row, which is why the set exists here rather than in the page.
     @Published public var testingItems: Set<String> = []
 
-    private var pendingSelections: [String: String] = [:]
     private var pendingExpands: [String: Bool] = [:]
+    /// The latest selection attempt per group.
+    ///
+    /// A group tag could not tell two attempts apart: `pendingSelections[groupTag]` was overwritten
+    /// by the next tap and then settled whichever answer arrived last. The kernel now echoes the
+    /// request id and the group revision of every selection, so the ledger can decide - for each
+    /// answer - whether it still owns the row.
+    private var selectionLedger = SelectionLedger()
+    /// The in-flight task per group, so a newer tap cancels the older one instead of racing it.
+    private var selectionTasks: [String: Task<Void, Never>] = [:]
 
     override public init() {
         super.init()
@@ -37,11 +45,14 @@ public class GroupListViewModel: BaseViewModel {
         guard var newGroups else { return }
         for index in newGroups.indices {
             let tag = newGroups[index].tag
-            if let pendingSelected = pendingSelections[tag] {
-                if newGroups[index].selected == pendingSelected {
-                    pendingSelections.removeValue(forKey: tag)
+            if let pending = selectionLedger.pendingSelection(for: tag) {
+                if newGroups[index].selected == pending.outboundTag {
+                    _ = selectionLedger.confirmFromStream(groupTag: tag, selectedTag: pending.outboundTag)
                 } else {
-                    newGroups[index].selected = pendingSelected
+                    // The read-back has not arrived yet. Keep the user's choice on screen, but
+                    // only while an attempt is actually in flight: a failure clears the ledger
+                    // entry, so a failed selection cannot pin this row forever.
+                    newGroups[index].selected = pending.outboundTag
                 }
             }
             if let pendingExpand = pendingExpands[tag] {
@@ -62,20 +73,72 @@ public class GroupListViewModel: BaseViewModel {
         if let index = groups.firstIndex(where: { $0.tag == groupTag }) {
             groups[index].selected = outboundTag
         }
-        pendingSelections[groupTag] = outboundTag
-
-        Task {
-            await doSelectOutbound(groupTag: groupTag, outboundTag: outboundTag)
+        let request = selectionLedger.begin(groupTag: groupTag, outboundTag: outboundTag)
+        // The newest attempt owns the row. Cancelling the older task is not what makes that true -
+        // the ledger's request id is - but it stops an abandoned call from being driven further.
+        selectionTasks[groupTag]?.cancel()
+        selectionTasks[groupTag] = Task { [weak self] in
+            await self?.doSelectOutbound(request)
         }
     }
 
-    private nonisolated func doSelectOutbound(groupTag: String, outboundTag: String) async {
+    /// Sends the selection with its request identity and read-back expectations.
+    ///
+    /// `expectedRevision` is the last revision this client applied for the group, so the kernel can
+    /// say `stale` when the group moved before the request arrived. The answer is applied only if
+    /// `selectionLedger` still considers this attempt the latest one.
+    private nonisolated func doSelectOutbound(_ request: SelectionRequest) async {
         do {
-            try await CommandTarget.standaloneClient().selectOutbound(groupTag, outboundTag: outboundTag)
+            let client = try CommandTarget.standaloneClient()
+            let box = try client.selectOutboundWithRequest(
+                request.groupTag,
+                outboundTag: request.outboundTag,
+                requestID: request.requestID,
+                expectedRevision: request.expectedRevision
+            )
+            guard let readBack = SelectionReadBack.decode(box.value) else {
+                await MainActor.run {
+                    settleSelectionFailure(request, message: "the selection answer could not be read")
+                }
+                return
+            }
+            await MainActor.run {
+                settleSelection(readBack, for: request)
+            }
         } catch {
             await MainActor.run {
-                alert = AlertState(action: "select outbound", error: error)
+                settleSelectionFailure(request, message: error.localizedDescription)
             }
+        }
+    }
+
+    private func settleSelection(_ readBack: SelectionReadBack, for request: SelectionRequest) {
+        selectionTasks[request.groupTag] = nil
+        switch selectionLedger.settle(readBack, for: request) {
+        case let .applied(outboundTag, _, _):
+            // The row shows what the group HOLDS, not what was requested: the daemon may have
+            // applied a different member (a hard switch, or a group that refused the member).
+            if let index = groups.firstIndex(where: { $0.tag == request.groupTag }) {
+                groups[index].selected = outboundTag
+            }
+        case .ignoredOlderRequest, .ignoredOlderRevision:
+            // A newer tap already owns this group. Applying this answer is exactly the defect
+            // the request identity exists to remove.
+            break
+        case let .unconfirmed(reason):
+            alert = AlertState(action: "select outbound", error: SelectionOrderingFailure(reason))
+        case let .failed(reason):
+            alert = AlertState(action: "select outbound", error: SelectionOrderingFailure(reason))
+        }
+    }
+
+    private func settleSelectionFailure(_ request: SelectionRequest, message: String) {
+        selectionTasks[request.groupTag] = nil
+        switch selectionLedger.fail(request, reason: message) {
+        case let .failed(reason):
+            alert = AlertState(action: "select outbound", error: SelectionOrderingFailure(reason))
+        case .applied, .ignoredOlderRequest, .ignoredOlderRevision, .unconfirmed:
+            break
         }
     }
 

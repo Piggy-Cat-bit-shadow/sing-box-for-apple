@@ -522,7 +522,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     ///   platform's own settings changed. The document may be identical, so the core will satisfy
     ///   the request in place and never call `openTun`; the platform half must therefore be treated
     ///   as a NEW install and confirmed with the takeover check.
-    private func startService(isReload: Bool = false, reinstallsPlatformSettings: Bool = false) async throws -> LibboxApplyOutcomeDocument? {
+    private func startService(isReload: Bool = false, reinstallsPlatformSettings: Bool = false, requestID: String = "") async throws -> LibboxApplyOutcomeDocument? {
         guard let configContent = tunnelOptions?["configContent"] as? String else {
             throw ExtensionStartupError("(packet-tunnel) error: missing configContent in tunnel options")
         }
@@ -562,7 +562,18 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             try withServiceLifecycleLock {
                 serviceLifecycleGeneration &+= 1
                 generation = serviceLifecycleGeneration
-                guard let box = commandServer.applyServiceChangeReport(configContent, options: options) else {
+                // The request token reaches the kernel now. `applyServiceChangeReportWithRequest`
+                // echoes it in `report.requestId` and names the instance it left running, which is
+                // what the receipt carries back to the app. A kernel that predates the entry falls
+                // back to the token-less call: refusing there would turn an old core into a
+                // tunnel that cannot reload at all.
+                let box: LibboxStringBox?
+                if requestID.isEmpty {
+                    box = commandServer.applyServiceChangeReport(configContent, options: options)
+                } else {
+                    box = commandServer.applyServiceChangeReportWithRequest(requestID, configContent: configContent, options: options)
+                }
+                guard let box else {
                     throw ExtensionStartupError("(packet-tunnel) the command server returned no apply report")
                 }
                 document = LibboxApplyOutcomeDocument.decode(box.value)
@@ -577,6 +588,17 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             // say what did arrive.
             throw ExtensionApplyFailure(
                 message: "(packet-tunnel) the apply report could not be read",
+                document: document
+            )
+        }
+        if !requestID.isEmpty,
+           let echoedRequestID = document.report?.requestID, !echoedRequestID.isEmpty,
+           echoedRequestID != requestID
+        {
+            // The kernel named a different apply than the one this request asked for. That is not
+            // this request's report, whatever its status says.
+            throw ExtensionApplyFailure(
+                message: "(packet-tunnel) the daemon answered apply request \(echoedRequestID), not \(requestID)",
                 document: document
             )
         }
@@ -755,6 +777,15 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// never installed. The change is invisible to every comparison the kernel can make, so it is
     /// made here, where the settings live.
     override open func handleAppMessage(_ messageData: Data) async -> Data? {
+        // The app's session query. It is JSON, not the start-options plist, so it is answered
+        // before the plist decode - a request with no configuration would otherwise be reported as
+        // a malformed apply. Nothing is staged and nothing changes: the answer is this process's
+        // tunnel identity, which lets a reload name the session it addresses.
+        if let object = try? JSONSerialization.jsonObject(with: messageData) as? [String: Any],
+           object[TunnelSessionIdentityMessage.operationKey] as? String == TunnelSessionIdentityMessage.operationValue
+        {
+            return try? JSONEncoder().encode([TunnelSessionIdentityMessage.sessionIDKey: tunnelSessionID])
+        }
         let options: [String: NSObject]
         do {
             options = try ExtensionStartOptions.decode(messageData)
@@ -776,6 +807,27 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         let requestID = options["requestID"] as? String ?? ""
         let profileID = (options["profileID"] as? NSNumber)?.int64Value
         let bodyRevision = options["bodyRevision"] as? String
+        // The tunnel session the request declares, checked on the RECEIVING side before anything is
+        // staged. A reload built for session A that arrives after session B started would otherwise
+        // be applied by B, and the app would read B's success as A's.
+        if case let .refuse(reason) = ExtensionSessionBinding.admission(
+            expectedSessionID: options["expectedSessionID"] as? String,
+            currentSessionID: tunnelSessionID
+        ) {
+            return encodeReceipt(
+                requestID: requestID,
+                profileID: profileID,
+                bodyRevision: bodyRevision,
+                ok: false,
+                status: ExtensionApplyStatus.failed.rawValue,
+                targetRevision: nil,
+                activeRevision: nil,
+                retained: nil,
+                restartRequired: nil,
+                persistence: nil,
+                reason: "(packet-tunnel) \(reason)"
+            )
+        }
         guard let configContent = options["configContent"] as? String else {
             return encodeReceipt(
                 requestID: requestID,
@@ -924,7 +976,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             // Ordering it this way also removes the blind window the first version had: a candidate
             // the core cannot parse is refused BEFORE the running Box is touched, so a bad document
             // can no longer cost the tunnel by closing it first.
-            var document = try await startService(isReload: true)
+            var document = try await startService(isReload: true, requestID: requestID)
             // Only the two LIVE statuses need a forced rebuild: they are the ones where the daemon
             // satisfied the request without reopening the TUN. `recovered`, `interrupted` and
             // `failed` never reach here - `startService` throws for them (except `recovered`, whose
@@ -936,7 +988,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                     "(packet-tunnel) the daemon applied the document without reopening the tunnel; rebuilding so the system installs the new settings",
                     level: .info
                 )
-                document = try await performApply(reinstallsPlatformSettings: true)
+                document = try await performApply(reinstallsPlatformSettings: true, requestID: requestID)
             }
             // The candidate is what runs now, so the record may name it. A refused write does not
             // fail the apply - the tunnel is running - but it is reported as `degraded`, because the
@@ -956,6 +1008,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 requestID: requestID,
                 profileID: profileID,
                 bodyRevision: bodyRevision,
+                instanceID: document?.report?.instanceID,
                 ok: document?.ok ?? false,
                 status: document?.status ?? ExtensionApplyStatus.failed.rawValue,
                 targetRevision: document?.report?.plan?.targetRevision,
@@ -1008,7 +1061,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// `defer` runs at the end of its enclosing SCOPE, so the flag is set and cleared in a function
     /// of its own: inside the `if` it would be cleared the moment the close returned, which is
     /// exactly the gap the app draws as "the tunnel came back" while nothing is running.
-    private func performApply(reinstallsPlatformSettings: Bool) async throws -> LibboxApplyOutcomeDocument? {
+    private func performApply(reinstallsPlatformSettings: Bool, requestID: String = "") async throws -> LibboxApplyOutcomeDocument? {
         reasserting = reinstallsPlatformSettings
         defer {
             reasserting = false
@@ -1022,7 +1075,8 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         }
         return try await startService(
             isReload: !reinstallsPlatformSettings,
-            reinstallsPlatformSettings: reinstallsPlatformSettings
+            reinstallsPlatformSettings: reinstallsPlatformSettings,
+            requestID: requestID
         )
     }
 
@@ -1074,6 +1128,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         requestID: String,
         profileID: Int64?,
         bodyRevision: String?,
+        instanceID: String? = nil,
         ok: Bool,
         status: String,
         targetRevision: String?,
@@ -1088,6 +1143,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             sessionID: tunnelSessionID,
             profileID: profileID,
             bodyRevision: bodyRevision,
+            instanceID: instanceID,
             ok: ok,
             status: status,
             targetRevision: targetRevision,

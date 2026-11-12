@@ -469,7 +469,24 @@ public class StatusBarController: NSObject, NSMenuDelegate {
 
         Task {
             do {
-                try await LibboxNewStandaloneCommandClient()!.selectOutbound(groupTag, outboundTag: outboundTag)
+                // The menu bar has no pending list, but the selection still carries an identity:
+                // the daemon echoes the request and names the member the group holds. A daemon that
+                // predates the identity fields answers supported=false, which is a capability
+                // answer - the selection was performed, and the next groups refresh is the truth.
+                let requestID = UInt64(Date().timeIntervalSince1970 * 1000)
+                let box = try LibboxNewStandaloneCommandClient()!.selectOutboundWithRequest(
+                    groupTag,
+                    outboundTag: outboundTag,
+                    requestID: requestID,
+                    expectedRevision: 0
+                )
+                if let readBack = SelectionReadBack.decode(box.value) {
+                    if readBack.unconfirmed {
+                        NSLog("select outbound: the daemon cannot confirm request %llu", requestID)
+                    } else if readBack.stale {
+                        NSLog("select outbound: request %llu was applied against a group state this menu had not seen", requestID)
+                    }
+                }
             } catch {
                 showAlert(error: error)
             }

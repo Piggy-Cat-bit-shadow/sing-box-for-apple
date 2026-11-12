@@ -73,8 +73,11 @@ command=(
 contract=(
     "Library/Network/CommandScope.swift"
     "Library/Network/ExtensionApplyReceipt.swift"
+    "Library/Network/ExtensionSessionBinding.swift"
+    "Library/Network/SelectionOrdering.swift"
     "Library/Network/PlatformSettingsRevision.swift"
     "Library/Database/ProfileUpdateOwnership.swift"
+    "Library/Database/ProfileBodyStore.swift"
     "Library/Database/RemoteProfileUpdateReport.swift"
     "Library/Database/RemoteProviderRefreshReport.swift"
     "Library/Database/ConfigurationDocuments.swift"
