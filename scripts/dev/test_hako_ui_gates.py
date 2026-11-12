@@ -529,6 +529,26 @@ def run(root: str) -> list[str]:
                              "the Taildrop fold's missing clear")
     ran.append("Taildrop's leaking fold is caught")
 
+    # 24. The picker generator's own refusal. `--regenerate` is the one command that can put
+    #     the glass back *and* drop the file's platform guards, so the generator refuses while
+    #     the row's manual repair is present; discarding it takes a second, explicit flag. The
+    #     decision is a pure function because the generator cannot read its input on this host.
+    generator = load(os.path.join(root, "scripts/dev/make_hako_profile_picker.py"), "picker_generator")
+    repairs = generator.manual_repair_problems(picker)
+    if len(repairs) != 1 or "ProfileRowCardSurface" not in repairs[0]:
+        raise CaseFailure(
+            "the generator no longer recognises the row's manual repair; it reported: %s" % repairs
+        )
+    if generator.regeneration_refusal(picker, True):
+        raise CaseFailure("`--allow-manual-repairs` is meant to discard the repair, but it refused")
+    stripped = picker.replace("ProfileRowCardSurface", "GeneratedRowSurface")
+    if generator.regeneration_refusal(stripped, False):
+        raise CaseFailure(
+            "a file without the manual repair was still refused: %s"
+            % generator.regeneration_refusal(stripped, False)
+        )
+    ran.append("picker generator refuses to drop the row's surface")
+
     return ran
 
 

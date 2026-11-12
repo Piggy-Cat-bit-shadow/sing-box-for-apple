@@ -12,7 +12,9 @@ come with an `#else` the non-macOS build actually uses, and deleting the `#if` s
 body dangling. A condition the evaluator cannot resolve is a failure rather than a guess.
 
 Re-run this after an upstream sync rather than editing the generated file, or the next run will
-disagree with it.
+disagree with it - **except** that the maintained file carries repairs this generator cannot
+reproduce (the configuration row's grouped card surface). `--regenerate` refuses to write over
+those unless `--allow-manual-repairs` is given; that flag is a deliberate reset, not a refresh.
 """
 import io
 import os
@@ -39,6 +41,36 @@ PLATFORM = {
     "JAILBREAK": False,
     "DEBUG": False,
 }
+
+#: Repairs the maintained file carries that this generator's input cannot produce. A
+#: regeneration writes the resolved upstream text, so every one of these disappears with it;
+#: `--regenerate` therefore refuses while one is present. Discarding them is a deliberate
+#: reset (`--allow-manual-repairs`), never a refresh.
+MANUAL_REPAIRS = {
+    "ProfileRowCardSurface": "the phone configuration row's grouped card surface",
+}
+
+
+def manual_repair_problems(current: str) -> list[str]:
+    """The manual repairs `current` carries, one line each."""
+    return [
+        "`%s`: %s" % (marker, why)
+        for marker, why in sorted(MANUAL_REPAIRS.items())
+        if marker in current
+    ]
+
+
+def regeneration_refusal(current: str, allow_manual_repairs: bool) -> list[str]:
+    """Why `--regenerate` must not write over `current`, or nothing when it may.
+
+    Returned rather than printed so the decision is testable without a git checkout: the
+    generator cannot read its input on this host (the ref is gone), which is exactly when a
+    test of the refusal needs to run.
+    """
+    if allow_manual_repairs:
+        return []
+    return manual_repair_problems(current)
+
 
 HEADER = '''//
 //  HakoProfilePickerSheet.swift
@@ -232,6 +264,21 @@ def main() -> int:
             return 1
         print(f"unchanged: {os.path.relpath(DST, ROOT)}")
         return 0
+
+    if regenerate and os.path.exists(DST):
+        current = io.open(DST, encoding="utf-8").read()
+        refusal = regeneration_refusal(current, "--allow-manual-repairs" in sys.argv)
+        if refusal:
+            print("REFUSED: the maintained file carries manual repairs this generator cannot "
+                  "produce:", file=sys.stderr)
+            for problem in refusal:
+                print("  - " + problem, file=sys.stderr)
+            print("  The output is the resolved upstream text, so rewriting would drop every one "
+                  "of them - and this file also carries platform guards the resolution removes. "
+                  "That is a reset, not a refresh.", file=sys.stderr)
+            print("  Pass --allow-manual-repairs only to discard those repairs deliberately; "
+                  "check_hako_profile_switch.py is the gate that holds them.", file=sys.stderr)
+            return 1
 
     io.open(DST, "w", encoding="utf-8", newline="").write(out)
     print(f"wrote {os.path.relpath(DST, ROOT)}: {len(out.splitlines())} lines "
