@@ -1,6 +1,18 @@
 import Foundation
 
 public extension Profile {
+    /// The file that stores this profile's body. It is the single place that decides which
+    /// directory a body lives in, so the cross-process store and the read/write helpers cannot
+    /// disagree about it.
+    var bodyURL: URL {
+        switch type {
+        case .local, .remote:
+            return FilePath.sharedDirectory.appendingPathComponent(path)
+        case .icloud:
+            return FilePath.iCloudDirectory.appendingPathComponent(path)
+        }
+    }
+
     func read() throws -> String {
         #if DEBUG
             precondition(!Thread.isMainThread, "Profile.read() must not be called on the main thread")

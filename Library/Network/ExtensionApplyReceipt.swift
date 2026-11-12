@@ -124,11 +124,30 @@ public struct LibboxApplyOutcomeDocument: Decodable, Equatable, Sendable {
         public var persistence: String?
         public var persistenceWarning: String?
         public var reason: String?
+        /// The token the caller supplied for this apply, echoed by the kernel. Empty when the
+        /// caller used the token-less entry point (or an older kernel).
+        public var requestID: String?
+        /// The kernel instance running after the attempt. This is the identity the NE receipt
+        /// carries, and the app checks it against the instance it expected.
+        public var instanceID: String?
         public var plan: Plan?
 
         public struct Plan: Decodable, Equatable, Sendable {
             public var currentRevision: String?
             public var targetRevision: String?
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case status
+            case restartRequired
+            case retained
+            case activeRevision
+            case persistence
+            case persistenceWarning
+            case reason
+            case requestID = "requestId"
+            case instanceID = "instanceId"
+            case plan
         }
     }
 
@@ -177,6 +196,10 @@ public struct ExtensionApplyReceipt: Equatable, Sendable {
     /// The caller's own fingerprint of the body it sent, echoed so the receipt names the document it
     /// applied rather than the one that happens to be stored now.
     public let bodyRevision: String?
+    /// The kernel instance running after the apply, when the kernel named one. nil for a kernel
+    /// that predates request identity, which is why the ownership check treats a missing value as
+    /// "unconfirmed" only when the caller expected an instance.
+    public let instanceID: String?
     public let outcome: ExtensionApplyOutcome
     public let targetRevision: String?
     public let restartRequired: Bool
@@ -188,6 +211,7 @@ public struct ExtensionApplyReceipt: Equatable, Sendable {
         tunnelSessionID: String,
         profileID: Int64?,
         bodyRevision: String?,
+        instanceID: String? = nil,
         outcome: ExtensionApplyOutcome,
         targetRevision: String?,
         restartRequired: Bool,
@@ -198,6 +222,7 @@ public struct ExtensionApplyReceipt: Equatable, Sendable {
         self.tunnelSessionID = tunnelSessionID
         self.profileID = profileID
         self.bodyRevision = bodyRevision
+        self.instanceID = instanceID
         self.outcome = outcome
         self.targetRevision = targetRevision
         self.restartRequired = restartRequired
@@ -213,6 +238,8 @@ public struct ExtensionApplyReceiptMessage: Codable, Equatable, Sendable {
     public var sessionID: String?
     public var profileID: Int64?
     public var bodyRevision: String?
+    /// The kernel instance the apply left running, when the extension could read one.
+    public var instanceID: String?
     public var ok: Bool?
     public var status: String?
     public var targetRevision: String?
@@ -228,6 +255,7 @@ public struct ExtensionApplyReceiptMessage: Codable, Equatable, Sendable {
         sessionID: String? = nil,
         profileID: Int64? = nil,
         bodyRevision: String? = nil,
+        instanceID: String? = nil,
         ok: Bool? = nil,
         status: String? = nil,
         targetRevision: String? = nil,
@@ -242,6 +270,7 @@ public struct ExtensionApplyReceiptMessage: Codable, Equatable, Sendable {
         self.sessionID = sessionID
         self.profileID = profileID
         self.bodyRevision = bodyRevision
+        self.instanceID = instanceID
         self.ok = ok
         self.status = status
         self.targetRevision = targetRevision
@@ -263,6 +292,10 @@ public enum ExtensionApplyReceiptParser {
         /// A reply for another request: a late answer to an earlier apply, or an extension that
         /// lost track of the id. It must not be counted as this request's confirmation.
         case otherRequest(expected: String, received: String)
+        /// A reply from another tunnel session: the extension restarted between the send and this
+        /// answer. The request it answers may never have been applied by the session that is
+        /// running now, so the answer cannot confirm anything this caller sees.
+        case otherSession(expected: String, received: String)
         /// The reply is not an envelope this build understands.
         case unreadable(String)
     }
@@ -270,7 +303,9 @@ public enum ExtensionApplyReceiptParser {
     /// - Parameters:
     ///   - data: the extension's reply, as `sendProviderMessage` delivered it.
     ///   - requestID: the id this call sent.
-    public static func parse(_ data: Data?, expecting requestID: String) -> Result {
+    ///   - expectedSessionID: the tunnel session this call was sent to, or nil when the caller
+    ///     does not track sessions (the old behaviour).
+    public static func parse(_ data: Data?, expecting requestID: String, expectingSessionID: String? = nil) -> Result {
         guard let data, !data.isEmpty else {
             return .noReceipt
         }
@@ -280,12 +315,16 @@ public enum ExtensionApplyReceiptParser {
         } catch {
             return .unreadable(error.localizedDescription)
         }
-        return classify(message, expecting: requestID)
+        return classify(message, expecting: requestID, expectingSessionID: expectingSessionID)
     }
 
     /// Classifies an already-decoded envelope. Split out so the decision is testable on the value
     /// rather than only through JSON.
-    public static func classify(_ message: ExtensionApplyReceiptMessage, expecting requestID: String) -> Result {
+    public static func classify(
+        _ message: ExtensionApplyReceiptMessage,
+        expecting requestID: String,
+        expectingSessionID: String? = nil
+    ) -> Result {
         if let version = message.version, version > ExtensionApplyReceipt.version {
             // A newer extension may have changed what a field means. Reading it with this build's
             // rules would be guessing, and guessing here means reporting an apply nobody confirmed.
@@ -300,6 +339,12 @@ public enum ExtensionApplyReceiptParser {
         guard let sessionID = message.sessionID, !sessionID.isEmpty else {
             return .unreadable("the extension answered without a tunnel session id")
         }
+        if case let .refuse(reason) = ExtensionSessionBinding.receiptMatches(
+            expectedSessionID: expectingSessionID,
+            receiptSessionID: sessionID
+        ) {
+            return .otherSession(expected: expectingSessionID ?? "", received: sessionID)
+        }
         let outcome = outcome(of: message)
         return .receipt(
             ExtensionApplyReceipt(
@@ -307,6 +352,7 @@ public enum ExtensionApplyReceiptParser {
                 tunnelSessionID: sessionID,
                 profileID: message.profileID,
                 bodyRevision: message.bodyRevision,
+                instanceID: message.instanceID,
                 outcome: outcome,
                 targetRevision: message.targetRevision,
                 restartRequired: message.restartRequired ?? false,

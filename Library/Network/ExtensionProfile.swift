@@ -231,11 +231,17 @@ public class ExtensionProfile: ObservableObject {
             ])
         }
         let content = try await profile.readAsync()
+        // A reload goes to a session that already exists. Naming it before the send is what lets
+        // the extension refuse a request built for a session that has since stopped, and lets the
+        // receipt be checked against the session this call actually addressed. An extension that
+        // predates the identity query answers nothing, so the snapshot keeps the old shape.
+        let expectedSessionID = await currentTunnelSessionID()
         let snapshot = StartSnapshot(
             profileID: profileID,
             requestID: UUID().uuidString,
             bodyRevision: ConfigurationBodyRevision.fingerprint(of: content),
-            configContent: content
+            configContent: content,
+            expectedSessionID: expectedSessionID
         )
         // The SAME attribution the profile path uses: a receipt only counts when it names this
         // request, this profile and this body. Matching the request id alone would accept a reply
@@ -252,7 +258,8 @@ public class ExtensionProfile: ObservableObject {
               case let .matches(matched) = ProfileUpdateOwnership.ownership(
                   of: receipt,
                   ticket: ticket,
-                  expectedBodyRevision: snapshot.bodyRevision
+                  expectedBodyRevision: snapshot.bodyRevision,
+                  expectedSessionID: expectedSessionID
               )
         else {
             // No receipt this call can attribute to itself. Reporting success would claim an apply
@@ -297,12 +304,27 @@ public class ExtensionProfile: ObservableObject {
         public let requestID: String
         public let bodyRevision: String
         public let configContent: String
+        /// The tunnel session this request is addressed to, when the caller knows it.
+        ///
+        /// A reload is sent to a session that already exists, and `currentTunnelSessionID()` can
+        /// name it. The extension refuses the request if its own session no longer matches, which
+        /// is what stops a request built for a stopped session from being applied by its
+        /// replacement. A start has no session yet, so it leaves this nil and keeps the old
+        /// behaviour on both sides.
+        public let expectedSessionID: String?
 
-        public init(profileID: Int64, requestID: String, bodyRevision: String, configContent: String) {
+        public init(
+            profileID: Int64,
+            requestID: String,
+            bodyRevision: String,
+            configContent: String,
+            expectedSessionID: String? = nil
+        ) {
             self.profileID = profileID
             self.requestID = requestID
             self.bodyRevision = bodyRevision
             self.configContent = configContent
+            self.expectedSessionID = expectedSessionID
         }
     }
 
@@ -338,13 +360,53 @@ public class ExtensionProfile: ObservableObject {
                 continuation.resume(throwing: error)
             }
         }
-        switch ExtensionApplyReceiptParser.parse(response, expecting: snapshot.requestID) {
+        switch ExtensionApplyReceiptParser.parse(response, expecting: snapshot.requestID, expectingSessionID: snapshot.expectedSessionID) {
         case let .receipt(receipt):
             return receipt
-        case .noReceipt, .otherRequest, .unreadable:
+        case .noReceipt, .otherRequest, .otherSession, .unreadable:
             // Not attributable to this request, so this call has no answer of its own. The caller
             // reports it as unconfirmed; nothing is retried and nothing is rolled back.
             return nil
+        }
+    }
+
+    /// Asks the extension which tunnel session is running, or nil when it cannot say.
+    ///
+    /// A reload needs the session before it can name it. The query is a normal provider message
+    /// with no configuration; an extension that predates it answers a failure receipt (or nothing),
+    /// which decodes to nil, and the caller then sends the reload without an expectation - the old
+    /// behaviour, not a false confirmation.
+    ///
+    /// The timeout exists because `sendProviderMessage` has none: an extension that is starting up
+    /// would otherwise hold the reload behind a query that may never be answered.
+    public func currentTunnelSessionID(timeout: TimeInterval = 1.5) async -> String? {
+        if isMock {
+            return nil
+        }
+        guard let session = connection as? NETunnelProviderSession,
+              let request = TunnelSessionIdentityMessage.Request().encode()
+        else {
+            return nil
+        }
+        return await withTaskGroup(of: String?.self) { group in
+            group.addTask {
+                await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+                    do {
+                        try session.sendProviderMessage(request) { response in
+                            continuation.resume(returning: TunnelSessionIdentityMessage.Response.decode(response))
+                        }
+                    } catch {
+                        continuation.resume(returning: nil)
+                    }
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(max(timeout, 0) * 1_000_000_000))
+                return nil
+            }
+            let answer = await group.next() ?? nil
+            group.cancelAll()
+            return answer
         }
     }
 
@@ -383,6 +445,11 @@ public class ExtensionProfile: ObservableObject {
             "bodyRevision": NSString(string: snapshot.bodyRevision),
             "configContent": NSString(string: snapshot.configContent),
         ]
+        // Only a caller that actually knows the session names one. An old extension ignores the
+        // key; a new one refuses the request when its session no longer matches.
+        if let expectedSessionID = snapshot.expectedSessionID, !expectedSessionID.isEmpty {
+            options["expectedSessionID"] = NSString(string: expectedSessionID)
+        }
 
         #if os(macOS)
             options["oomKillerEnabled"] = await NSNumber(value: SharedPreferences.oomKillerEnabled.get())
