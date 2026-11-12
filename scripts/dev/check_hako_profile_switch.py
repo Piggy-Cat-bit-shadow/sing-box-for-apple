@@ -20,13 +20,15 @@ other gate can see:
      structural property, and it is asserted on the source text with the comments
      stripped.
 
-  3. **Surface.** The centre's rows draw the grouped card surface (`ProfileRowCardSurface`),
-     not `cardStyle()`. On the 26 releases `cardStyle()` is the system's glass, and a list of
-     identical rows over the sheet's black background read as panes of glass rather than as
-     the settings-style list the centre is. The check also holds the rest of the decision
-     together: the 16-point shape, the semantic palette fill, the row's hit area and
-     selection/menu, and the Mac's own `cardStyle()` arm - a row that kept the fill but lost
-     the shape would be the same defect wearing a different surface.
+  3. **Surface.** The centre's rows draw `ProfileRowCardSurface`, not `cardStyle()`. On the 26
+     releases `cardStyle()` is the system's glass, and a list of identical rows over the sheet's
+     black background read as panes of glass rather than as the settings-style list the centre
+     is. The check also holds the rest of the decision together: the 16-point shape, the fill
+     (the sheet's grouping step, `tertiarySystemGroupedBackground` - not the grouped page's
+     `secondarySystemGroupedBackground`, which equals this sheet's light canvas), the row's hit
+     area and selection/menu, and the Mac's own `cardStyle()` arm. A row that kept the fill but
+     lost the shape, or took the grouped page's fill, is the same defect wearing a different
+     surface.
 
 It also asserts the page's single alert presentation. Two `.alert` modifiers on one view
 are one presentation and the outer one wins, which is how a failed switch came to report
@@ -447,7 +449,7 @@ ROW_SURFACE_RADIUS = "static let cornerRadius: CGFloat = 16"
 
 
 def surface_problems(picker_code: str) -> list[str]:
-    """The configuration centre's rows draw the grouped surface, not the system's glass.
+    """The configuration centre's rows draw `HakoCardSurface` with the sheet's grouping fill.
 
     This lives beside the switch checks because this is the one gate that already reads
     `HakoProfilePickerSheet.swift` as a whole, and the property has the same shape as the
@@ -455,8 +457,15 @@ def surface_problems(picker_code: str) -> list[str]:
     hand edit in the wrong place, can silently reverse without breaking the build. On the
     26 releases `cardStyle()` draws `glassEffect`, so "the build is green" says nothing.
 
+    The fill is part of the decision, not a detail: the row sits on a `List(.plain)` whose
+    canvas is `systemBackground`, so `secondarySystemGroupedBackground` - the grouped page's
+    card fill - is the same white in the light appearance. `tertiarySystemGroupedBackground`
+    differs from the canvas in both appearances. The check holds the tertiary fill and names
+    the grouped-page fill as the wrong one, because a silent revert to it is exactly the
+    defect this row was fixed for.
+
     `picker_code` is the source with comments stripped: the row's own documentation names
-    both `cardStyle()` and the surface it replaced.
+    both `cardStyle()` and the fills it does not use.
     """
     problems: list[str] = []
 
@@ -543,12 +552,23 @@ def surface_problems(picker_code: str) -> list[str]:
             "other painted surfaces use: the row has been given a surface of its own again, "
             "which is how the list stops matching the cards around it"
         )
-    if "fill: HakoProductPalette.system.fill(for: .secondaryPageCard)" not in phone_arm:
+    if "fill: Color(uiColor: .tertiarySystemGroupedBackground)" not in phone_arm:
         problems.append(
             "the phone's arm no longer fills the card with "
-            "`HakoProductPalette.system.fill(for: .secondaryPageCard)`: the fill must stay the "
-            "semantic grouped card so light and dark both follow the system"
+            "`Color(uiColor: .tertiarySystemGroupedBackground)`: this list's canvas is "
+            "`systemBackground`, so the secondary grouped fill is the same colour as it in the "
+            "light appearance and the row stops reading as a card"
         )
+    # The grouped-page card fill is the one this row must not take: on a `List(.plain)` in a
+    # sheet it equals the light canvas. Written as a separate arm so a revert is reported as a
+    # revert rather than only as a missing tertiary fill.
+    for wrong in (".secondaryPageCard", "secondarySystemGroupedBackground"):
+        if wrong in phone_arm:
+            problems.append(
+                "the phone's arm fills the card from `%s`: that is the grouped-page card fill, "
+                "which equals this sheet's light canvas - the wrong-fill regression this check "
+                "exists for" % wrong
+            )
     # `HakoCardSurface` draws its hairline from this argument. Not decoration: in the light
     # appearance the fill and the sheet's background are both white, so a card without it has no
     # boundary at all.
@@ -568,7 +588,9 @@ def surface_problems(picker_code: str) -> list[str]:
             "the Mac's arm no longer calls `cardStyle()`: the picker is upstream's presentation "
             "on the desktop, and the grouped surface is the phone's decision alone"
         )
-    for literal in ("Color(red:", "Color(uiColor:", "Color(white:", "Color.black", "Color.white"):
+    # `Color(uiColor:)` is allowed here because the fill is a UIKit *semantic* colour; what the
+    # surface may never name is a fixed colour, which would stop following the appearance.
+    for literal in ("Color(red:", "Color(white:", "Color.black", "Color.white", "#colorLiteral"):
         if literal in phone_arm:
             problems.append(
                 "the phone's arm names `%s`: the surface must stay a dynamic system colour"
@@ -829,7 +851,7 @@ def main() -> int:
         return 1
     print("  [ok] wiring: the centre's binding drives the official switch through one queue")
     print("  [ok] alert presentation: one presentation per phone view (Home, root, Taildrop)")
-    print("  [ok] surface: the centre's rows draw the grouped card, and the Mac keeps `cardStyle()`")
+    print("  [ok] surface: the centre's rows draw the sheet's grouping fill, and the Mac keeps `cardStyle()`")
 
     return 0
 

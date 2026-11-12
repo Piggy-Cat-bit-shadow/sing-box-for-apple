@@ -549,6 +549,21 @@ def run(root: str) -> list[str]:
         )
     ran.append("picker generator refuses to drop the row's surface")
 
+    # 25. The fill taken from the grouped page's card instead of the sheet's grouping step.
+    #     `secondarySystemGroupedBackground` is what the row used to draw, and on this sheet's
+    #     light canvas it is the same white - the card disappears. The gate names it as the
+    #     wrong fill rather than only reporting a missing tertiary one.
+    reverted_fill = mutate(
+        picker,
+        "fill: Color(uiColor: .tertiarySystemGroupedBackground)",
+        "fill: HakoProductPalette.system.fill(for: .secondaryPageCard)",
+        "the card fill reverted to the grouped-page secondary",
+    )
+    expect_reported(switch_gate, {**shipped, "picker": reverted_fill},
+                    ["grouped-page card fill"],
+                    "the card fill reverted to the grouped-page secondary")
+    ran.append("wrong card fill is caught")
+
     return ran
 
 
