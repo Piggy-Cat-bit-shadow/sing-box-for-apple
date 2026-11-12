@@ -408,6 +408,69 @@ def run(root: str) -> list[str]:
         )
     ran.append("optional-chained command client is caught")
 
+    # 16. The configuration centre's rows, back on the system glass. This is the P0 surface
+    #     defect itself: `cardStyle()` draws `glassEffect` on the 26 releases, so a tree that
+    #     put it back would still build, still pass every other gate, and still look wrong.
+    #     The gate is a source scan, so the shipped row's own call is replaced in memory.
+    glass_row = mutate(
+        picker,
+        ".profileRowCardSurface()",
+        ".cardStyle()",
+        "the configuration row back on the system glass",
+    )
+    expect_reported(switch_gate, {**shipped, "picker": glass_row},
+                    ["system glass"], "the configuration row back on the system glass")
+    ran.append("configuration row's glass surface is caught")
+
+    # 17. A page-level glass call instead of the row's own surface, which the file-level arm
+    #     of the check exists to catch even when the row still calls the surface.
+    direct_glass = mutate(
+        picker,
+        ".profileRowCardSurface()",
+        ".glassEffect(.regular, in: .rect(cornerRadius: 16))",
+        "a direct `glassEffect` on the configuration row",
+    )
+    expect_reported(switch_gate, {**shipped, "picker": direct_glass},
+                    ["glassEffect"], "a direct `glassEffect` on the configuration row")
+    ran.append("direct glass effect is caught")
+
+    # 18. The Mac's arm handed the phone's fill. The file is shared, and the desktop's picker
+    #     is upstream's presentation: scoping the change is part of the decision, not a detail.
+    mac_arm = mutate(
+        picker,
+        "content.cardStyle()",
+        "content.background(HakoProductPalette.system.fill(for: .secondaryPageCard))",
+        "the Mac's arm handed the phone's grouped fill",
+    )
+    expect_reported(switch_gate, {**shipped, "picker": mac_arm},
+                    ["Mac's arm"], "the Mac's arm handed the phone's grouped fill")
+    ran.append("Mac losing its own surface is caught")
+
+    # 19. The row's shape moved with its material. `cardStyle()` draws 16; the theme's card
+    #     radius is 26 on the same releases, so adopting the token would resize every row.
+    resized = mutate(
+        picker,
+        "static let cornerRadius: CGFloat = 16",
+        "static let cornerRadius: CGFloat = HakoTheme.Radius.card",
+        "the row's radius read from the 26-release card token",
+    )
+    expect_reported(switch_gate, {**shipped, "picker": resized},
+                    ["16-point radius"], "the row's radius read from the 26-release card token")
+    ran.append("row resized by the theme token is caught")
+
+    # 20. The hairline dropped from the grouped fill. In dark mode that is a barely visible
+    #     difference; in light mode the fill and the sheet are both white and the card has no
+    #     edge at all, which is the shape of "fixed one appearance, broke the other".
+    unedged = mutate(
+        picker,
+        "separator: HakoProductPalette.system.separator",
+        "separator: .clear",
+        "the grouped card's hairline removed",
+    )
+    expect_reported(switch_gate, {**shipped, "picker": unedged},
+                    ["hairline"], "the grouped card's hairline removed")
+    ran.append("card hairline removal is caught")
+
     return ran
 
 

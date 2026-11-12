@@ -20,6 +20,14 @@ other gate can see:
      structural property, and it is asserted on the source text with the comments
      stripped.
 
+  3. **Surface.** The centre's rows draw the grouped card surface (`ProfileRowCardSurface`),
+     not `cardStyle()`. On the 26 releases `cardStyle()` is the system's glass, and a list of
+     identical rows over the sheet's black background read as panes of glass rather than as
+     the settings-style list the centre is. The check also holds the rest of the decision
+     together: the 16-point shape, the semantic palette fill, the row's hit area and
+     selection/menu, and the Mac's own `cardStyle()` arm - a row that kept the fill but lost
+     the shape would be the same defect wearing a different surface.
+
 It also asserts the page's single alert presentation. Two `.alert` modifiers on one view
 are one presentation and the outer one wins, which is how a failed switch came to report
 nothing; the profile switch's failure is raised through exactly that presentation.
@@ -403,6 +411,169 @@ print("  profile switch ordering: \(ran.count) case(s) PASS")
 """
 
 
+def braced_block(text: str, start: int) -> str:
+    """`text` from the first `{` at or after `start` to the brace that closes it.
+
+    Comments are already stripped by `code_only`; a `{` in a string literal would confuse
+    this, and the two blocks read here (the row's content and the surface modifier) hold
+    none.
+    """
+    open_at = text.find("{", start)
+    if open_at < 0:
+        raise ExtractionError("no opening brace after offset %d" % start)
+    depth = 0
+    for index in range(open_at, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_at:index + 1]
+    raise ExtractionError("the block opened at offset %d is never closed" % open_at)
+
+
+#: What the configuration row draws on. Named once so the checks below and a reader of the
+#: failure agree on the thing being described.
+ROW_SURFACE_TYPE = "ProfileRowCardSurface"
+ROW_SURFACE_CALL = ".profileRowCardSurface()"
+#: `cardStyle()`'s radius on this row. The theme's card radius is the 26-release value, and
+#: changing it would move the card's corners as well as its fill.
+ROW_SURFACE_RADIUS = "static let cornerRadius: CGFloat = 16"
+
+
+def surface_problems(picker_code: str) -> list[str]:
+    """The configuration centre's rows draw the grouped surface, not the system's glass.
+
+    This lives beside the switch checks because this is the one gate that already reads
+    `HakoProfilePickerSheet.swift` as a whole, and the property has the same shape as the
+    ones above: a structural fact of that file that a regeneration from upstream, or a
+    hand edit in the wrong place, can silently reverse without breaking the build. On the
+    26 releases `cardStyle()` draws `glassEffect`, so "the build is green" says nothing.
+
+    `picker_code` is the source with comments stripped: the row's own documentation names
+    both `cardStyle()` and the surface it replaced.
+    """
+    problems: list[str] = []
+
+    # The whole file: the only surface the rows take is the one below, and a second one at
+    # page level would be the same defect in another place.
+    if "glassEffect" in picker_code:
+        problems.append(
+            "`glassEffect` is back in the configuration centre: its rows (and anything else "
+            "it draws) take the grouped surface, never the system's glass"
+        )
+
+    try:
+        row = braced_block(picker_code, picker_code.index("private var rowContent: some View"))
+    except (ValueError, ExtractionError) as error:
+        problems.append("cannot read the configuration row's `rowContent`: %s" % error)
+        row = ""
+
+    if row:
+        if ROW_SURFACE_CALL not in row:
+            problems.append(
+                "the configuration row no longer calls `%s`: it is back on the global "
+                "`cardStyle()`, which draws the system glass on the 26 releases - the exact "
+                "material this page must not use" % ROW_SURFACE_CALL
+            )
+        if "cardStyle()" in row:
+            problems.append(
+                "the configuration row calls `cardStyle()` again: on the 26 releases that is "
+                "`glassEffect`, the system glass this page replaced with the grouped surface"
+            )
+        # The material is the only thing this decision may move. These are the row's shape
+        # and its two interactive ends; a surface that kept the fill but dropped one of them
+        # would be a different defect with the same screenshot.
+        for token, description in (
+            (".padding(HakoTheme.Spacing.standard)", "`HakoTheme.Spacing.standard` padding"),
+            (".contentShape(Rectangle())", "`contentShape(Rectangle())` hit area"),
+            ("HakoIconWell", "configuration-type icon well"),
+            ("selectionMark", "selection mark"),
+            ("rowMenu", "more-actions menu"),
+            ("profileInfo", "quota/update/expiry subtitle"),
+        ):
+            if token not in row:
+                problems.append("the configuration row lost its %s" % description)
+
+    surface_at = picker_code.find("struct " + ROW_SURFACE_TYPE)
+    if surface_at < 0:
+        problems.append(
+            "`%s` is gone: nothing declares the grouped surface the configuration rows draw on"
+            % ROW_SURFACE_TYPE
+        )
+        return problems
+
+    try:
+        surface = braced_block(picker_code, surface_at)
+    except ExtractionError as error:
+        problems.append("cannot read `%s`: %s" % (ROW_SURFACE_TYPE, error))
+        return problems
+
+    if ROW_SURFACE_RADIUS not in surface:
+        problems.append(
+            "`%s` no longer pins the row's 16-point radius: `cardStyle()` has always drawn this "
+            "row at 16, and the theme's card radius is the 26-release value, so this is a shape "
+            "change rather than the material-only change it is meant to be" % ROW_SURFACE_TYPE
+        )
+    if "cornerRadius: Self.cornerRadius" not in surface:
+        problems.append("`%s` no longer builds its shape from that radius" % ROW_SURFACE_TYPE)
+
+    if_at = surface.find("#if os(iOS)")
+    else_at = surface.find("#else", if_at + 1) if if_at >= 0 else -1
+    endif_at = surface.find("#endif", else_at + 1) if else_at >= 0 else -1
+    if if_at < 0 or else_at < 0 or endif_at < 0:
+        problems.append(
+            "`%s` is no longer a two-arm `#if os(iOS)` / `#else`: the Mac compiles this file "
+            "too and presents upstream's picker, so the phone's surface must stay scoped to "
+            "the phone" % ROW_SURFACE_TYPE
+        )
+        return problems
+
+    phone_arm = surface[if_at:else_at]
+    mac_arm = surface[else_at:endif_at]
+
+    if "HakoCardSurface(" not in phone_arm:
+        problems.append(
+            "the phone's arm no longer draws `HakoCardSurface`, the card component the client's "
+            "other painted surfaces use: the row has been given a surface of its own again, "
+            "which is how the list stops matching the cards around it"
+        )
+    if "fill: HakoProductPalette.system.fill(for: .secondaryPageCard)" not in phone_arm:
+        problems.append(
+            "the phone's arm no longer fills the card with "
+            "`HakoProductPalette.system.fill(for: .secondaryPageCard)`: the fill must stay the "
+            "semantic grouped card so light and dark both follow the system"
+        )
+    # `HakoCardSurface` draws its hairline from this argument. Not decoration: in the light
+    # appearance the fill and the sheet's background are both white, so a card without it has no
+    # boundary at all.
+    if "separator: HakoProductPalette.system.separator" not in phone_arm:
+        problems.append(
+            "the phone's arm no longer gives the card its separator, so `HakoCardSurface` draws "
+            "no hairline: in the light appearance the grouped fill and the sheet's own background "
+            "are both white, and the card would have no edge"
+        )
+    if "cardStyle()" in phone_arm:
+        problems.append(
+            "the phone's arm calls `cardStyle()` again: that is the system glass this surface "
+            "replaced, on the platform whose screenshot the change exists for"
+        )
+    if "cardStyle()" not in mac_arm:
+        problems.append(
+            "the Mac's arm no longer calls `cardStyle()`: the picker is upstream's presentation "
+            "on the desktop, and the grouped surface is the phone's decision alone"
+        )
+    for literal in ("Color(red:", "Color(uiColor:", "Color(white:", "Color.black", "Color.white"):
+        if literal in phone_arm:
+            problems.append(
+                "the phone's arm names `%s`: the surface must stay a dynamic system colour"
+                % literal
+            )
+
+    return problems
+
+
 def wiring_problems(view: str, picker: str, root: str) -> list[str]:
     """The page's wiring, asserted on the source text with comments stripped."""
     problems: list[str] = []
@@ -482,6 +653,8 @@ def wiring_problems(view: str, picker: str, root: str) -> list[str]:
                 previous = number
             else:
                 previous = None
+
+    problems.extend(surface_problems(picker_code))
 
     return problems
 
@@ -586,10 +759,11 @@ def main() -> int:
     for problem in problems:
         print("  [FAIL] " + problem)
     if problems:
-        print("FAIL: the page's switch wiring does not hold")
+        print("FAIL: the configuration centre's structural properties do not hold")
         return 1
     print("  [ok] wiring: the centre's binding drives the official switch through one queue")
     print("  [ok] alert presentation: one presentation per phone view, nothing stacked")
+    print("  [ok] surface: the centre's rows draw the grouped card, and the Mac keeps `cardStyle()`")
 
     return 0
 
