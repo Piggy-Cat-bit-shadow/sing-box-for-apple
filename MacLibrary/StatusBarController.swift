@@ -477,7 +477,7 @@ public class StatusBarController: NSObject, NSMenuDelegate {
                 let box = try LibboxNewStandaloneCommandClient()!.selectOutboundWithRequest(
                     groupTag,
                     outboundTag: outboundTag,
-                    requestID: requestID,
+                    requestID: Int64(requestID),
                     expectedRevision: 0
                 )
                 if let readBack = SelectionReadBack.decode(box.value) {

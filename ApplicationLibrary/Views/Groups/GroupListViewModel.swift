@@ -93,8 +93,10 @@ public class GroupListViewModel: BaseViewModel {
             let box = try client.selectOutboundWithRequest(
                 request.groupTag,
                 outboundTag: request.outboundTag,
-                requestID: request.requestID,
-                expectedRevision: request.expectedRevision
+                // The bridge binds the wire's uint64 as a signed 64-bit value; the ledger's
+                // counters are small and non-negative, so the conversion cannot lose an identity.
+                requestID: Int64(request.requestID),
+                expectedRevision: Int64(request.expectedRevision)
             )
             guard let readBack = SelectionReadBack.decode(box.value) else {
                 await MainActor.run {
