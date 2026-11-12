@@ -38,6 +38,7 @@ SWITCH_GATE_FILES = (
     "ApplicationLibrary/Views/HakoStyle/HakoHomeView.swift",
     "ApplicationLibrary/Views/HakoStyle/HakoProfileSwitchQueue.swift",
     "ApplicationLibrary/Views/HakoStyle/HakoProfilePickerSheet.swift",
+    "ApplicationLibrary/Views/HakoStyle/HakoTaildropView.swift",
     "SFI/HakoPhoneRootView.swift",
 )
 
@@ -105,6 +106,17 @@ def expect_reported(gate, sources: dict, cases: list, description: str) -> list:
     return hits
 
 
+def expect_taildrop_reported(gate, source: str, cases: list, description: str) -> list:
+    """The same, for the Taildrop page's alert check (a pure function over its source)."""
+    problems = gate.taildrop_alert_problems(gate.code_only(source))
+    hits = [problem for problem in problems if any(marker in problem for marker in cases)]
+    if not hits:
+        raise CaseFailure(
+            "%s: the gate reported nothing. All it said was: %s" % (description, problems)
+        )
+    return hits
+
+
 def run(root: str) -> list[str]:
     ran: list[str] = []
 
@@ -113,6 +125,7 @@ def run(root: str) -> list[str]:
 
     view = read(root, "ApplicationLibrary/Views/HakoStyle/HakoHomeView.swift")
     picker = read(root, "ApplicationLibrary/Views/HakoStyle/HakoProfilePickerSheet.swift")
+    taildrop = read(root, "ApplicationLibrary/Views/HakoStyle/HakoTaildropView.swift")
     phone_root = read(root, "SFI/HakoPhoneRootView.swift")
     shipped = {"view": view, "picker": picker, "root": phone_root}
 
@@ -121,6 +134,9 @@ def run(root: str) -> list[str]:
     problems = switch_gate.wiring_problems(view, picker, phone_root)
     if problems:
         raise CaseFailure("the shipped tree already fails the switch gate: %s" % problems)
+    problems = switch_gate.taildrop_alert_problems(switch_gate.code_only(taildrop))
+    if problems:
+        raise CaseFailure("the shipped Taildrop page already fails the alert check: %s" % problems)
     problems = mode_gate.check_view_contract(view)
     if problems:
         raise CaseFailure("the shipped tree already fails the mode gate: %s" % problems)
@@ -234,6 +250,7 @@ def run(root: str) -> list[str]:
         "ApplicationLibrary/Views/HakoStyle/HakoHomeView.swift": view,
         "ApplicationLibrary/Views/HakoStyle/HakoProfileSwitchQueue.swift": queue,
         "ApplicationLibrary/Views/HakoStyle/HakoProfilePickerSheet.swift": picker,
+        "ApplicationLibrary/Views/HakoStyle/HakoTaildropView.swift": taildrop,
         "SFI/HakoPhoneRootView.swift": phone_root,
     }
 
@@ -470,6 +487,47 @@ def run(root: str) -> list[str]:
     expect_reported(switch_gate, {**shipped, "picker": unedged},
                     ["hairline"], "the grouped card's hairline removed")
     ran.append("card hairline removal is caught")
+
+    # 21. The Taildrop page's inbox alert restored beside its own. This is the pair upstream
+    #     ships on one view; only the outer presentation is made, so the inbox's failures -
+    #     delete, cancel, subscribe - were raised into a binding nothing displayed. The mutant
+    #     puts the dead pair back, which is what a re-port from upstream would do.
+    stacked_alerts = mutate(
+        taildrop,
+        ".alert(pageAlert)",
+        ".alert($inbox.alert)\n                .alert(pageAlert)",
+        "the Taildrop page's inbox alert restored beside its own",
+    )
+    expect_taildrop_reported(switch_gate, stacked_alerts,
+                             ["stacks 2 `.alert` modifiers"],
+                             "the Taildrop page's second presentation")
+    ran.append("Taildrop's stacked alert is caught")
+
+    # 22. One presentation, but not the folded one: the inbox's failures are silently dropped
+    #     again, this time with nothing visibly doubled.
+    unfolded = mutate(
+        taildrop,
+        ".alert(pageAlert)",
+        ".alert($alert)",
+        "the Taildrop page presenting only its own alert",
+    )
+    expect_taildrop_reported(switch_gate, unfolded,
+                             ["does not present `.alert(pageAlert)`"],
+                             "the Taildrop page's unfolded presentation")
+    ran.append("Taildrop's unfolded alert is caught")
+
+    # 23. A fold that reads both sources but clears one. A dismissal would leave the other set,
+    #     and the page would present the alert it just dismissed on the next redraw.
+    leaking = mutate(
+        taildrop,
+        "                        inbox.alert = nil\n",
+        "",
+        "the Taildrop fold that never clears the inbox's alert",
+    )
+    expect_taildrop_reported(switch_gate, leaking,
+                             ["clearing the inbox's alert"],
+                             "the Taildrop fold's missing clear")
+    ran.append("Taildrop's leaking fold is caught")
 
     return ran
 

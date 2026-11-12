@@ -30,7 +30,10 @@ other gate can see:
 
 It also asserts the page's single alert presentation. Two `.alert` modifiers on one view
 are one presentation and the outer one wins, which is how a failed switch came to report
-nothing; the profile switch's failure is raised through exactly that presentation.
+nothing; the profile switch's failure is raised through exactly that presentation. The same
+rule is checked in the phone's Taildrop page, which ported upstream's pair of `.alert`
+modifiers onto one view unchanged - the inbox's failures were never presented - and now folds
+them into its own `pageAlert` (see `taildrop_alert_problems`).
 
 Usage:
     python check_hako_profile_switch.py [--root DIR] [--explain]
@@ -49,6 +52,7 @@ import tempfile
 VIEW_FILE = os.path.join("ApplicationLibrary", "Views", "HakoStyle", "HakoHomeView.swift")
 QUEUE_FILE = os.path.join("ApplicationLibrary", "Views", "HakoStyle", "HakoProfileSwitchQueue.swift")
 PICKER_FILE = os.path.join("ApplicationLibrary", "Views", "HakoStyle", "HakoProfilePickerSheet.swift")
+TAILDROP_FILE = os.path.join("ApplicationLibrary", "Views", "HakoStyle", "HakoTaildropView.swift")
 PHONE_ROOT_FILE = os.path.join("SFI", "HakoPhoneRootView.swift")
 
 REQUIRED_METHOD = "selectProfile"
@@ -574,6 +578,64 @@ def surface_problems(picker_code: str) -> list[str]:
     return problems
 
 
+def single_presentation_problems(name: str, code: str, binding: str) -> list[str]:
+    """`name` presents one alert, and it is the presentation that folds every source.
+
+    Two `.alert` modifiers attached to one view are one presentation and the outer one wins,
+    so a view that anchors a second one has a failure source nothing displays. `binding` is
+    the call the presentation must be (for example `.alert(pageAlert)`); `code` is
+    comment-stripped, because the file's own documentation names both modifiers.
+    """
+    problems: list[str] = []
+    calls = [line.strip() for line in code.splitlines() if line.strip().startswith(".alert(")]
+    if not calls:
+        problems.append("%s presents no alert at all" % name)
+        return problems
+    if len(calls) > 1:
+        problems.append(
+            "%s stacks %d `.alert` modifiers (%s): two presentations on one view are one "
+            "presentation and the outer one wins, so the inner source's failures are never "
+            "shown" % (name, len(calls), ", ".join(calls))
+        )
+    if binding not in calls:
+        problems.append(
+            "%s does not present `%s`, so its alert sources are not folded into the single "
+            "presentation this client can make" % (name, binding)
+        )
+    return problems
+
+
+def taildrop_alert_problems(code: str) -> list[str]:
+    """The phone's Taildrop page presents one alert, and it folds the inbox's into its own.
+
+    Upstream anchors `$inbox.alert` and the view's own `$alert` to the same view, and this
+    page ported that pair unchanged: every inbox failure - subscribing the inbox, cancelling
+    a receive, deleting a received file - was raised into a binding nothing displayed. The
+    phone's copy folds them into `pageAlert`; the check also holds the fold's two halves,
+    because a getter without its setter would present the dismissed source again.
+    """
+    problems = single_presentation_problems("HakoTaildropView", code, ".alert(pageAlert)")
+    if problems:
+        return problems
+
+    try:
+        folded = braced_block(code, code.index("private var pageAlert: Binding<AlertState?>"))
+    except (ValueError, ExtractionError) as error:
+        return ["cannot read `HakoTaildropView.pageAlert`: %s" % error]
+
+    for required, description in (
+        ("alert ?? inbox.alert", "both sources in its getter"),
+        ("alert = nil", "clearing the view's own alert on dismissal"),
+        ("inbox.alert = nil", "clearing the inbox's alert on dismissal"),
+    ):
+        if required not in folded:
+            problems.append(
+                "`HakoTaildropView.pageAlert` no longer folds %s: the dismissed source would "
+                "stay set and the page would present it again" % description
+            )
+    return problems
+
+
 def wiring_problems(view: str, picker: str, root: str) -> list[str]:
     """The page's wiring, asserted on the source text with comments stripped."""
     problems: list[str] = []
@@ -686,6 +748,7 @@ def main() -> int:
         ("view", VIEW_FILE),
         ("queue", QUEUE_FILE),
         ("picker", PICKER_FILE),
+        ("taildrop", TAILDROP_FILE),
         ("root", PHONE_ROOT_FILE),
     ):
         path = os.path.join(options.root, relative)
@@ -752,17 +815,20 @@ def main() -> int:
 
     with open(paths["picker"], "r", encoding="utf-8") as handle:
         picker_source = handle.read()
+    with open(paths["taildrop"], "r", encoding="utf-8") as handle:
+        taildrop_source = handle.read()
     with open(paths["root"], "r", encoding="utf-8") as handle:
         root_source = handle.read()
 
     problems = wiring_problems(view_source, picker_source, root_source)
+    problems.extend(taildrop_alert_problems(code_only(taildrop_source)))
     for problem in problems:
         print("  [FAIL] " + problem)
     if problems:
-        print("FAIL: the configuration centre's structural properties do not hold")
+        print("FAIL: the phone views' structural properties do not hold")
         return 1
     print("  [ok] wiring: the centre's binding drives the official switch through one queue")
-    print("  [ok] alert presentation: one presentation per phone view, nothing stacked")
+    print("  [ok] alert presentation: one presentation per phone view (Home, root, Taildrop)")
     print("  [ok] surface: the centre's rows draw the grouped card, and the Mac keeps `cardStyle()`")
 
     return 0
