@@ -82,8 +82,8 @@
             /// inbox reports was raised into a binding nothing displayed: subscribing the inbox,
             /// cancelling a receive, deleting a received file or failing to receive one all
             /// looked like a press that had not registered. Folding both sources into the single
-            /// presentation the chain can make is what restores them; it is the shape
-            /// `HakoHomeView` and `HakoPhoneRootView` already use for their two sources.
+            /// presentation the chain can make is what restores them; it is the shape the phone's
+            /// Home page and root view already use for their two sources.
             ///
             /// This is the one behaviour in this file that deliberately differs from
             /// `ApplicationLibrary/Views/Tools/TaildropView.swift`: the phone's copy is the one
