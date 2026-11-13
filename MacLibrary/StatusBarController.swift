@@ -474,8 +474,8 @@ public class StatusBarController: NSObject, NSMenuDelegate {
                 // predates the identity fields answers supported=false, which is a capability
                 // answer - the selection was performed, and the next groups refresh is the truth.
                 let requestID = UInt64(Date().timeIntervalSince1970 * 1000)
-                let box = try LibboxNewStandaloneCommandClient()!.selectOutboundWithRequest(
-                    groupTag,
+                let box = try LibboxNewStandaloneCommandClient()!.selectOutbound(
+                    withRequest: groupTag,
                     outboundTag: outboundTag,
                     requestID: Int64(requestID),
                     expectedRevision: 0

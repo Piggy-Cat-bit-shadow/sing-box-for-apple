@@ -562,7 +562,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             try withServiceLifecycleLock {
                 serviceLifecycleGeneration &+= 1
                 generation = serviceLifecycleGeneration
-                // The request token reaches the kernel now. `applyServiceChangeReportWithRequest`
+                // The request token reaches the kernel now. `applyServiceChangeReport(withRequest:)`
                 // echoes it in `report.requestId` and names the instance it left running, which is
                 // what the receipt carries back to the app. A kernel that predates the entry falls
                 // back to the token-less call: refusing there would turn an old core into a
@@ -571,7 +571,16 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 if requestID.isEmpty {
                     box = commandServer.applyServiceChangeReport(configContent, options: options)
                 } else {
-                    box = commandServer.applyServiceChangeReportWithRequest(requestID, configContent: configContent, options: options)
+                    // The Go method is `ApplyServiceChangeReportWithRequest`; the gomobile-generated
+                    // ObjC selector `applyServiceChangeReportWithRequest:configContent:options:`
+                    // imports into Swift with "WithRequest" split off as the first argument label.
+                    // Spelling the Go name here does not compile, which is how this call was broken
+                    // on every Apple target while the rest of the module compiled.
+                    box = commandServer.applyServiceChangeReport(
+                        withRequest: requestID,
+                        configContent: configContent,
+                        options: options
+                    )
                 }
                 guard let box else {
                     throw ExtensionStartupError("(packet-tunnel) the command server returned no apply report")

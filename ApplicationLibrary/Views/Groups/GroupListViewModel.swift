@@ -90,8 +90,8 @@ public class GroupListViewModel: BaseViewModel {
     private nonisolated func doSelectOutbound(_ request: SelectionRequest) async {
         do {
             let client = try CommandTarget.standaloneClient()
-            let box = try client.selectOutboundWithRequest(
-                request.groupTag,
+            let box = try client.selectOutbound(
+                withRequest: request.groupTag,
                 outboundTag: request.outboundTag,
                 // The bridge binds the wire's uint64 as a signed 64-bit value; the ledger's
                 // counters are small and non-negative, so the conversion cannot lose an identity.

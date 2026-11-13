@@ -151,10 +151,11 @@ public extension Profile {
     ) async throws -> RemoteProfileUpdateReport {
         switch prepared.report.config {
         case .downloadFailed, .invalidConfig:
-            // The configuration half failed, so nothing this update downloaded reached the running
-            // service. `ProviderRefreshPolicy` owns that answer: there is no provider refresh. What
-            // is still this step's to report is why - the failure belongs to the instance prepare
-            // saw, and a Box started after prepare is a replacement that must not inherit it.
+            // The configuration half failed before anything reached the running service, so there is
+            // nothing here for the provider half to refresh. `ProviderRefreshPolicy` owns that
+            // answer. What is still this step's to report is why - the failure belongs to the
+            // instance prepare saw, and a Box started after prepare is a replacement that must not
+            // inherit it.
             let providers: RemoteProviderRefreshProbe
             if !(await Self.isSelected(id)) {
                 providers = .notActive
@@ -169,6 +170,43 @@ public extension Profile {
                 providers = skipped
             } else {
                 providers = .superseded
+            }
+            return RemoteProfileUpdateReport(
+                config: prepared.report.config,
+                providers: providers.summary
+            )
+        case .recovered, .interrupted:
+            // Two DIFFERENT runtime states, and neither may be folded into the pre-apply failures
+            // above or reported as an applied update:
+            //
+            //   .recovered   - the daemon is up and serving the stored last-good document. The
+            //                  service works; what runs is not this update's body, and
+            //                  `activeRevision` names what does.
+            //   .interrupted  - the attempt left NOTHING running: the previous document was
+            //                  closed and no candidate replaced it. This is the one outcome where
+            //                  the user has no service at all, and `reason` says why.
+            //
+            // Both keep their own outcome in the report (`ProviderRefreshPolicy` answers
+            // `.skip(.notApplied)` for both, because a refresh of this body would publish nodes for
+            // a document the kernel never accepted). What differs is what may be said about the
+            // provider half now, so the live instance is consulted rather than assumed: a recovery
+            // reports "the instance is serving another document", an interruption says plainly that
+            // nothing is running. A tunnel that restarted since prepare is a replacement and is
+            // `.superseded`, exactly as in the branch above.
+            let providers: RemoteProviderRefreshProbe
+            if !(await Self.isSelected(id)) {
+                providers = .notActive
+            } else if case .interrupted = prepared.report.config {
+                providers = .notRunning
+            } else if !(await Self.tunnelConnected()) {
+                // Recovered according to the kernel, but the tunnel is gone now: the state the
+                // outcome described no longer exists, and `.notRunning` is the only true answer.
+                providers = .notRunning
+            } else if let before = prepared.startedAtAtPrepare,
+                      (await Self.tunnelStartedAt()) != before {
+                providers = .superseded
+            } else {
+                providers = .skipped(.notApplied)
             }
             return RemoteProfileUpdateReport(
                 config: prepared.report.config,
@@ -203,7 +241,12 @@ public extension Profile {
             let config = RemoteConfigUpdateOutcome.applyFailed("stored body unavailable")
             return RemoteProfileUpdateReport(
                 config: config,
-                providers: ProviderRefreshPolicy.skippedProbe(for: config) ?? .skipped(.notApplied)
+                // `skippedProbe` answers with a PROBE, and the report takes a SUMMARY: the policy
+                // decision still speaks for both, but the conversion to the reported half is the
+                // probe's own `.summary`, exactly as the three returns above it do. The `??` is
+                // unreachable through `ProviderRefreshPolicy` (`.applyFailed` always skips) and is
+                // kept so a future outcome cannot silently turn this into a refresh.
+                providers: (ProviderRefreshPolicy.skippedProbe(for: config) ?? .skipped(.notApplied)).summary
             )
         }
         guard stored == preparedBody else {
@@ -278,14 +321,22 @@ public extension Profile {
             return nil
         }
         let bodyRevision = ConfigurationBodyRevision.fingerprint(of: body)
-        let receipt = try await profile.reloadService(
+        // `reloadService` answers nil when the extension's reply carried nothing this build can read
+        // as a receipt. THAT IS NOT A SUCCESS and it is not force-unwrapped: nil means "no
+        // confirmation attributable to this request", which the caller (`applyPreparedBody`) turns
+        // into `.applyUnconfirmed`, and which never triggers a retry or a rollback because the
+        // commit point has already passed. `ownership(of:)` takes a receipt that EXISTS, so absence
+        // is answered here rather than fabricated into a receipt it would then have to judge.
+        guard let receipt = try await profile.reloadService(
             ExtensionProfile.StartSnapshot(
                 profileID: ticket.profileID,
                 requestID: ticket.requestID,
                 bodyRevision: bodyRevision,
                 configContent: body
             )
-        )
+        ) else {
+            return nil
+        }
         switch ProfileUpdateOwnership.ownership(of: receipt, ticket: ticket, expectedBodyRevision: bodyRevision) {
         case let .matches(matched):
             return matched.outcome
