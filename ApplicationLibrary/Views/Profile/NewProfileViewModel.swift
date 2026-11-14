@@ -94,7 +94,7 @@ public final class NewProfileViewModel: BaseViewModel {
         // configuration that was already written.
         if let schedulingError = created.schedulingError {
             logger.warning(
-                "profile \(createdProfile.id) created, but the background update could not be scheduled: \(schedulingError.localizedDescription)"
+                "profile \(String(describing: createdProfile.id)) created, but the background update could not be scheduled: \(schedulingError.localizedDescription)"
             )
         }
         dismiss?()
