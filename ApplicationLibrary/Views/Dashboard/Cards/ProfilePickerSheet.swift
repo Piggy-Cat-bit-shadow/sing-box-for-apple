@@ -415,7 +415,7 @@ struct ProfilePickerSheet: View {
             NSLog("profile update %@: %@", profile.name, report.localizedDescription)
             environments.profileUpdate.send()
             if report.isFailure {
-                alert = AlertState(action: "update remote profile", error: RemoteProfileUpdateAlertError(report))
+                alert = AlertState(action: "update remote profile", error: RemoteProfileUpdateAlertError(report: report))
             } else if report.needsAttention {
                 // A saved-only, unconfirmed or superseded apply is not a failure, but it is not a
                 // clean update either. Show it in the same informational alert Hako already uses.
