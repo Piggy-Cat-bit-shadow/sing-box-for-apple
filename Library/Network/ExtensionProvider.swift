@@ -62,8 +62,29 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     private let serviceLifecycleLock = NSLock()
     /// Bumped by every start attempt and by every stop. A start that is about to wait for the tunnel
     /// takeover compares it after each sleep, so a stop is not blocked behind that wait and a stopped
-    /// attempt cannot be mistaken for the current one. Guarded by `serviceLifecycleLock`.
+    /// attempt cannot be mistaken for the current one.
+    ///
+    /// Guarded by `serviceGenerationLock`, **not** by `serviceLifecycleLock`. The split exists so the
+    /// teardown path can invalidate an in-flight start without waiting for that start's core call to
+    /// return - which is the whole point of the bounded teardown below. Lock order is one way only:
+    /// `serviceLifecycleLock` may be held while this one is taken, never the reverse, and this one is
+    /// only ever held for a counter bump.
+    private let serviceGenerationLock = NSLock()
     private var serviceLifecycleGeneration: UInt64 = 0
+
+    /// Claims the next lifecycle generation.
+    private func bumpServiceGeneration() -> UInt64 {
+        serviceGenerationLock.lock()
+        defer { serviceGenerationLock.unlock() }
+        serviceLifecycleGeneration &+= 1
+        return serviceLifecycleGeneration
+    }
+
+    private func currentServiceGeneration() -> UInt64 {
+        serviceGenerationLock.lock()
+        defer { serviceGenerationLock.unlock() }
+        return serviceLifecycleGeneration
+    }
 
     #if os(iOS)
         /// The takeover check runs once per NEW start attempt. It is reset when a fresh tunnel session
@@ -430,6 +451,10 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// the location manager, which belong to the macOS entry points and are torn down there - it only
     /// guarantees that a throw leaves no live command server, no registered notifications and no
     /// platform state pointing at a service that never started.
+    ///
+    /// It uses the *blocking* `stopService()`: by the time this runs, `startService` has already
+    /// returned, so the lifecycle lock is released and there is nothing to be bounded against. The
+    /// bounded variant exists for `stopTunnel`, where a reload may still hold it.
     private func unwindFailedStart() {
         #if os(iOS)
             stopScreenStateObserver()
@@ -472,7 +497,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             for _ in 0 ..< 30 {
                 // Check the generation FIRST: if a stop landed after an old attempt applied its
                 // settings, the stale success must not be accepted as this attempt's evidence.
-                let isCurrent = withServiceLifecycleLock { generation == serviceLifecycleGeneration }
+                let isCurrent = generation == currentServiceGeneration()
                 if !isCurrent {
                     return .superseded
                 }
@@ -481,7 +506,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
                 }
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
-            let isCurrent = withServiceLifecycleLock { generation == serviceLifecycleGeneration }
+            let isCurrent = generation == currentServiceGeneration()
             if !isCurrent {
                 return .superseded
             }
@@ -560,8 +585,7 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         var document: LibboxApplyOutcomeDocument?
         do {
             try withServiceLifecycleLock {
-                serviceLifecycleGeneration &+= 1
-                generation = serviceLifecycleGeneration
+                generation = bumpServiceGeneration()
                 // The request token reaches the kernel now. `applyServiceChangeReport(withRequest:)`
                 // echoes it in `report.requestId` and names the instance it left running, which is
                 // what the receipt carries back to the app. A kernel that predates the entry falls
@@ -675,15 +699,61 @@ open class ExtensionProvider: NEPacketTunnelProvider {
 
     #endif
 
+    /// Stops the running service. Blocks until the exclusive region is free.
+    ///
+    /// This is the shape the core's own `serviceStop()` callback needs: it is not a teardown, and the
+    /// core asking to stop is entitled to wait for a consistent stop. The tunnel-teardown entry point
+    /// passes a bound to `performStopService` instead, because there the wait is the defect.
     func stopService() {
-        // Single-entry, and mutually exclusive with `startService()`. See `serviceLifecycleLock`:
-        // `reset()` cancels a monitor that a concurrent start has just installed and is still waiting
-        // on, and this is reachable from the core's gRPC goroutine without any NetworkExtension
-        // reentrancy assumption.
-        serviceLifecycleLock.lock()
-        // Invalidate any start that is currently waiting for the takeover outside the lock: it must
-        // report that it was superseded, not accept a flag that an older attempt set.
-        serviceLifecycleGeneration &+= 1
+        performStopService(waitingAtMost: nil)
+    }
+
+    /// Stops the running service from the tunnel teardown, without waiting indefinitely for an
+    /// in-flight service change.
+    ///
+    /// # Why a bounded wait and not "just call it"
+    ///
+    /// `startService()` holds `serviceLifecycleLock` across `commandServer.applyServiceChangeReport()`
+    /// - an unbounded core call that opens the TUN and waits for the platform's network settings. The
+    /// system calls `stopTunnel` when the user asks for the tunnel to stop, and it gives the provider a
+    /// limited window to return; waiting for that lock can outlast it, so `stopTunnel` never finishes
+    /// and the teardown is left to the system's own patience. That is the second half of the
+    /// "the VPN occupies the slot" report, and it survives the app-side fix on its own.
+    ///
+    /// # What is skipped when the lock is busy, and why that is safe
+    ///
+    /// The exclusive work is `closeService()` + `reset()`. Both are skipped, deliberately:
+    ///
+    ///   * `closeService()` asks the core to stop. `stopTunnel` closes the command server immediately
+    ///     after this call returns, which tears the same thing down harder - and is what the code
+    ///     would do anyway a hundred milliseconds later.
+    ///   * `reset()` assigns `nwMonitor` from outside `pathMonitorQueue`. Doing that while a start is
+    ///     inside `startDefaultInterfaceMonitor` is a data race on that property - the very race the
+    ///     lock exists to prevent - so the teardown does not take it. It does the correctness-relevant
+    ///     half, `retireInterfaceMonitor()`, which is queue-confined and stops an abandoned monitor
+    ///     from ever publishing again.
+    ///
+    /// What is *not* skipped is the generation bump, and the order it happens in is load-bearing: it
+    /// is bumped **before the lock is even attempted**. Bumping after the attempt would leave a doomed
+    /// start un-invalidated for as long as this call waits - up to the whole bound - which is exactly
+    /// the window the bound exists to shorten. The small generation lock is taken and released here
+    /// without the lifecycle lock held, so the documented order (lifecycle -> generation) holds; the
+    /// two are never nested in the other direction.
+    private func performStopService(waitingAtMost timeout: TimeInterval?) {
+        _ = bumpServiceGeneration()
+
+        var acquired: Bool
+        if let timeout {
+            acquired = serviceLifecycleLock.lock(before: Date().addingTimeInterval(timeout))
+        } else {
+            serviceLifecycleLock.lock()
+            acquired = true
+        }
+        guard acquired else {
+            platformInterface.retireInterfaceMonitor()
+            writeMessage("(packet-tunnel) stop service: a service change is still in flight; the teardown proceeded without the exclusive stop")
+            return
+        }
         defer { serviceLifecycleLock.unlock() }
         do {
             try commandServer?.closeService()
@@ -710,6 +780,12 @@ open class ExtensionProvider: NEPacketTunnelProvider {
         _ = try await startService(isReload: true)
     }
 
+    /// How long the tunnel teardown waits for an in-flight service change before proceeding without it.
+    ///
+    /// Short on purpose: it only has to cover the ordinary case where the lock is free or released
+    /// almost immediately. Its job is to bound the wait, not to give a wedged apply more time.
+    private static let teardownLockTimeout: TimeInterval = 2
+
     override open func stopTunnel(with reason: NEProviderStopReason) async {
         writeMessage("(packet-tunnel) stopping, reason: \(reason)")
         #if os(iOS)
@@ -718,7 +794,8 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             // synchronously, so nothing can reach the core once this returns.
             stopScreenStateObserver()
         #endif
-        stopService()
+        // Bounded: `stopTunnel` has to return. See `performStopService`.
+        performStopService(waitingAtMost: Self.teardownLockTimeout)
         // # Why this identity check is load-bearing
         //
         // `if let server = commandServer` captures the CURRENT server, and the `Task.sleep` below is a

@@ -31,6 +31,8 @@ public final class STUNTestViewModel: BaseViewModel, OutboundSelectable {
     private var standaloneTest: LibboxSTUNTest?
     private var stunSession: LibboxSTUNTestSession?
     private var runningTask: Task<Void, Never>?
+    /// Who owns the test while the core is still answering with its session handle.
+    private var ownership = SubscriptionOwnership()
 
     public func loadPreferences() async {
         isLoadingPreferences = true
@@ -49,6 +51,7 @@ public final class STUNTestViewModel: BaseViewModel, OutboundSelectable {
         natFiltering = 0
         natTypeSupported = false
         isRunning = true
+        let token = ownership.begin()
 
         let server = server
         let outboundTag = selectedOutbound
@@ -60,22 +63,44 @@ public final class STUNTestViewModel: BaseViewModel, OutboundSelectable {
                     let session = try await Task.detached {
                         try CommandTarget.standaloneClient().startSTUNTest(server, outboundTag: outboundTag, handler: handler)
                     }.value
-                    self?.stunSession = session
+                    guard let self else {
+                        try? session.close()
+                        return
+                    }
+                    guard self.ownership.isCurrent(token) else {
+                        // Cancelled while the core was creating the session. See
+                        // `SubscriptionOwnership`: without this the test keeps running with nothing
+                        // holding a handle to stop it.
+                        try? session.close()
+                        return
+                    }
+                    self.stunSession = session
                 } catch {
-                    guard let self else { return }
+                    guard let self, self.ownership.isCurrent(token) else { return }
                     self.isRunning = false
                     self.alert = AlertState(action: "STUN test", error: error)
                 }
             }
         } else {
-            let test = LibboxNewSTUNTest()!
+            // Removed force-unwrap: a nil test object is an error to report, not a trap on the path a
+            // reader takes when they are not connected.
+            guard let test = LibboxNewSTUNTest() else {
+                isRunning = false
+                alert = AlertState(errorMessage: "The STUN test could not be created")
+                return
+            }
             standaloneTest = test
             let handler = TestHandler(self)
-            test.start(server, handler: handler)
+            // Synchronous FFI that opens sockets; it used to run on the main actor. See the same
+            // change in `NetworkQualityViewModel.startTest`.
+            Task.detached(priority: .userInitiated) {
+                test.start(server, handler: handler)
+            }
         }
     }
 
     public func cancel() {
+        ownership.invalidate()
         try? stunSession?.close()
         stunSession = nil
         runningTask?.cancel()

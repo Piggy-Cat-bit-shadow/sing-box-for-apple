@@ -51,11 +51,14 @@ public struct HakoProfileOverrideView: View {
     }
 
     /// One section per setting, as the reference does it; see `PacketTunnelView`.
+    ///
+    /// The preference is passed in rather than captured in `set` so the row can put **both** halves
+    /// back when the service refuses the change - see `apply`.
     private func settingSection(
         _ title: String,
         explanation: LocalizedStringKey,
         isOn: Binding<Bool>,
-        set: @escaping (Bool) async -> Void
+        preference: SharedPreferences.Preference<Bool>
     ) -> some View {
         HakoSettingsSection(title, footnote: explanation) {
             HakoToggleRow(
@@ -63,10 +66,31 @@ public struct HakoProfileOverrideView: View {
                 isOn: isOn
             ) { newValue in
                 Task {
-                    await set(newValue)
-                    await reloadService()
+                    await apply(newValue, to: preference, isOn: isOn)
                 }
             }
+        }
+    }
+
+    /// Writes the override, applies it, and gives it back if the running service refused it.
+    ///
+    /// # Why the rollback
+    ///
+    /// The switch moves as soon as it is touched, and the preference is what the *next* start reads.
+    /// The apply is a separate fact: `reloadService()` can fail, and it used to report that failure and
+    /// nothing else - so the page showed a new override, the store held it, and the instance that was
+    /// actually carrying traffic kept the old one until the service next started. That is the "UI says
+    /// the setting is on, the tunnel behaves as if it is off" report.
+    ///
+    /// Both halves are restored only after the *previous* value was read from the store, so the
+    /// restore is to a value that was genuinely in effect rather than to a guess.
+    private func apply(_ value: Bool, to preference: SharedPreferences.Preference<Bool>, isOn: Binding<Bool>) async {
+        let previous = await preference.get()
+        await preference.set(value)
+        guard await reloadService() else {
+            await preference.set(previous)
+            isOn.wrappedValue = previous
+            return
         }
     }
 
@@ -75,26 +99,30 @@ public struct HakoProfileOverrideView: View {
             settingSection(
                 String(localized: "Hide VPN Icon"),
                 explanation: "Stop the system from showing its VPN badge, by excluding the addresses the badge probes.",
-                isOn: $excludeDefaultRoute
-            ) { await SharedPreferences.excludeDefaultRoute.set($0) }
+                isOn: $excludeDefaultRoute,
+                preference: SharedPreferences.excludeDefaultRoute
+            )
 
             settingSection(
                 String(localized: "No Default Route"),
                 explanation: "Route by subnet rather than taking over the default route. Fixes some HomeKit problems; on the Mac it stops Internet Sharing from working.",
-                isOn: $autoRouteUseSubRangesByDefault
-            ) { await SharedPreferences.autoRouteUseSubRangesByDefault.set($0) }
+                isOn: $autoRouteUseSubRangesByDefault,
+                preference: SharedPreferences.autoRouteUseSubRangesByDefault
+            )
 
             settingSection(
                 String(localized: "Exclude APNs Route"),
                 explanation: "Keep Apple Push Notification traffic off the tunnel by bypassing its hosts.",
-                isOn: $excludeAPNsRoute
-            ) { await SharedPreferences.excludeAPNsRoute.set($0) }
+                isOn: $excludeAPNsRoute,
+                preference: SharedPreferences.excludeAPNsRoute
+            )
 
             settingSection(
                 String(localized: "Local Signing Loopback"),
                 explanation: "Support SideStore and LiveContainer's local loopback connection. Once enabled, 10.7.0.1 is used automatically.",
-                isOn: $localSigningLoopback
-            ) { await SharedPreferences.localSigningLoopback.set($0) }
+                isOn: $localSigningLoopback,
+                preference: SharedPreferences.localSigningLoopback
+            )
         }
     }
 
@@ -117,14 +145,22 @@ public struct HakoProfileOverrideView: View {
         }
     }
 
-    private func reloadService() async {
+    /// Applies the current overrides to the running service.
+    ///
+    /// - Returns: false when the service was running and refused the change. A client with no running
+    ///   tunnel returns true: the preference is the next start's input and it was saved, so there is
+    ///   nothing that failed.
+    @discardableResult
+    private func reloadService() async -> Bool {
         guard let profile = environments.extensionProfile, profile.status.isConnected else {
-            return
+            return true
         }
         do {
             try await profile.reloadService()
+            return true
         } catch {
             alert = AlertState(action: "reload service", error: error)
+            return false
         }
     }
 

@@ -32,8 +32,7 @@ struct PacketTunnelView: View {
 
                         [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3131931-includeallnetworks)
                         """, $includeAllNetworks) { newValue in
-                            await SharedPreferences.includeAllNetworks.set(newValue)
-                            await applySettings()
+                            await applyChange(newValue, to: SharedPreferences.includeAllNetworks, isOn: $includeAllNetworks)
                         }
 
                         if #available(iOS 16.4, macOS 13.3, *) {
@@ -42,8 +41,7 @@ struct PacketTunnelView: View {
 
                             [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140516-excludeapns)
                             """, $excludeAPNs) { newValue in
-                                await SharedPreferences.excludeAPNs.set(newValue)
-                                await applySettings()
+                                await applyChange(newValue, to: SharedPreferences.excludeAPNs, isOn: $excludeAPNs)
                             }
 
                             FormToggle("excludeCellularServices", """
@@ -51,8 +49,7 @@ struct PacketTunnelView: View {
 
                             [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/4140517-excludecellularservices)
                             """, $excludeCellularServices) { newValue in
-                                await SharedPreferences.excludeCellularServices.set(newValue)
-                                await applySettings()
+                                await applyChange(newValue, to: SharedPreferences.excludeCellularServices, isOn: $excludeCellularServices)
                             }
                         }
 
@@ -61,8 +58,7 @@ struct PacketTunnelView: View {
 
                         [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3143658-excludelocalnetworks)
                         """, $excludeLocalNetworks) { newValue in
-                            await SharedPreferences.excludeLocalNetworks.set(newValue)
-                            await applySettings()
+                            await applyChange(newValue, to: SharedPreferences.excludeLocalNetworks, isOn: $excludeLocalNetworks)
                         }
 
                         FormToggle("enforceRoutes", """
@@ -72,8 +68,7 @@ struct PacketTunnelView: View {
 
                         [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/3689459-enforceroutes)
                         """, $enforceRoutes) { newValue in
-                            await SharedPreferences.enforceRoutes.set(newValue)
-                            await applySettings()
+                            await applyChange(newValue, to: SharedPreferences.enforceRoutes, isOn: $enforceRoutes)
                         }
 
                         if #available(iOS 17.4, macOS 14.4, *) {
@@ -82,8 +77,7 @@ struct PacketTunnelView: View {
 
                             [Apple Documentation](https://developer.apple.com/documentation/networkextension/nevpnprotocol/excludedevicecommunication)
                             """, $excludeDeviceCommunication) { newValue in
-                                await SharedPreferences.excludeDeviceCommunication.set(newValue)
-                                await applySettings()
+                                await applyChange(newValue, to: SharedPreferences.excludeDeviceCommunication, isOn: $excludeDeviceCommunication)
                             }
                         }
 
@@ -109,22 +103,45 @@ struct PacketTunnelView: View {
         #endif
     }
 
-    private func applySettings() async {
-        guard let profile = environments.extensionProfile else {
+    /// Writes the switch, applies it, and gives it back if the change did not take effect.
+    ///
+    /// The switch has already moved, and the preference is what the next start reads - but the apply
+    /// is a separate fact and can fail. Reporting that failure and leaving both halves on the new
+    /// value showed a routing option that neither the NetworkExtension preferences nor the running
+    /// tunnel had. This is the shared counterpart of the same fix in
+    /// `HakoStyle/HakoPacketTunnelView`; an iPad and a Mac load this page, so leaving it here would
+    /// have fixed only the phone.
+    private func applyChange(_ value: Bool, to preference: SharedPreferences.Preference<Bool>, isOn: Binding<Bool>) async {
+        let previous = await preference.get()
+        await preference.set(value)
+        guard await applySettings() else {
+            await preference.set(previous)
+            isOn.wrappedValue = previous
             return
+        }
+    }
+
+    /// - Returns: false when the change did not reach the system or the running service.
+    @discardableResult
+    private func applySettings() async -> Bool {
+        guard let profile = environments.extensionProfile else {
+            return false
         }
         if !profile.status.isConnected {
             do {
                 try await profile.updateProtocolConfiguration()
+                return true
             } catch {
                 alert = AlertState(action: "update packet tunnel settings", error: error)
+                return false
             }
-            return
         }
         do {
             try await profile.restart()
+            return true
         } catch {
             alert = AlertState(action: "restart service", error: error)
+            return false
         }
     }
 

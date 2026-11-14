@@ -296,11 +296,29 @@ public struct HakoOnDemandRulesView: View {
     }
 
     private func saveMode(_ newMode: OnDemandMode) async {
+        // Read the stored mode first: it is the only value that was actually in effect, and it is what
+        // the two halves are put back to if the system refuses the change (see `updateService`).
+        let previousAlwaysOn = await SharedPreferences.alwaysOn.get()
+        let previousOnDemandEnabled = await SharedPreferences.onDemandEnabled.get()
         let alwaysOn = newMode == .alwaysOn
         let onDemandEnabled = newMode == .enabled
         await SharedPreferences.alwaysOn.set(alwaysOn)
         await SharedPreferences.onDemandEnabled.set(onDemandEnabled)
-        await updateService(newMode)
+        guard await updateService(newMode) else {
+            // # Why the mode goes back
+            //
+            // `select` moves the page's `mode` before this runs, and the preferences were written
+            // before the system configuration was attempted. When that attempt failed, all three said
+            // "enabled" while `manager.isOnDemandEnabled` still said what it said before - the reader
+            // was shown a mode the system was not in, and the only report was an alert they could
+            // dismiss. Restoring puts the page, the store and the system back in agreement.
+            await SharedPreferences.alwaysOn.set(previousAlwaysOn)
+            await SharedPreferences.onDemandEnabled.set(previousOnDemandEnabled)
+            mode = previousAlwaysOn
+                ? .alwaysOn
+                : (previousOnDemandEnabled ? .enabled : .disabled)
+            return
+        }
     }
 
     /// Write a mode to the tunnel's system configuration.
@@ -320,17 +338,23 @@ public struct HakoOnDemandRulesView: View {
     ///     clears `manager.isOnDemandEnabled`, and the system went on holding a configuration that
     ///     says connect by itself. Upstream's guard is `newMode == .disabled || isConnected`, so
     ///     the disabling half is written whatever the tunnel is doing.
-    private func updateService(_ newMode: OnDemandMode) async {
+    ///
+    /// - Returns: false only when a write was attempted and failed. The guarded "nothing to write"
+    ///   case returns true: the preference is the next start's input, `start()` re-reads it, and
+    ///   nothing was refused.
+    private func updateService(_ newMode: OnDemandMode) async -> Bool {
         guard let profile = environments.extensionProfile,
               newMode == .disabled || profile.status.isConnected
         else {
-            return
+            return true
         }
         do {
             let enabled = newMode != .disabled
             try await profile.updateOnDemand(enabled: enabled, useDefaultRules: newMode == .alwaysOn)
+            return true
         } catch {
             alert = AlertState(action: "update on-demand rules", error: error)
+            return false
         }
     }
 
@@ -341,7 +365,10 @@ public struct HakoOnDemandRulesView: View {
             alert = AlertState(errorMessage: String(localized: "Failed to save rules"))
             return
         }
-        await updateService(mode)
+        // A failed write of the system configuration is reported, but the edited rules are kept: they
+        // are stored, they are what the next start installs, and discarding the reader's edits would
+        // trade one inconsistency for a lost edit.
+        _ = await updateService(mode)
     }
 
     private func loadSettings() async {

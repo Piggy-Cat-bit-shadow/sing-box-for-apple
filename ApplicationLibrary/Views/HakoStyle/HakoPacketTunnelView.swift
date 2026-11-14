@@ -93,7 +93,7 @@ struct HakoPacketTunnelView: View {
         explanation: LocalizedStringKey,
         identifier: String,
         isOn: Binding<Bool>,
-        set: @escaping (Bool) async -> Void
+        preference: SharedPreferences.Preference<Bool>
     ) -> some View {
         HakoSettingsSection(title, footnote: explanation) {
             HakoToggleRow(
@@ -102,10 +102,32 @@ struct HakoPacketTunnelView: View {
                 identifier: identifier
             ) { newValue in
                 Task {
-                    await set(newValue)
-                    await applySettings()
+                    await applyChange(newValue, to: preference, isOn: isOn)
                 }
             }
+        }
+    }
+
+    /// Writes the switch, applies it, and gives it back if the change did not take effect.
+    ///
+    /// # Why the rollback
+    ///
+    /// The switch moves as soon as it is touched. The apply below is a separate fact and can fail -
+    /// at `updateProtocolConfiguration()` when no tunnel is running, at `restart()` when one is - and
+    /// it used to report that failure and nothing else. The result was a page showing a routing option
+    /// that neither the NetworkExtension preferences nor the running tunnel had: the setting was
+    /// persisted, looked applied, and the traffic behaved as before, until the next start that this
+    /// app performed wrote it out.
+    ///
+    /// Restoring reads the previous value from the store first, so the two halves are put back to a
+    /// value that was genuinely in effect rather than to a guess.
+    private func applyChange(_ value: Bool, to preference: SharedPreferences.Preference<Bool>, isOn: Binding<Bool>) async {
+        let previous = await preference.get()
+        await preference.set(value)
+        guard await applySettings() else {
+            await preference.set(previous)
+            isOn.wrappedValue = previous
+            return
         }
     }
 
@@ -127,15 +149,17 @@ struct HakoPacketTunnelView: View {
                     String(localized: "Include All Networks"),
                     explanation: "Route everything through the tunnel, except the system services the device needs to stay online.",
                     identifier: "hako.tunnel.includeAllNetworks",
-                    isOn: $includeAllNetworks
-                ) { await SharedPreferences.includeAllNetworks.set($0) }
+                    isOn: $includeAllNetworks,
+                    preference: SharedPreferences.includeAllNetworks
+                )
 
                 settingSection(
                     String(localized: "Enforce Routes"),
                     explanation: "Keep the routes the tunnel does not carry on the current network interface, overriding the system routing table.",
                     identifier: "hako.tunnel.enforceRoutes",
-                    isOn: $enforceRoutes
-                ) { await SharedPreferences.enforceRoutes.set($0) }
+                    isOn: $enforceRoutes,
+                    preference: SharedPreferences.enforceRoutes
+                )
             #endif
         }
     }
@@ -149,31 +173,35 @@ struct HakoPacketTunnelView: View {
                         String(localized: "Exclude APNs"),
                         explanation: "Leave Apple Push Notification traffic outside the tunnel, while Include All Networks is on.",
                         identifier: "hako.tunnel.excludeAPNs",
-                        isOn: $excludeAPNs
-                    ) { await SharedPreferences.excludeAPNs.set($0) }
+                        isOn: $excludeAPNs,
+                        preference: SharedPreferences.excludeAPNs
+                    )
 
                     settingSection(
                         String(localized: "Exclude Cellular Services"),
                         explanation: "Leave Wi-Fi Calling, MMS, SMS and Visual Voicemail outside the tunnel, while Include All Networks is on.",
                         identifier: "hako.tunnel.excludeCellularServices",
-                        isOn: $excludeCellularServices
-                    ) { await SharedPreferences.excludeCellularServices.set($0) }
+                        isOn: $excludeCellularServices,
+                        preference: SharedPreferences.excludeCellularServices
+                    )
                 }
 
                 settingSection(
                     String(localized: "Exclude Local Networks"),
                     explanation: "Leave AirPlay, AirDrop, CarPlay and other local-network traffic outside the tunnel.",
                     identifier: "hako.tunnel.excludeLocalNetworks",
-                    isOn: $excludeLocalNetworks
-                ) { await SharedPreferences.excludeLocalNetworks.set($0) }
+                    isOn: $excludeLocalNetworks,
+                    preference: SharedPreferences.excludeLocalNetworks
+                )
 
                 if #available(iOS 17.4, macOS 14.4, *) {
                     settingSection(
                         String(localized: "Exclude Device Communication"),
                         explanation: "Leave traffic between this device and nearby devices outside the tunnel.",
                         identifier: "hako.tunnel.excludeDeviceCommunication",
-                        isOn: $excludeDeviceCommunication
-                    ) { await SharedPreferences.excludeDeviceCommunication.set($0) }
+                        isOn: $excludeDeviceCommunication,
+                        preference: SharedPreferences.excludeDeviceCommunication
+                    )
                 }
             #endif
         }
@@ -228,22 +256,29 @@ struct HakoPacketTunnelView: View {
     /// protocol configuration straight from the manager, so until this app next started the tunnel
     /// itself those switches were persisted and inert. `VERIFIED_SOURCE`: upstream calls the same
     /// method in the same branch.
-    private func applySettings() async {
+    ///
+    /// - Returns: false when the change did not reach the system or the running service. The caller
+    ///   uses that to put the switch and the stored value back; see `applyChange`.
+    @discardableResult
+    private func applySettings() async -> Bool {
         guard let profile = environments.extensionProfile else {
-            return
+            return false
         }
         if !profile.status.isConnected {
             do {
                 try await profile.updateProtocolConfiguration()
+                return true
             } catch {
                 alert = AlertState(action: "update packet tunnel settings", error: error)
+                return false
             }
-            return
         }
         do {
             try await profile.restart()
+            return true
         } catch {
             alert = AlertState(action: "restart service", error: error)
+            return false
         }
     }
 
