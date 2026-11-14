@@ -69,8 +69,18 @@ public struct ProfileUpdateFailure: LocalizedError, Equatable {
     /// `String(localized:)` is unavailable. The app's own entries present the localized wording.
     public var errorDescription: String? {
         switch report.config {
-        case .applied, .unchanged, .saved:
-            return nil
+        case .applied:
+            return report.providers.isFailure
+                ? "The configuration is applied, but the remote providers could not be refreshed"
+                : nil
+        case .unchanged:
+            return report.providers.isFailure
+                ? "The configuration is unchanged, but the remote providers could not be refreshed"
+                : nil
+        case .saved:
+            return report.providers.isFailure
+                ? "The configuration is saved, but the remote providers could not be refreshed"
+                : nil
         case let .applyFailed(reason):
             return reason ?? "The configuration could not be applied"
         case let .invalidConfig(reason):
@@ -148,8 +158,31 @@ public struct RemoteProfileUpdateReport: Equatable, Sendable {
         self.providers = providers
     }
 
-    /// True when the user must not read this as a clean update.
+    /// True when either half failed.
+    ///
+    /// The config half is not the whole update: a document can be applied and its remote providers
+    /// still fail to refresh. Gating the alert on the config alone is how that failure became
+    /// invisible, so the provider half is part of this answer now. A partial provider result is a
+    /// warning, not a failure; `needsAttention` is what decides whether the user must be told.
     public var isFailure: Bool {
+        configIsFailure || providers.isFailure
+    }
+
+    /// True when the user must be told something: a failure, an apply that was not confirmed or was
+    /// superseded, a profile that was only saved for the next start, or a provider result that did
+    /// not finish cleanly. A clean apply/unchanged plus a clean provider result is the only silent
+    /// combination.
+    public var needsAttention: Bool {
+        switch config {
+        case .applyFailed, .invalidConfig, .downloadFailed, .recovered, .interrupted,
+             .applyUnconfirmed, .superseded, .saved:
+            return true
+        case .unchanged, .applied:
+            return providers.needsAttention
+        }
+    }
+
+    private var configIsFailure: Bool {
         switch config {
         case .applyFailed, .invalidConfig, .downloadFailed, .recovered, .interrupted:
             true
@@ -165,12 +198,44 @@ public struct RemoteProfileUpdateReport: Equatable, Sendable {
     /// and the shortcut returned `true` after a failed download. They must see those outcomes as
     /// errors; the reporting API keeps them as values.
     public var isLegacyFailure: Bool {
+        // A caller that can only say "threw or not" must not answer success while the provider
+        // half failed; that is the same failure the structured UI has to show.
+        if configIsFailure || providers.isFailure {
+            return true
+        }
         switch config {
         case .applyFailed, .invalidConfig, .downloadFailed, .recovered, .interrupted,
              .applyUnconfirmed, .superseded:
-            true
+            return true
         case .unchanged, .saved, .applied:
-            false
+            return false
+        }
+    }
+}
+
+public extension RemoteProviderRefreshSummary {
+    /// True only for a refresh that failed outright. `partial` is a warning: some sources were
+    /// published, but the update did not finish cleanly.
+    var isFailure: Bool {
+        switch status {
+        case .failed, .unavailable:
+            return true
+        case .published, .unchanged, .partial, .busy, .cancelled, .boxChanged, .none,
+             .notActive, .notRunning, .superseded, .unsupported, .skipped:
+            return false
+        }
+    }
+
+    /// True when the provider half is not a clean result. The skip statuses are deliberately absent:
+    /// not being the active profile, not being connected, and losing the race to a newer operation
+    /// are expected outcomes, not warnings the user must act on.
+    var needsAttention: Bool {
+        switch status {
+        case .failed, .unavailable, .partial, .busy, .cancelled, .boxChanged, .superseded,
+             .unsupported:
+            return true
+        case .published, .unchanged, .none, .notActive, .notRunning, .skipped:
+            return false
         }
     }
 }
@@ -206,14 +271,21 @@ public struct RemoteProfileUpdateError: LocalizedError, Sendable {
         self.report = report
     }
 
+    /// Appended when the config half is clean but the provider half failed. This type cannot
+    /// localize, but it must not answer with a sentence that contradicts its own legacy-failure
+    /// decision.
+    private var providerFailureSuffix: String {
+        report.providers.isFailure ? "; the remote providers could not be refreshed" : ""
+    }
+
     public var errorDescription: String? {
         switch report.config {
         case .unchanged:
-            return "Configuration unchanged"
+            return "Configuration unchanged\(providerFailureSuffix)"
         case .saved:
-            return "Configuration saved; it applies on the next start"
+            return "Configuration saved; it applies on the next start\(providerFailureSuffix)"
         case .applied:
-            return "Configuration applied"
+            return "Configuration applied\(providerFailureSuffix)"
         case let .applyFailed(message):
             return message.map { "Configuration apply failed: \($0)" } ?? "Configuration apply failed"
         case .applyUnconfirmed:

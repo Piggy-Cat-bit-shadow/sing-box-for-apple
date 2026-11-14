@@ -446,7 +446,10 @@ struct HakoProfilePickerSheet: View {
                 let value = try await profile.origin.prepareRemoteProfileReporting()
                 prepared.append((profile, value, nil))
             } catch {
-                prepared.append((profile, nil, error.localizedDescription))
+                // Keep the framework's detail, but label it: the raw description can be English
+                // and technical, and a bare sentence next to the successful profiles reads as an
+                // unexplained failure.
+                prepared.append((profile, nil, String(localized: "Update failed: \(error.localizedDescription)")))
             }
         }
         if let selected = prepared.first(where: { $0.profile.id == selectedProfileID }),
@@ -462,7 +465,11 @@ struct HakoProfilePickerSheet: View {
                 }
             } catch {
                 if let index = prepared.firstIndex(where: { $0.profile.id == selected.profile.id }) {
-                    prepared[index] = (selected.profile, nil, error.localizedDescription)
+                    prepared[index] = (
+                        selected.profile,
+                        nil,
+                        String(localized: "Update failed: \(error.localizedDescription)")
+                    )
                 }
             }
         }

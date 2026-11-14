@@ -624,7 +624,14 @@ extension ProfileCard {
                 NSLog("profile update %@: %@", profile.name, report.localizedDescription)
                 environments.profileUpdate.send()
                 if report.isFailure {
-                    alert = AlertState(action: "update remote profile", error: RemoteProfileUpdateError(report))
+                    alert = AlertState(action: "update remote profile", error: RemoteProfileUpdateAlertError(report))
+                } else if report.needsAttention {
+                    // A provider refresh that partly applied, or an apply the daemon did not
+                    // confirm, must not disappear just because the config half is not an error.
+                    alert = AlertState(
+                        title: String(localized: "Update"),
+                        message: "\(profile.name): \(report.localizedDescription)"
+                    )
                 }
             } catch {
                 alert = AlertState(action: "update remote profile", error: error)

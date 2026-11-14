@@ -16450,6 +16450,386 @@
           }
         }
       }
+    },
+    "%lld failed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个失败"
+          }
+        }
+      }
+    },
+    "%lld need a restart" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个需重启"
+          }
+        }
+      }
+    },
+    "%lld pending" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个待生效"
+          }
+        }
+      }
+    },
+    "Configuration applied" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置已应用"
+          }
+        }
+      }
+    },
+    "Configuration apply failed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置应用失败"
+          }
+        }
+      }
+    },
+    "Configuration apply failed: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置应用失败：%@"
+          }
+        }
+      }
+    },
+    "Configuration apply was not confirmed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未能确认配置是否已应用"
+          }
+        }
+      }
+    },
+    "Configuration rejected" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置校验未通过"
+          }
+        }
+      }
+    },
+    "Configuration rejected: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置校验未通过：%@"
+          }
+        }
+      }
+    },
+    "Configuration saved; it applies on the next start" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置已保存，将在下次启动时生效"
+          }
+        }
+      }
+    },
+    "Configuration unchanged" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置无变化"
+          }
+        }
+      }
+    },
+    "Provider refresh did not finish: the running instance changed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源刷新未完成：运行实例已变化"
+          }
+        }
+      }
+    },
+    "Provider refresh did not run: another refresh is in progress" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源刷新未执行：已有刷新正在进行"
+          }
+        }
+      }
+    },
+    "Provider refresh failed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源刷新失败"
+          }
+        }
+      }
+    },
+    "Provider refresh failed: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源刷新失败：%@"
+          }
+        }
+      }
+    },
+    "Provider refresh failed: %lld of %lld" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源刷新失败：%lld/%lld 个"
+          }
+        }
+      }
+    },
+    "Provider refresh unavailable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源刷新不可用"
+          }
+        }
+      }
+    },
+    "Provider refresh unavailable: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源刷新不可用：%@"
+          }
+        }
+      }
+    },
+    "Provider refresh was cancelled" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源刷新已取消"
+          }
+        }
+      }
+    },
+    "Providers not refreshed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源未刷新"
+          }
+        }
+      }
+    },
+    "Providers not refreshed: a newer operation replaced this update" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源未刷新：本次更新已被更新的操作取代"
+          }
+        }
+      }
+    },
+    "Providers not refreshed: the new configuration was not applied" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源未刷新：新配置未应用"
+          }
+        }
+      }
+    },
+    "Providers not refreshed: the running service does not support this refresh" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源未刷新：当前运行的服务不支持此刷新"
+          }
+        }
+      }
+    },
+    "Providers not refreshed: the service is not running" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源未刷新：服务未运行"
+          }
+        }
+      }
+    },
+    "Providers not refreshed: this profile is not active" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源未刷新：当前配置不是活动配置"
+          }
+        }
+      }
+    },
+    "Providers partly applied" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源部分生效"
+          }
+        }
+      }
+    },
+    "Providers partly applied: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源部分生效：%@"
+          }
+        }
+      }
+    },
+    "Providers unchanged" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源无变化"
+          }
+        }
+      }
+    },
+    "Providers: %lld published" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源：已发布 %lld 个"
+          }
+        }
+      }
+    },
+    "Providers: %lld published, %lld unchanged" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "节点源：发布 %lld 个，未变 %lld 个"
+          }
+        }
+      }
+    },
+    "Subscription download failed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "订阅下载失败"
+          }
+        }
+      }
+    },
+    "Subscription download failed: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "订阅下载失败：%@"
+          }
+        }
+      }
+    },
+    "The new configuration failed; the service recovered to the saved one" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新配置应用失败，服务已恢复到之前保存的配置"
+          }
+        }
+      }
+    },
+    "The running configuration has no remote providers" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前运行的配置没有远程节点源"
+          }
+        }
+      }
+    },
+    "The tunnel stopped and nothing is running" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务已停止，当前没有运行实例"
+          }
+        }
+      }
+    },
+    "The tunnel stopped and nothing is running: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务已停止，当前没有运行实例：%@"
+          }
+        }
+      }
+    },
+    "Update superseded by a newer action" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本次更新已被更新的操作取代"
+          }
+        }
+      }
+    },
+    "Update failed: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新失败：%@"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

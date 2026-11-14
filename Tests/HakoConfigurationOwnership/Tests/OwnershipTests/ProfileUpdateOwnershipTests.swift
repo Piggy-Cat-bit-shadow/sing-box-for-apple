@@ -340,4 +340,89 @@ final class ProfileUpdateOwnershipTests: XCTestCase {
         XCTAssertTrue(RemoteProfileUpdateReport(config: .interrupted(reason: "x"), providers: .init(status: .notActive, counts: .init(), detail: nil)).isFailure)
         XCTAssertFalse(RemoteProfileUpdateReport(config: .applied, providers: .init(status: .notActive, counts: .init(), detail: nil)).isFailure)
     }
+
+    /// A config that applied is not a clean update when the provider half failed.
+    func testProviderFailureIsAFailureOnItsOwn() {
+        let failed = RemoteProfileUpdateReport(
+            config: .applied,
+            providers: .init(status: .failed, counts: .init(), detail: nil)
+        )
+        XCTAssertTrue(failed.isFailure)
+        XCTAssertTrue(failed.needsAttention)
+        XCTAssertTrue(failed.isLegacyFailure, "a shortcut must not answer true after a provider failure")
+        XCTAssertNotNil(ProfileUpdateFailure(report: failed).errorDescription)
+
+        let unavailable = RemoteProfileUpdateReport(
+            config: .applied,
+            providers: .init(status: .unavailable, counts: .init(), detail: nil)
+        )
+        XCTAssertTrue(unavailable.isFailure)
+        XCTAssertTrue(unavailable.needsAttention)
+        XCTAssertTrue(unavailable.isLegacyFailure)
+    }
+
+    /// Partial, unconfirmed and saved-only are warnings: visible, but not called failures.
+    func testWarningsNeedAttentionWithoutBecomingFailures() {
+        let partial = RemoteProfileUpdateReport(
+            config: .applied,
+            providers: .init(status: .partial, counts: .init(), detail: nil)
+        )
+        XCTAssertFalse(partial.isFailure)
+        XCTAssertTrue(partial.needsAttention)
+
+        let unconfirmed = RemoteProfileUpdateReport(
+            config: .applyUnconfirmed,
+            providers: .init(status: .published, counts: .init(), detail: nil)
+        )
+        XCTAssertFalse(unconfirmed.isFailure)
+        XCTAssertTrue(unconfirmed.needsAttention)
+
+        let saved = RemoteProfileUpdateReport(
+            config: .saved,
+            providers: .init(status: .notActive, counts: .init(), detail: nil)
+        )
+        XCTAssertFalse(saved.isFailure)
+        XCTAssertTrue(saved.needsAttention)
+
+        let superseded = RemoteProfileUpdateReport(
+            config: .superseded,
+            providers: .init(status: .skipped, counts: .init(), detail: ProviderRefreshSkip.superseded.rawValue)
+        )
+        XCTAssertFalse(superseded.isFailure)
+        XCTAssertTrue(superseded.needsAttention)
+    }
+
+    /// The ordinary clean combinations stay silent, and the expected skip statuses do not warn.
+    func testCleanAndSkippedResultsDoNotNeedAttention() {
+        let unchanged = RemoteProfileUpdateReport(
+            config: .unchanged,
+            providers: .init(status: .unchanged, counts: .init(), detail: nil)
+        )
+        XCTAssertFalse(unchanged.isFailure)
+        XCTAssertFalse(unchanged.needsAttention)
+
+        let applied = RemoteProfileUpdateReport(
+            config: .applied,
+            providers: .init(status: .published, counts: .init(), detail: nil)
+        )
+        XCTAssertFalse(applied.needsAttention)
+
+        let inactive = RemoteProfileUpdateReport(
+            config: .applied,
+            providers: .init(status: .notActive, counts: .init(), detail: nil)
+        )
+        XCTAssertFalse(inactive.needsAttention)
+
+        let stopped = RemoteProfileUpdateReport(
+            config: .applied,
+            providers: .init(status: .notRunning, counts: .init(), detail: nil)
+        )
+        XCTAssertFalse(stopped.needsAttention)
+
+        let noProviders = RemoteProfileUpdateReport(
+            config: .applied,
+            providers: .init(status: .none, counts: .init(), detail: nil)
+        )
+        XCTAssertFalse(noProviders.needsAttention)
+    }
 }

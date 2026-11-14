@@ -18,8 +18,16 @@ public final class EditProfileViewModel: BaseViewModel {
         }
         do {
             try await Task.sleep(nanoseconds: UInt64(100 * Double(NSEC_PER_MSEC)))
-            try await profile.updateRemoteProfile()
+            let report = try await profile.updateRemoteProfileReporting()
             environments.profileUpdate.send()
+            if report.isFailure {
+                alert = AlertState(action: "update remote profile", error: RemoteProfileUpdateAlertError(report))
+            } else if report.needsAttention {
+                alert = AlertState(
+                    title: String(localized: "Update"),
+                    message: "\(profile.name): \(report.localizedDescription)"
+                )
+            }
         } catch {
             alert = AlertState(action: "update remote profile", error: error)
         }
