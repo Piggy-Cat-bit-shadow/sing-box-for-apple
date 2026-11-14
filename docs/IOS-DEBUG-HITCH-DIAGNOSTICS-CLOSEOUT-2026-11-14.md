@@ -70,6 +70,14 @@ recorded because it is the part a later reader cannot reconstruct from the diff:
   Apple-only files, and the repository's gate set — §6 has the results.
 * The evidence for the primary worktree's state at the start (file list, timestamps) is in this round's
   session log; it is not reproduced here because it will be stale by the time anyone reads this.
+* **The collision is bigger than the committed diff shows.** At the time of writing, that worktree
+  still carries *uncommitted* edits to `Library/Network/CommandClient.swift` and
+  `ApplicationLibrary/Views/Log/LogViewModel.swift`, and an untracked `Library/Network/LogStore.swift`
+  — the same boundary this branch implements: `logBuffer` off the client, a `logStore` on it, the page
+  observing the store. None of that is on `main`. When it lands, the conflict is exactly those three
+  files, and the two `LogStore` types are different classes with different interfaces (that one also
+  publishes a `revision` and has `setUIVisible`). This branch does not depend on it and is complete
+  without it; whoever integrates should compare the two stores rather than keep both.
 
 ### 1.2 Why no kernel change
 
@@ -446,9 +454,10 @@ Each commit's message states the cost it removes and the evidence for it.
    defects in its own scanner, reproduced with materialised sources) and
    `gate_hako_platform_imports.py` (62 tvOS availability questions its facts cannot decide). Both are
    documented in §6.2 and both are unchanged by this branch; fixing them is a separate change.
-4. **Merging the branch.** It is based on `main`'s tip `dffa979` and needs no conflict resolution;
-   the only thing to keep in place when it is merged is commit 6, because it is what keeps `main`'s
-   stop-request emergency exit ticking (§1.1).
+4. **Merging the branch.** It is based on `main`'s tip `dffa979` and needs no conflict resolution.
+   Two things on `main` must stay: its stop-request emergency exit (commit 6 is what keeps that ticking,
+   §1.1), and — when the uncommitted `LogStore` work described in §1.1 lands — one of the two stores,
+   not both.
 5. **The extension process.** If the device shows a tunnel that gets hot after several minutes rather
    than a home page that drops frames, that is the OOM/GC question the audit deferred, and it is not
    this branch.
