@@ -308,12 +308,21 @@ retention, drop count and "did anything change" answers hold at and past the bou
 | `scripts/dev/check_generated_headers.py` | **PASS** — 33 headers |
 | `scripts/dev/check_platform_structure.py` | **PASS** |
 | `scripts/dev/check_commit_messages.py` | **PASS** on this branch's range (no BOM) |
-| `scripts/dev/check_swift_test_sources.py` | **FAIL, identical to the pristine baseline** — on Windows its symlink placeholders carry no declarations, so it reports names it cannot resolve. Re-run on macOS. |
-| `scripts/dev/gate_hako_platform_imports.py` | **FAIL, identical to the pristine baseline** — 62 "undecidable" and nothing written. Re-run on macOS. |
+| `scripts/dev/check_swift_test_sources.py` | **FAIL, and identical on `main` at `dffa979`** — see below |
+| `scripts/dev/gate_hako_platform_imports.py` | **FAIL, and identical on `main` at `dffa979`** — `checked=56 errors=0 undecidable=62`; every finding is an `NS*` type its platform facts cannot decide for tvOS (`NSFontManager`, `NSFont`, `NSView`, `NSColor`, …). Pre-existing, and this branch adds no finding: the two runs' outputs differ only in the scope path. |
 
-To show the last two are not caused by this branch, both were run on a second, pristine worktree at
-`749509f`; their exit codes and output are byte-identical apart from the declaration counts that the
-new files add.
+The last two are red on `main` itself. Both were run against a second worktree at `dffa979` (the
+commit this branch is based on) and compared: `gate_hako_platform_imports.py` produces the same 56
+files and the same 62 undecidable findings, and `check_swift_test_sources.py` produces the same six
+problems.
+
+`check_swift_test_sources.py` was investigated further rather than written off as a Windows artifact:
+a reroot was built with the test packages' symlinked sources materialised into real files, and it
+still reports the same six problems, all inside `Tests/HakoScreenState` and all defects of the gate's
+own tables — `DispatchSemaphore` and `Thread` are missing from its `SDK_NAMES`, the generic parameter
+`T` is read as a type name, and three ALL-CAPS test constants are read as type names. Nothing in those
+files is changed by this branch. Fixing that gate is a separate change and deliberately not folded in
+here.
 
 ### 6.3 Blocked
 
@@ -433,8 +442,10 @@ Each commit's message states the cost it removes and the evidence for it.
 2. **Instruments.** Time Profiler on the four card bodies and the two `Canvas` drawings, to confirm the
    log window is no longer in their invalidation path; Animation Hitches to see whether the remaining
    hitches line up with the 1 Hz status publish or with the kernel's own work.
-3. **`check_swift_test_sources.py` and `gate_hako_platform_imports.py`** must be re-run on macOS,
-   where the symlinks are real.
+3. **Two repository gates are red on `main`** — `check_swift_test_sources.py` (six name-table
+   defects in its own scanner, reproduced with materialised sources) and
+   `gate_hako_platform_imports.py` (62 tvOS availability questions its facts cannot decide). Both are
+   documented in §6.2 and both are unchanged by this branch; fixing them is a separate change.
 4. **Merging the branch.** It is based on `main`'s tip `dffa979` and needs no conflict resolution;
    the only thing to keep in place when it is merged is commit 6, because it is what keeps `main`'s
    stop-request emergency exit ticking (§1.1).
