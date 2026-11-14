@@ -141,30 +141,87 @@ Why each part:
 only when the answer is true. This is the second half of the same problem: a rewrite at the moment the
 main thread has recovered is the most expensive possible time to write a file.
 
-### 3.2 P1 — the log window left `CommandClient`
+### 3.2 P1 — the log window left `CommandClient`, and is announced only to a page on screen
 
 `LogHistory` (new, Foundation-only) owns the retention rule: append, trim to the bound, cumulative
-drop count. `LogStore` (new, `ObservableObject`) owns the batch window and the publication.
-`CommandClient` keeps a `let logStore` instead of `@Published logBuffer` / `@Published
+drop count. `LogStore` (new, `ObservableObject`) owns the window, the announcement and who is allowed
+to hear it. `CommandClient` keeps a `let logStore` instead of `@Published logBuffer` / `@Published
 initialLogsReceived`, and its log callback only forwards to it.
 
-What this removes: a log batch changed a `@Published` property of the object that every dashboard card
-reads through `@EnvironmentObject`, so four card bodies — two of which draw a `Canvas` — were
-re-evaluated at up to 10 Hz by lines none of them display. Now a batch changes an object that only the
-Logs page observes, so the dashboard's cost per log line is **zero**, whether or not the page is open.
+What this removes, in two steps that are worth keeping apart:
+
+1. **The dashboard's cost per log line is zero.** A batch used to change a `@Published` property of
+   the object every dashboard card reads through `@EnvironmentObject`, so four card bodies — two of
+   which draw a `Canvas` — were re-evaluated at up to 10 Hz by lines none of them display. A batch now
+   changes an object only the Logs page observes.
+2. **A hidden Logs page costs nothing either.** The store publishes a `revision` counter, not the
+   window: the array is mutated in place, so there is no per-batch copy, and `setPageVisible(_:)`
+   stops the announcement entirely while no log page is on screen. The page's pipeline is driven by
+   that announcement, so a hidden page runs no filter and re-renders nothing.
+
+Why each part:
+
+* **The window itself is not published.** A published array is copied on every publish, because the
+  store must keep its copy while every observer gets one. Publishing a counter makes the steady state
+  copy-free; the single reader (the page) or the pause snapshot is what makes the next append copy.
+  That is also why `LogDataModel` reads `buffer` when `revision` fires instead of receiving it.
+* **Visibility lives in the store, not the page.** The page can stop rendering but cannot stop the
+  announcement; the tab shell keeps a tab's navigation stack alive, so a Logs page that was pushed and
+  then left behind by a tab switch keeps its model, its subscription and its filter. Gating here is
+  the only place that covers all of them.
+* **The count is a counter, not a flag.** A second window on the Mac, or an appearance that races the
+  previous instance's disappearance, must not switch the gate off while something is still drawing.
+  Leaving saturates at zero, because a view can be torn down twice in one turn.
+* **The pages report visibility from the shell's `\.selection` as well as from
+  `onAppear`/`onDisappear`.** Appearing is not proof of being on screen in a tab shell; the selection
+  is the state of record. Both Logs pages follow it with `onChangeCompat`, and tvOS is wired the same
+  way (it previously had no lifecycle wiring at all on that page).
+* **`defaultLogLevel` moved to the store.** It is log state; a level report must not invalidate a view
+  that only draws traffic.
 
 What is preserved on purpose:
 
-* the window still retains 3000 lines and still fills whether or not the Logs page is open;
+* the window still retains 3000 lines and still fills while the page is away, so opening it shows the
+  backlog;
+* becoming visible announces once, which is what renders that backlog;
 * the backlog still paints immediately on the first batch after a subscription, instead of waiting out
-  the window;
-* `initialLogsReceived`, `droppedCount`, the pause snapshot, search and level filtering are unchanged;
-* `clearLogs()` still exists on the client (the core calls it), and it now clears the store;
-* a connection that replaces an earlier one still resets both the window and the loaded flag.
+  the coalescing window;
+* `initialLogsReceived` (deferred until a page is looking), `droppedCount`, the pause snapshot, search
+  and level filtering are unchanged;
+* `clearLogs()` still exists on the client (the core calls it), and it clears the store; the
+  user/core clear does not turn the page back into "loading", while a new subscription does;
+* a connection that replaces an earlier one still resets the window and the loaded flag.
 
-The publication window moves from 100 ms to 250 ms. This is a change in *how often a change is
-announced*, not in what is retained, and it is bounded by the fact that the only observer is a page
-that is on screen or not.
+The announcement window moves from 100 ms to 250 ms, and only runs while a page is on screen. This is
+a change in *how often a change is announced*, not in what is retained.
+
+#### 3.2.1 The other `LogStore`, compared, and which one this branch keeps
+
+A parallel line of work in this repository — still uncommitted in the primary checkout, see §1.1 —
+implemented the same boundary in the same files with a different store. It was not merged in and not
+discarded unread: the two were compared field by field, and the comparison changed this branch. The
+axes are the four that decide the cost.
+
+| Axis | This branch, first version | The parallel store | Kept |
+|---|---|---|---|
+| **Publication** | `@Published var buffer: LogBuffer`; each batch assigns a new value, so subscribers get signal and value together. The page's `CombineLatest4` consumed `$buffer` directly. | `@Published var revision: UInt64`; `buffer` is a plain property, and a reader takes it when the counter fires. | **The counter.** An explicit edge separates "the window changed" from "the value was reassigned", and the reader reads on the main queue, which is where the store is confined anyway. |
+| **Memory copying** | Up to 3000 entries copied on the main thread on every batch (a published struct value means the store and its observers cannot share the array), four times a second, for as long as the app runs. | Zero copies per batch in the steady state: the store is the only owner and the array is mutated in place. An append copies only while a reader is still holding the window — which is exactly the paused case, and a pause must keep its frozen copy, so that state costs one copy per append, as it did before. | **The parallel store.** Its steady state is strictly cheaper; this branch's was a copy loop dressed as a publish. |
+| **Page lifecycle** | No visibility signal at all. `onDisappear` only saved the search text, so a hidden Logs page kept its pipeline and re-rendered at up to 4 Hz for a page nobody could see. | `setUIVisible(_:)` from `onAppear`/`onDisappear` **and** from `onChangeCompat(of: selection)`, because the tab shell keeps a tab's stack alive; buffer keeps filling while hidden; one publication on appearing. Wired for tvOS too. | **The parallel design**, with one difference: this branch's `LogPageVisibility` is a counter rather than a `Bool` (a second window, or an appearance racing a disappearance, must not gate off while something is drawing) and it saturates at zero (a view can be torn down twice in one turn). |
+| **Pause semantics** | Snapshot on pause, catch up on resume, driven by `totalCount`. Free at the moment of pausing, because the published value was already a copy — and one copy per batch thereafter, because the snapshot keeps the array alive. | Same semantics and the same paused-state cost; cheaper only when not paused, where it is zero. | **Equal.** The same view-model logic serves both. What the comparison actually changed is the unpaused steady state, not pause. |
+
+What this branch therefore contains, after the comparison: the parallel store's publication and
+lifecycle model, re-implemented here rather than copied (that code is uncommitted and still being
+edited), with the counter-based visibility and the extracted, testable decision
+(`LogPublicationPolicy.decision(isPageVisible:hasNewLines:bufferWasEmpty:)`, `LogPageVisibility`).
+The one thing this branch does not take is the parallel store's `setUIVisible` `Bool`, for the reason
+above.
+
+**When the parallel work lands, one store must be kept, not two.** The two are the same boundary and
+the same files (`LogStore`, `CommandClient`, `LogViewModel`); keeping both would give the app two
+windows, two announcement signals and two `initialLogsReceived` flags. The recommendation is this
+branch's, because it is the one that exists as commits with tests and a gate that fails if the
+boundary is undone; the parallel line's remaining advantage — if any — should be read off the table
+above rather than merged in blind.
 
 ### 3.3 P1b — the home page's mirrors are written only when they move
 
@@ -212,7 +269,7 @@ such announcement to the root's invalidation.
 |---|---|
 | `ExtensionEnvironments` still forwards all three managers' `objectWillChange` wholesale | With publish-only-on-change this now costs one invalidation per *real* report change. Narrowing the root's dependency to an unread summary is a genuine improvement and a bigger change than this round's budget; recorded as a follow-up. |
 | `CrashReportManager.refresh()` reads every archived report's contents in `coalesceArchivedCrashReports()` before deciding there is nothing to merge | Real I/O, but on a background queue and once per real refresh. A metadata-only pre-scan would be the fix; without a measurement of how many reports a real device holds, this would be optimising an unquantified cost. |
-| `postReload()` still calls `ExtensionProfile.load()` on every foreground return | It is one NetworkExtension IPC call, not a scan; the same gate could cover it, but the current `reload()` already refuses to replace a live profile. Left alone to keep this round's diff readable. |
+| `postReload()` coalesces the three report scans but not `restoreRemoteControl()` or `reload()` — a duplicate trigger still runs `ExtensionProfile.load()` twice | `ReportRefreshGate` covers the part that reads the archives. The profile read in front of it is one NetworkExtension IPC call, not a scan, and it is outside the gate, so two triggers that fire together still issue it twice. It was left out to keep this round's change to the report path, and it is the next thing to check if a foreground stutter survives the rest of this work: move the whole body of `postReload()` behind the gate, not only its tail. |
 | The home page clears `liveConnectionCount` on disconnect but not `liveGroupCount` | The Proxies row's gate is `liveGroupCount > 0`, and the client's own `groups` are not cleared on disconnect either, so the two agree. Whether the row should disappear when the tunnel stops is a product decision, not a performance fix. |
 | `HangWatchdog`'s report ladder still takes five snapshots per report | It only runs while the main thread is *still* stalled, and the cap now bounds how often a report can start at all. Reducing it further would remove information from real hangs for a saving that cannot be measured here. |
 
@@ -229,8 +286,9 @@ What can be stated as a static path argument, each line traceable to §3:
 
 | Path | Before | After | Basis |
 |---|---|---|---|
-| Log window publishes | ≤ 10 per second | ≤ 4 per second | batch window 100 ms → 250 ms |
-| View bodies invalidated by a log window change | the 4 dashboard cards (2 with `Canvas`), plus anything else observing `CommandClient`, even with no Logs page open | the Logs page only, and only while it is on screen | the store boundary; `LogStore` is named only by the log path (enforced by the gate) |
+| Log window announcements | ≤ 10 per second, for as long as the app runs, whether or not a Logs page exists | 0 while no log page is on screen; ≤ 4 per second while one is, plus one on appearing | `setPageVisible` gates the announcement; the coalescing window is 250 ms |
+| Log window array copies | one per batch (≤ 10 per second, forever) | none in the steady state; one per pause and one per render | the window is mutated in place; `revision` is the signal, not the value |
+| View bodies invalidated by a log window change | the 4 dashboard cards (2 with `Canvas`), plus anything else observing `CommandClient`, even with no Logs page open | the Logs page only, and only while it is on screen — a hidden page's pipeline does not run at all | the store boundary plus the visibility gate; `LogStore` is named only by the log path, both enforced by the gate |
 | Home page `body` evaluations caused by status/groups/mode-list mirrors | up to 1 per second plus one per groups/ mode-list publish | only when the count, label or list actually changes | equality guards |
 | Main-run-loop wake-ups from the start/stop clock | 1 per second, for the whole session | 0 while idle with no running time drawn (the home page's configuration, its normal state); 1 per second only while a duration is drawn or a transition is in flight | `.task(id:)` |
 | Report-archive rounds started per foreground return | up to 2, one per trigger | 1, plus 1 follow-up only if a second trigger arrives while the first is running | `ReportRefreshGate` |
@@ -285,7 +343,7 @@ python scripts/dev/check_swift_structure.py <changed Swift files>
 
 | Package | Tests | Result | Notes |
 |---|---:|---|---|
-| `Tests/HakoDiagnosticsCost` (**new**) | 29 | **PASS** | the three new policies/boundaries |
+| `Tests/HakoDiagnosticsCost` (**new**) | 38 | **PASS** | the four new decisions: capture budget, refresh gate, window retention, announcement and visibility |
 | `Tests/HakoCommandSubscription` | 13 | **PASS** | existing |
 | `Tests/HakoScreenState` | 48 | **PASS** | existing |
 | `Tests/HakoInterfaceStartup` | 13 | **PASS** | existing; needs the reroot harness (its tests read app files by path) |
@@ -293,18 +351,26 @@ python scripts/dev/check_swift_structure.py <changed Swift files>
 | `Tests/SubscriptionQuotaCaption` | 10 | **PASS** | existing |
 | `Tests/HakoSubscriptionUsage` | — | **BLOCKED (environment)** | its `Sources/Libbox/LibboxStub.swift:11` declares a libbox stub with `NSErrorPointer`, which swift-corelibs-foundation on Windows does not export. Unrelated to this branch; needs macOS. |
 
-The new package's 29 tests are the executable form of this round's decisions: Release's numbers are
+The new package's 38 tests are the executable form of this round's decisions. Release's numbers are
 unchanged; Debug's default is bounded and is not 1 s / 5 s / unbounded; the opt-in lowers the threshold
 without lifting the cap; no profile is unbounded or degenerate; the capture work a profile can reach
-inside a minute is bounded; both activation switches are honoured with the spellings a person types;
-the refresh gate merges a burst into exactly one follow-up and loses no request; and the log window's
-retention, drop count and "did anything change" answers hold at and past the bound.
+inside a minute is bounded; both activation switches are honoured with the spellings a person types.
+The refresh gate merges a burst into exactly one follow-up and loses no request. The window's
+retention, drop count and "did anything change" answers hold at and past the bound. And the
+announcement matrix holds: nobody looking means no announcement whatever arrived, a batch with no lines
+is not an announcement, the first batch of a subscription is announced immediately and later ones are
+coalesced; the visibility counter survives two pages, a duplicate disappearance and an appearance
+after a saturated count.
+
+What these tests do **not** cover is the wiring that feeds the counter: which SwiftUI lifecycle a page
+reports from, and what `\.selection` holds at that moment. That is the gate's job (§6.2) and, in the
+end, a device's.
 
 ### 6.2 Repository gates
 
 | Gate | Result |
 |---|---|
-| `scripts/dev/check_hako_diagnostics_boundaries.py` (**new**) | **PASS** — and each of its four invariants was shown to fail the gate when reverted (published log window, unguarded home mirror, unbounded profile, unconditional timer) |
+| `scripts/dev/check_hako_diagnostics_boundaries.py` (**new**) | **PASS** — and each of its invariants was shown to fail the gate when reverted: published log window, log pipeline reading a published buffer, a Logs page that stops reporting that it left, a page no longer gated on the shell's selection, unguarded home mirror, unbounded capture profile, unconditional start/stop timer |
 | `scripts/dev/check_swift_structure.py <changed files>` | **PASS** — "all 13 target(s) structurally balanced" for the app sources the branch changes (17 when the package's Swift files are included) |
 | `scripts/dev/check_hako_command_channel.py` | **PASS** — 58 phone files |
 | `scripts/dev/check_hako_platform_symbols.py` | **PASS** — 58 Hako files, 25 gated members |
@@ -401,7 +467,8 @@ when it is not on screen. No new page, toggle, badge or debug surface was added.
 
 | Risk | Who can be affected | Mitigation in this branch |
 |---|---|---|
-| Something depended on `CommandClient.objectWillChange` firing for log lines | a view that shows log content but was not updated | the only consumers of log state are `LogDataModel` (updated) and the two Logs pages through it; `check_hako_diagnostics_boundaries.py` restricts which files may name `LogStore`, so a new observer has to be a deliberate edit. Still: the Logs page has no automated UI test here, so this is the one change that needs a device look. |
+| Something depended on `CommandClient.objectWillChange` firing for log lines | a view that shows log content but was not updated | the only consumers of log state are `LogDataModel` (updated) and the two Logs pages through it; the gate restricts which files may name `LogStore` and requires both pages to report visibility, so a new observer has to be a deliberate edit. Still: the Logs page has no automated UI test here. |
+| The visibility gate never opens, so the Logs page shows nothing | the Logs page on any platform | `setPageVisible` is called from `onAppear` **and** from `onChangeCompat(of: selection)`, and `\.selection` is injected by all four roots (SFI phone, SFI iPad, SFM, SFT). A page that is never selected would be a first: the selection is what the shell navigates with. This is the one place where a wrong `\.selection` value would be silent rather than loud, and it needs a device look. |
 | `.task(id:)` and the duration label disagree about when to tick | a page that draws the duration, or one waiting out a transition | the duration branch uses the same predicate as `tracksTime`; the busy case is read through the same `isBusy` property the body uses, so the two cannot drift |
 | A coalesced refresh delays a report by one round | the report badge and list | the gate never drops a request; the follow-up starts as soon as the running round ends |
 | An unchanged-looking archive change is missed by publish-only-on-change | the report list | the comparison is the whole list, not a count or a timestamp: any added, removed or re-read report differs and publishes |
@@ -436,6 +503,12 @@ order:
 6. `perf(apple): keep the start/stop clock while a transition is in flight` — the busy case in
    `HakoStartStopButton`, and the interaction with `main`'s `69768a3` (§1.1).
 7. `docs(apple): audit iOS debug hitch remediation and residual risks` — this file.
+8. `docs(apple): record the two repository gate failures that are not this branch`.
+9. `docs(apple): name the uncommitted log-store work this branch will meet`.
+10. `perf(apple): stop announcing logs to a page that is not on screen` — the comparison's verdict:
+    the revision announcement, the visibility counter, the two pages' lifecycle wiring and tvOS, the
+    extracted `LogPublicationPolicy`/`LogPageVisibility`, nine tests and the four new gate checks.
+11. `docs(apple): compare the two log stores and record the reload residual` — §3.2.1, §4, §5, §6.
 
 Each commit's message states the cost it removes and the evidence for it.
 
@@ -443,10 +516,15 @@ Each commit's message states the cost it removes and the evidence for it.
 
 ## 10. What is still open
 
-1. **Device verification.** Nothing here has been run on a phone. The two experiments worth doing
-   first: a desktop-launched Debug build with `log.level=error` and the Logs page closed, scrolled for
-   30 s, against the same build at `debug`; and a foreground/background cycle with the report badge
-   visible, checking that the badge updates and the archive list does not flicker.
+1. **Device verification.** Nothing here has been run on a phone. The experiments worth doing first:
+   a desktop-launched Debug build with `log.level=error` and the Logs page closed, scrolled for 30 s,
+   against the same build at `debug`; a foreground/background cycle with the report badge visible,
+   checking that the badge updates and the archive list does not flicker; and — new with §3.2.1 — the
+   Logs page's visibility gate, which has two things to confirm on a device: that the page fills while
+   it is open, and that a tab switch away from it stops the work. The gate is not visible in a log
+   stream; the way to see it is a Time Profiler sample on the main thread while `log.level=debug` keeps
+   producing lines, taken once with the Logs page open and once after switching tabs away, then the
+   absence of `LogDataModel`'s filter and the text view's re-render in the second sample.
 2. **Instruments.** Time Profiler on the four card bodies and the two `Canvas` drawings, to confirm the
    log window is no longer in their invalidation path; Animation Hitches to see whether the remaining
    hitches line up with the 1 Hz status publish or with the kernel's own work.
