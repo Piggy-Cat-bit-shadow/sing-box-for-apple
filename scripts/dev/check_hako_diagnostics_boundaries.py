@@ -195,8 +195,8 @@ def check(root: str) -> list[str]:
             "%s: subscribes a timer again; the clock is `.task(id:)` so a page that draws no "
             "running time schedules nothing" % START_STOP
         )
-    if not re.search(r"\.task\(id:\s*showsRuntimeClock\)", start_stop):
-        problems.append("%s: the gated clock (`task(id: showsRuntimeClock)`) is gone" % START_STOP)
+    if not re.search(r"\.task\(id:\s*tracksTime\)", start_stop):
+        problems.append("%s: the gated clock (`task(id: tracksTime)`) is gone" % START_STOP)
 
     # 4c. The report refresh is coalesced.
     if "reportRefreshGate.begin()" not in environments or "reportRefreshGate.end()" not in environments:
