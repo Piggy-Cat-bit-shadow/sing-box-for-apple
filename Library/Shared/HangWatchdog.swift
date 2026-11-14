@@ -23,15 +23,25 @@ public final class HangWatchdog: @unchecked Sendable {
     private static let maxSamples = 120
     private static let snapshotOffsets: [TimeInterval] = [0, 0.5, 2, 8, 30]
     private static let goroutineDumpTimeout: DispatchTimeInterval = .seconds(1)
-    #if DEBUG
-        private static let reportThreshold: TimeInterval = 1
-        private static let reportCooldown: TimeInterval = 5
-        private static let maxReportsPerProcess = Int.max
-    #else
-        private static let reportThreshold: TimeInterval = 2
-        private static let reportCooldown: TimeInterval = 5 * 60
-        private static let maxReportsPerProcess = 3
-    #endif
+    /// How much this process may spend on hang reports. See `HangCapturePolicy`.
+    ///
+    /// The Debug branch used to be one second, five seconds and no cap at all, which made the
+    /// watchdog the most expensive thing running in a Debug build - and a Debug build is exactly
+    /// where the stalls it reacted to are ordinary. It is now a bounded profile, and the lower
+    /// threshold has to be asked for.
+    private static let policy: HangCapturePolicy = {
+        #if DEBUG
+            return HangCapturePolicy.resolve(
+                isDebugBuild: true,
+                captureRequested: HangCapturePolicy.isCaptureRequested(
+                    environment: ProcessInfo.processInfo.environment,
+                    defaultsFlag: UserDefaults.standard.bool(forKey: HangCapturePolicy.captureRequestDefaultsKey)
+                )
+            )
+        #else
+            return HangCapturePolicy.resolve(isDebugBuild: false, captureRequested: false)
+        #endif
+    }()
 
     private struct ThreadMeasurement {
         var uptime: UInt64
@@ -104,6 +114,7 @@ public final class HangWatchdog: @unchecked Sendable {
         thread.qualityOfService = .userInitiated
         shared = watchdog
         thread.start()
+        logger.info("hang watchdog installed: threshold \(Self.policy.reportThreshold)s, cooldown \(Self.policy.reportCooldown)s, reports \(Self.policy.maxReportsPerProcess)")
     }
 
     @MainActor
@@ -316,14 +327,18 @@ public final class HangWatchdog: @unchecked Sendable {
                 if report.diagnostics.snapshots.count < Self.snapshotOffsets.count,
                    Self.seconds(Self.elapsed(from: report.detectedAt, to: now)) >= Self.snapshotOffsets[report.diagnostics.snapshots.count]
                 {
-                    captureSnapshot(&report)
-                    persist(&report, includeStacks: true)
+                    // Only rewrite the archive when there is something new in it. The snapshot is
+                    // refused once the main thread has moved on, and a rewrite at that point would
+                    // be a full report write during the moment the app is recovering.
+                    if captureSnapshot(&report) {
+                        persist(&report, includeStacks: true)
+                    }
                 } else if Self.seconds(Self.elapsed(from: report.lastWriteAt, to: now)) >= Self.metadataWriteInterval {
                     persist(&report, includeStacks: false)
                 }
                 activeReport = report
             } else if snapshot.busy,
-                      Self.seconds(Self.elapsed(from: snapshot.checkpoint.uptime, to: Self.uptime())) >= Self.reportThreshold
+                      Self.seconds(Self.elapsed(from: snapshot.checkpoint.uptime, to: Self.uptime())) >= Self.policy.reportThreshold
             {
                 beginReport(snapshot: snapshot)
             }
@@ -332,8 +347,8 @@ public final class HangWatchdog: @unchecked Sendable {
 
     private func beginReport(snapshot: RunLoopState) {
         let measurement = Self.measureThread(mainThread)
-        guard reportCount < Self.maxReportsPerProcess else { return }
-        if let lastReportAt, Self.seconds(Self.elapsed(from: lastReportAt, to: measurement.uptime)) < Self.reportCooldown {
+        guard reportCount < Self.policy.maxReportsPerProcess else { return }
+        if let lastReportAt, Self.seconds(Self.elapsed(from: lastReportAt, to: measurement.uptime)) < Self.policy.reportCooldown {
             return
         }
         stateLock.lock()
@@ -364,7 +379,7 @@ public final class HangWatchdog: @unchecked Sendable {
                 startedAt: CrashReportArchive.iso8601String(from: date.addingTimeInterval(-duration)),
                 detectedAt: CrashReportArchive.iso8601String(from: date),
                 startIsKnown: snapshot.startIsKnown,
-                thresholdSeconds: Self.reportThreshold, pollIntervalSeconds: Self.tickInterval,
+                thresholdSeconds: Self.policy.reportThreshold, pollIntervalSeconds: Self.tickInterval,
                 sampleIntervalSeconds: Self.sampleInterval, stackSnapshotOffsetsSeconds: Self.snapshotOffsets,
                 operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
                 hardwareModel: Self.hardwareModel, processorCount: ProcessInfo.processInfo.activeProcessorCount,
@@ -376,8 +391,11 @@ public final class HangWatchdog: @unchecked Sendable {
             applicationState: snapshot.applicationState, activity: snapshot.activity, mode: snapshot.mode
         )
         persist(&report, includeStacks: false)
-        captureSnapshot(&report)
-        persist(&report, includeStacks: true)
+        // The stack capture is refused when the main thread has already moved on - the report is
+        // still worth keeping, and the archive is not rewritten a second time for nothing.
+        if captureSnapshot(&report) {
+            persist(&report, includeStacks: true)
+        }
         activeReport = report
     }
 
@@ -453,15 +471,21 @@ public final class HangWatchdog: @unchecked Sendable {
         report.metadata.mainThreadState = measurement.state
     }
 
-    private func captureSnapshot(_ report: inout ActiveReport) {
+    /// Reads the stalled main thread's stacks while it is still stalled.
+    ///
+    /// - Returns: whether a snapshot was appended. `false` means the main thread made progress
+    ///   before the read started, so there is nothing to capture and nothing new to write: the
+    ///   caller must not rewrite the archive in that case.
+    @discardableResult
+    private func captureSnapshot(_ report: inout ActiveReport) -> Bool {
         let measurement = Self.measureThread(mainThread)
         let snapshot = readState()
-        guard snapshot.generation == report.generation, snapshot.busy, !snapshot.paused else { return }
+        guard snapshot.generation == report.generation, snapshot.busy, !snapshot.paused else { return false }
         appendSample(
             to: &report, measurement: measurement, event: "snapshot",
             applicationState: snapshot.applicationState, activity: snapshot.activity, mode: snapshot.mode
         )
-        guard let sample = report.diagnostics.samples.last else { return }
+        guard let sample = report.diagnostics.samples.last else { return false }
         let number = report.diagnostics.snapshots.count + 1
         let heading = "\n\n===== Snapshot \(number) (after \(Self.formatDuration(sample.elapsedSeconds))) =====\n\n"
         let nativeStart = Self.uptime()
@@ -497,6 +521,7 @@ public final class HangWatchdog: @unchecked Sendable {
             ),
             mainThreadProgressedDuringCapture: readState().generation != report.generation
         ))
+        return true
     }
 
     private func finishReport(completion: Completion) {

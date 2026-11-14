@@ -1,0 +1,1 @@
+../../../../Library/Shared/HangCapturePolicy.swift

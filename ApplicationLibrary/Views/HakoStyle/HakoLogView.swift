@@ -53,6 +53,12 @@ public struct HakoLogView: View {
 
 private struct HakoLogViewContent: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
+    /// The shell's own page selection.
+    ///
+    /// Appearing is not proof that this page is the one on screen: the tab shell keeps a tab's
+    /// navigation stack alive, so a Logs page can be pushed, left behind by a tab switch, and still be
+    /// in the hierarchy. The selection is the state of record, and it is what the store is told.
+    @Environment(\.selection) private var selection
     @StateObject private var viewModel: LogViewModel
 
         @State private var remoteServers: [RemoteServer] = []
@@ -67,6 +73,7 @@ private struct HakoLogViewContent: View {
 
             contentWithToolbar
                 .onDisappear {
+                    viewModel.setPageVisible(false)
                     environments.logSearchText = viewModel.searchText
                 }
                 .alert($viewModel.alert)
@@ -78,7 +85,11 @@ private struct HakoLogViewContent: View {
                 )
 
                 .onAppear {
+                    viewModel.setPageVisible(selection.wrappedValue == .logs)
                     Task { await reloadRemoteServers() }
+                }
+                .onChangeCompat(of: selection.wrappedValue) { page in
+                    viewModel.setPageVisible(page == .logs)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .remoteServersUpdated)) { _ in
                     Task { await reloadRemoteServers() }

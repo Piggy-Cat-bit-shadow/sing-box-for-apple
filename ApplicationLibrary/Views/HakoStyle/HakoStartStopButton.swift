@@ -107,7 +107,21 @@ public struct HakoStartStopButton: View {
         let showsRuntimeDuration: Bool
         let isCompact: Bool
 
-        private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+        /// Whether anything this button draws depends on the clock.
+        ///
+        /// Two things do. The running duration is drawn from `currentTime` directly. A transition in
+        /// flight is drawn from `isBusy`, and a control that can stay busy for seconds has to be able
+        /// to re-evaluate on its own clock rather than only when some other publish happens to
+        /// arrive - which is why the busy state counts, even on the pages that never draw a duration.
+        ///
+        /// Everything else schedules nothing.
+        private var tracksTime: Bool {
+            guard !Variant.screenshotMode else { return false }
+            if isBusy {
+                return true
+            }
+            return showsRuntimeDuration && !isCompact && profile.status.isConnectedStrict
+        }
 
         /// How long a transition may look like progress before the exit is offered.
         ///
@@ -117,16 +131,21 @@ public struct HakoStartStopButton: View {
         private static let emergencyGracePeriod: TimeInterval = 6
 
         /// The transition the tunnel is in, if it is in one.
+        ///
+        /// One condition for three readers: the body that draws the working state, the stall check
+        /// behind the emergency exit, and `tracksTime` below, which decides whether this view needs a
+        /// clock at all.
         private var isBusy: Bool {
             isStarting || profile.status == .connecting || profile.status == .disconnecting
         }
 
         /// Whether the transition has stopped looking like progress.
         ///
-        /// `currentTime` is the one-second tick this view already runs for the session duration, so
-        /// this re-evaluates without adding a second timer. In screenshot mode the tick is frozen on
-        /// purpose, and a fixture has no tunnel to be stuck in, so the control stays in its normal
-        /// shape there.
+        /// `currentTime` is the one-second tick this view already runs, so this re-evaluates without
+        /// adding a second timer. That tick is gated on `tracksTime`, which is true while a transition
+        /// is in flight - see its comment - so the stall check keeps its clock. In screenshot mode the
+        /// tick is frozen on purpose, and a fixture has no tunnel to be stuck in, so the control stays
+        /// in its normal shape there.
         private var isTransitionStalled: Bool {
             guard isBusy, !Variant.screenshotMode, let busySince else {
                 return false
@@ -229,10 +248,29 @@ public struct HakoStartStopButton: View {
             }
             .alert($alert)
 
-                .onReceive(timer) { _ in
-                    guard !Variant.screenshotMode else { return }
-                    Task { @MainActor in
+                // The clock, and only while something on this button depends on it.
+                //
+                // This used to be `Timer.publish(every: 1, ...).autoconnect()` subscribed
+                // unconditionally: the timer woke the main run loop once a second for the whole
+                // session even on the home page, which passes `showsRuntimeDuration: false` - so
+                // the tick's only effect there was to write a `@State` and re-evaluate this body
+                // once a second for a label that never draws the value. `task(id:)` cancels the
+                // work the moment the condition stops holding and starts it again when it holds, so
+                // an idle button on such a page schedules nothing at all.
+                //
+                // `Task.sleep` is what makes the loop cancellable: it throws on cancellation, and
+                // the task returns then. `currentTime` is read from the clock when the status
+                // changes (below), so the first second after connecting shows the true elapsed
+                // time rather than a value left over from an earlier session.
+                .task(id: tracksTime) {
+                    guard tracksTime else { return }
+                    while !Task.isCancelled {
                         currentTime = Date()
+                        do {
+                            try await Task.sleep(nanoseconds: 1_000_000_000)
+                        } catch {
+                            return
+                        }
                     }
                 }
                 // The clock starts and stops with the transition itself, so the grace period is
@@ -244,6 +282,10 @@ public struct HakoStartStopButton: View {
                 }
                 .onChangeCompat(of: profile.status) { status in
                     Task { @MainActor in
+                        // The time is drawn from this value and the clock above only runs while the
+                        // tunnel is up, so the transition into that state is when the value has to
+                        // become the clock again.
+                        currentTime = Date()
                         // Any status change means the request that set this flag has been answered by
                         // the system, one way or another. Clearing it here is what keeps the emergency
                         // control from being disabled by a press whose request outlived its own

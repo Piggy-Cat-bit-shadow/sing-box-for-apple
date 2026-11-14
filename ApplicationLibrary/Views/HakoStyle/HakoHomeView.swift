@@ -217,11 +217,23 @@ public struct HakoHomeView: View {
             liveGroupCount = environments.commandClient.groups?.count ?? 0
             liveConnectionCount = Int(environments.commandClient.status?.connectionsIn ?? 0)
         }
+        // Both mirrors are written only when the number moved.
+        //
+        // The publishers fire with a new value object even when the number it carries is the one
+        // already on screen: the status message is a fresh object every second, and groups are
+        // re-sent on every subscription event. Writing the state anyway invalidated this whole
+        // page - one `body` for the session header, the profile row, the mode row, the shortcuts
+        // and the four cards - to redraw a subtitle whose text had not changed. The row is still
+        // driven by the stream alone; this only drops the writes that cannot change what is drawn.
         .onReceive(environments.commandClient.$groups) { groups in
-            liveGroupCount = groups?.count ?? 0
+            let next = groups?.count ?? 0
+            guard liveGroupCount != next else { return }
+            liveGroupCount = next
         }
         .onReceive(environments.commandClient.statusPublisher) { status in
-            liveConnectionCount = Int(status?.connectionsIn ?? 0)
+            let next = Int(status?.connectionsIn ?? 0)
+            guard liveConnectionCount != next else { return }
+            liveConnectionCount = next
         }
         // The core's own mode, mirrored out of the client rather than read through it.
         //
@@ -239,6 +251,7 @@ public struct HakoHomeView: View {
             localMode = newValue
         }
         .onReceive(environments.commandClient.$clashModeList) { newValue in
+            guard modeList != newValue else { return }
             modeList = newValue
         }
         // The count is this page's own copy of a live figure, and the row that shows it is gated on
@@ -248,7 +261,7 @@ public struct HakoHomeView: View {
         // otherwise come back carrying the count from the session before it. The stream itself is
         // still the only thing that ever raises it.
         .onChangeCompat(of: profile.status) { status in
-            if !status.isConnected {
+            if !status.isConnected, liveConnectionCount != 0 {
                 liveConnectionCount = 0
             }
         }

@@ -44,8 +44,20 @@ public class CrashReportManager: ObservableObject {
             return Self.scanCrashReports()
         }
         await MainActor.run {
-            self.reports = reports
-            self.unreadCount = reports.filter { !$0.isRead }.count
+            // Publish only what moved.
+            //
+            // Every publish here is forwarded into `ExtensionEnvironments.objectWillChange`, which
+            // invalidates the root and every view reading the environment - so a rescan that found
+            // the same archive redrew the whole visible tree for no result. The scan itself is
+            // unchanged, and it is still off the main actor: this only stops an unchanged result
+            // from being announced as a change.
+            let unreadCount = reports.filter { !$0.isRead }.count
+            if self.reports != reports {
+                self.reports = reports
+            }
+            if self.unreadCount != unreadCount {
+                self.unreadCount = unreadCount
+            }
         }
     }
 

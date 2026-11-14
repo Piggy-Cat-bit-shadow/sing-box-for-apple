@@ -21,6 +21,8 @@ public struct LogView: View {
 
 private struct LogViewContent: View {
     @EnvironmentObject private var environments: ExtensionEnvironments
+    /// The shell's own page selection; see the same hook on the phone's Logs page.
+    @Environment(\.selection) private var selection
     @StateObject private var viewModel: LogViewModel
     #if os(iOS)
         @State private var remoteServers: [RemoteServer] = []
@@ -34,9 +36,25 @@ private struct LogViewContent: View {
     var body: some View {
         #if os(tvOS)
             LogContentInnerView(dataModel: viewModel.dataModel, viewModel: viewModel)
+                .onAppear {
+                    viewModel.setPageVisible(selection.wrappedValue == .logs)
+                }
+                .onChangeCompat(of: selection.wrappedValue) { page in
+                    viewModel.setPageVisible(page == .logs)
+                }
+                .onDisappear {
+                    viewModel.setPageVisible(false)
+                }
         #else
             contentWithToolbar
+                .onAppear {
+                    viewModel.setPageVisible(selection.wrappedValue == .logs)
+                }
+                .onChangeCompat(of: selection.wrappedValue) { page in
+                    viewModel.setPageVisible(page == .logs)
+                }
                 .onDisappear {
+                    viewModel.setPageVisible(false)
                     environments.logSearchText = viewModel.searchText
                 }
                 .alert($viewModel.alert)
