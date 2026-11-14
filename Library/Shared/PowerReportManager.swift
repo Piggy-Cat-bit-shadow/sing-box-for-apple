@@ -87,8 +87,15 @@ public class PowerReportManager: ObservableObject {
             Self.scanReports()
         }
         await MainActor.run {
-            self.reports = reports
-            self.unreadCount = reports.filter { !$0.isRead }.count
+            // See `CrashReportManager.refresh()`: an unchanged archive must not be published as a
+            // change, because the environment forwards every publish into the root's invalidation.
+            let unreadCount = reports.filter { !$0.isRead }.count
+            if self.reports != reports {
+                self.reports = reports
+            }
+            if self.unreadCount != unreadCount {
+                self.unreadCount = unreadCount
+            }
         }
     }
 

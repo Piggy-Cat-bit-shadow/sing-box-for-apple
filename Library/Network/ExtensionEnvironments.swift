@@ -232,6 +232,8 @@ public class ExtensionEnvironments: ObservableObject {
     public let selectedProfileUpdate = ObjectWillChangePublisher()
     public let openSettings = ObjectWillChangePublisher()
     private var cancellables = Set<AnyCancellable>()
+    /// Whether a report refresh is running, and whether another one was asked for meanwhile.
+    private var reportRefreshGate = ReportRefreshGate()
 
     public init() {
         crashReportManager.objectWillChange
@@ -283,13 +285,38 @@ public class ExtensionEnvironments: ObservableObject {
         }
     }
 
+    /// Refreshes the state that outlives the app's own memory: the remote session, the tunnel
+    /// profile, and the three report archives.
+    ///
+    /// # Why the report scans are coalesced
+    ///
+    /// The phone's root calls this from `onAppear` *and* from `scenePhase` becoming active, and both
+    /// fire on the same return from the background. Each round is real file I/O - three directory
+    /// walks, a metadata read per report, and in the crash archive a content read per report to
+    /// decide whether two halves should be merged - and the round on the foreground path is
+    /// competing with the first frames the app is trying to draw. `ReportRefreshGate` lets one round
+    /// run and remembers that another was asked for, so the second trigger becomes one follow-up
+    /// round rather than a second scan started beside the first. Nothing is dropped: a request made
+    /// while a scan is running gets a round of its own immediately afterwards.
     public func postReload() {
         Task {
             await restoreRemoteControl()
             await reload()
+            await refreshReports()
+        }
+    }
+
+    /// The report archives, at most one round at a time.
+    private func refreshReports() async {
+        guard reportRefreshGate.begin() else {
+            return
+        }
+        var isAnotherRoundOwed = true
+        while isAnotherRoundOwed {
             await crashReportManager.refresh()
             await oomReportManager.refresh()
             await powerReportManager.refresh()
+            isAnotherRoundOwed = reportRefreshGate.end()
         }
     }
 
