@@ -243,13 +243,17 @@ final class InterfaceMonitorStartupTests: XCTestCase {
         XCTAssertTrue(stopBody.contains("retireInterfaceMonitor()"),
                       "a teardown that could not take the lock must still retire the monitor generation")
 
-        // And the bump must happen BEFORE the bounded path gives up, or a start that is waiting
-        // outside the lock would never learn that the session it belongs to is being torn down.
+        // And the bump must happen BEFORE the bounded acquisition is even attempted, not merely
+        // before the give-up branch. Bumping afterwards would leave the doomed start un-invalidated
+        // for the whole length of the bounded wait - which is the window the bound exists to shorten.
         guard let bump = stopBody.range(of: "bumpServiceGeneration()"),
+              let lockAttempt = stopBody.range(of: "serviceLifecycleLock.lock(before:"),
               let giveUp = stopBody.range(of: "guard acquired else")
         else {
-            return XCTFail("the bounded stop must invalidate, then decide")
+            return XCTFail("the bounded stop must invalidate, then acquire, then decide")
         }
+        XCTAssertTrue(bump.lowerBound < lockAttempt.lowerBound,
+                      "the generation must be invalidated before the bounded lock attempt, so an in-flight start is superseded while the teardown waits")
         XCTAssertTrue(bump.lowerBound < giveUp.lowerBound,
                       "the generation must be invalidated even when the exclusive region could not be entered")
     }

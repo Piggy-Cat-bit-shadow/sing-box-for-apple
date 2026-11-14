@@ -733,10 +733,15 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     ///     half, `retireInterfaceMonitor()`, which is queue-confined and stops an abandoned monitor
     ///     from ever publishing again.
     ///
-    /// What is *not* skipped is the generation bump: it happens whichever way this goes, so a start
-    /// that is still in flight reports itself `.superseded` instead of accepting evidence from a
-    /// session that is being torn down.
+    /// What is *not* skipped is the generation bump, and the order it happens in is load-bearing: it
+    /// is bumped **before the lock is even attempted**. Bumping after the attempt would leave a doomed
+    /// start un-invalidated for as long as this call waits - up to the whole bound - which is exactly
+    /// the window the bound exists to shorten. The small generation lock is taken and released here
+    /// without the lifecycle lock held, so the documented order (lifecycle -> generation) holds; the
+    /// two are never nested in the other direction.
     private func performStopService(waitingAtMost timeout: TimeInterval?) {
+        _ = bumpServiceGeneration()
+
         var acquired: Bool
         if let timeout {
             acquired = serviceLifecycleLock.lock(before: Date().addingTimeInterval(timeout))
@@ -744,9 +749,6 @@ open class ExtensionProvider: NEPacketTunnelProvider {
             serviceLifecycleLock.lock()
             acquired = true
         }
-        // Invalidate any start that is waiting for the takeover outside the lock. This uses the small
-        // generation lock, so it works even when the exclusive region is what we could not enter.
-        _ = bumpServiceGeneration()
         guard acquired else {
             platformInterface.retireInterfaceMonitor()
             writeMessage("(packet-tunnel) stop service: a service change is still in flight; the teardown proceeded without the exclusive stop")
@@ -1262,10 +1264,13 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// probes and statistics for a phone in a pocket.
     ///
     /// A resume is also the one moment the process knows it was suspended, and Darwin notifications
-    /// are not delivered to a suspended process: a lock that happened while the extension was away
-    /// was never delivered. `resync()` re-reads both names once so that lock is not lost. It is not
-    /// a poll, nothing schedules it, and a snapshot may only publish a sleep fact - so it can add a
-    /// pause and can never invent a wake.
+    /// are not delivered to a suspended process: a lock or an unlock that happened while the
+    /// extension was away was never delivered. `resync()` re-reads both names once so that lock is
+    /// not lost, and the two reads are the evidence for the other direction too: a `0` that follows
+    /// this observer's own confirmed `1` publishes the unlock nobody delivered, as an EDGE, because
+    /// the pair of reads is the transition and only `lifecycle.woke()` releases the pause. It is not
+    /// a poll, nothing schedules it, and an initial or unknown `0` still publishes nothing - so a
+    /// device this observer never saw locked cannot be woken from here.
     override open func wake() {
         if let commandServer {
             commandServer.wake()

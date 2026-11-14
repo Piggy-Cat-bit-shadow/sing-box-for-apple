@@ -281,13 +281,22 @@ enum ScreenStatePolicy {
     ///    "display on" are claims about a transition that a snapshot did not witness, and
     ///    `notify_get_state` answers `NOTIFY_STATUS_OK` with `0` for a name whose state was never
     ///    set - which on the lock source would read as an unlock. The value is still remembered, so
-    ///    the next real transition is measured against it.
+    ///    the next real transition is measured against it. There is exactly one exception, and it is
+    ///    rule 5's: a re-read of `0` on a source this observer already observed at `1` is a
+    ///    transition the two reads witnessed together, even though neither was a callback.
     /// 5. An unlock is a transition, so it is only published when the lock source was actually
     ///    observed locked (`1`) first. `.unlocked` is the one fact that lifts the device pause
     ///    (`lifecycle.woke()`), and a `0` from an axis whose prior value is unknown is
     ///    indistinguishable from the never-set `0` rule 4 refuses on a snapshot - so it is refused
     ///    on an event too. The value is still remembered, so the next read is measured against it
     ///    and a genuine lock-then-unlock still publishes.
+    ///
+    ///    That "genuine lock-then-unlock" is also the shape of the suspension gap: Darwin delivers
+    ///    notifications to a running process and to nobody else, so a real `1 -> 0` that happens
+    ///    while the NetworkExtension is suspended leaves the two successful state reads as its only
+    ///    surviving evidence. Rule 4's exception exists for exactly that pair, and it is limited to
+    ///    it: the prior value must be a confirmed `1` from this same source, so an initial or
+    ///    unknown `0` - the value a name that was never set answers - still cannot wake the device.
     /// 6. Whatever survives the rules above is delivered as the provenance it came from: an `.event`
     ///    as an EDGE, a `.snapshot` as a LEVEL. Rule 4 already limits a snapshot to sleep facts, and
     ///    this is the other half of the same idea - such a fact is a restatement of the current
@@ -295,6 +304,9 @@ enum ScreenStatePolicy {
     ///    Delivering a snapshot as an edge is the P1-C defect: the client re-reads on every
     ///    NetworkExtension resume, after the core has been woken, so the edge lands with a resume
     ///    already noted and moves the anchor of the measurement that resume had just published.
+    ///    Rule 5's verified recovery is the one snapshot that is not a restatement: the pair of
+    ///    reads is the transition, so it is delivered as an EDGE - `lifecycle.woke()` is what
+    ///    releases the level, and a LEVEL reconcile cannot.
     static func decide(read: NotifyStateRead,
                        source: ScreenStateSource,
                        provenance: ScreenStateProvenance,
@@ -311,6 +323,19 @@ enum ScreenStatePolicy {
         }
         if lastObserved == raw {
             return ScreenStateDecision(rememberValue: raw, publish: nil, delivery: delivery)
+        }
+        // A verified locked -> unlocked change may have happened while the provider was suspended.
+        // A successful state read can recover that missed edge, but an initial or unknown zero
+        // cannot. This sits before the snapshot gate below because it is the one snapshot that is
+        // allowed to wake the device, and it asks for an EDGE rather than the provenance's default
+        // LEVEL: the pair of reads is the transition, and only `lifecycle.woke()` releases the
+        // device pause a LEVEL reconcile cannot touch.
+        if provenance == .snapshot, fact == .unlocked, lastObserved == 1 {
+            return ScreenStateDecision(
+                rememberValue: raw,
+                publish: .unlocked,
+                delivery: .edge
+            )
         }
         if provenance == .snapshot, !fact.isSleep {
             return ScreenStateDecision(rememberValue: raw, publish: nil, delivery: delivery)
@@ -547,8 +572,15 @@ final class ScreenStateObserver {
     /// extension is suspended a lock or an unlock is simply not delivered, and the observer has no
     /// way to hear about it afterwards. A NetworkExtension resume is the one moment the process
     /// knows it was away, so it is the one moment a re-read is worth doing. It is not polling -
-    /// nothing schedules this and no timer is involved - and because a snapshot may only publish a
-    /// sleep fact, it can recover a missed "the device locked" and can never invent a wake.
+    /// nothing schedules this and no timer is involved.
+    ///
+    /// What a re-read may publish is `ScreenStatePolicy.decide`'s answer, and it is two things: a
+    /// sleep fact, so a lock that happened during the suspension is recovered as a LEVEL; and, when
+    /// this observer had already observed the lock source locked, the `0` that says the device has
+    /// since been unlocked and that no notification ever delivered. That second one is the only wake
+    /// a snapshot may publish, it is verified by the prior `1` rather than assumed from an unknown
+    /// `0`, and it is delivered as an EDGE because it is the missed transition itself - so a device
+    /// that was never observed locked still cannot be woken from here.
     func resync() {
         syncOnQueue {
             let epoch = currentGeneration()
@@ -610,10 +642,16 @@ final class ScreenStateObserver {
     ///     locked=1    -> reconcileLockState(true)    -> Box.ReconcileLockState(true)    -> DevicePause() (LEVEL only)
     ///     display=off -> reconcileScreenState(false) -> Box.ReconcileScreenState(false) -> DevicePause() (LEVEL only)
     ///
+    ///     The one snapshot that is NOT a LEVEL - rule 5's verified recovery, a transition the
+    ///     re-reads witnessed together, which therefore takes the EDGE row above:
+    ///     unlocked=0, after a confirmed 1 -> recordLockState(false) -> woke() (EDGE + LEVEL wake)
+    ///
     /// The delivery is a parameter rather than something this method re-derives, so the rule lives in
     /// one place - `ScreenStatePolicy.decide` - and is asserted there by the tests. The switch below
     /// is exhaustive over the pair, so a sleep fact can never reach an edge entry point from a
-    /// snapshot again: that combination does not compile its way to `recordScreenState`.
+    /// snapshot again: that combination does not compile its way to `recordScreenState`. A wake fact
+    /// can reach one from a snapshot only through the rule 5 path, which asks for `.edge` explicitly;
+    /// every other snapshot wakes nothing.
     ///
     /// There is no path to `wakeNow()`: an unlock already publishes the wake, and a display going on
     /// must not.
@@ -632,10 +670,11 @@ final class ScreenStateObserver {
         case (.locked, .level):
             publisher.reconcileLockState(locked: true)
         case (.displayOn, .level), (.unlocked, .level):
-            // Unreachable: rule 4 refuses a wake fact from a snapshot, and rule 5 refuses an unlock
-            // whose prior value was not observed. Spelled out rather than folded into `default` so
-            // that a future case has to be classified instead of silently landing here - and
-            // publishing nothing is the safe half of the mistake if one ever does.
+            // Unreachable: rule 4 refuses a wake fact from a snapshot unless rule 5 has verified the
+            // locked -> unlocked change, and that path asks for `.edge` explicitly; rule 5 refuses
+            // an unlock whose prior value was not observed. Spelled out rather than folded into
+            // `default` so that a future case has to be classified instead of silently landing here
+            // - and publishing nothing is the safe half of the mistake if one ever does.
             break
         }
     }
