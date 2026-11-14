@@ -27,6 +27,11 @@ the cost was never an error.
      switch runs that page's filter and re-render for nobody. The store therefore publishes a
      `revision` counter, the page's pipeline reads the window when it fires, and the two Logs pages
      report their own visibility from the shell's selection, not just from `onAppear`/`onDisappear`.
+  6. **Pages are known by identity, and each one gates its own pipeline.** The app injects one
+     `ExtensionEnvironments` into every window, so the store is shared. A count of "visible" reports
+     cannot tell a visible page from one that never was: a hidden window's `false` would take a visible
+     window's place and silence it. So a page reports only its own transitions, under its own
+     identity, and the page's pipeline skips the work while that page is hidden.
 
 What this gate cannot prove
 ---------------------------
@@ -167,6 +172,12 @@ def check(root: str) -> list[str]:
             "%s: no visibility entry point - a page that the tab shell keeps alive is then "
             "announced to for as long as the app runs" % LOG_STORE
         )
+    if "for page: UUID" not in store:
+        problems.append(
+            "%s: the visibility entry point no longer takes the page's identity - one shared store "
+            "serves every window, and a page that is not a member must not be able to remove one "
+            "that is" % LOG_STORE
+        )
 
     view_model = strip_comments(read(root, LOG_VIEW_MODEL, problems))
     if "logStore.$revision" not in view_model:
@@ -175,6 +186,21 @@ def check(root: str) -> list[str]:
         problems.append(
             "%s: reads a published buffer again; the window is taken when `revision` fires"
             % LOG_VIEW_MODEL
+        )
+    if "pagePresence.setVisible(" not in view_model:
+        problems.append(
+            "%s: the page no longer keeps its own presence, so a repeated appear/disappear is "
+            "reported again and other windows' pages are affected by it" % LOG_VIEW_MODEL
+        )
+    if "for: pagePresence.id" not in view_model:
+        problems.append(
+            "%s: the page does not report under its own identity, so the store cannot tell one "
+            "window's page from another's" % LOG_VIEW_MODEL
+        )
+    if "guard self.isPageVisible" not in view_model:
+        problems.append(
+            "%s: the pipeline does not skip its work while this page is hidden - one announcement "
+            "reaches every page in the process" % LOG_VIEW_MODEL
         )
 
     for relative in (HAKO_LOG_VIEW, LOG_VIEW):

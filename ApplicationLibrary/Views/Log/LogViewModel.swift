@@ -18,6 +18,13 @@ public class LogDataModel: ObservableObject {
     @Published public var logFileURL: URL?
 
     private let commandClient: CommandClient
+    /// This page's own visibility, under the identity the store knows it by.
+    ///
+    /// The page is what knows whether it is on screen - it reads `\.selection` and receives its own
+    /// lifecycle. Keeping that here, rather than inferring it from the store's view of the world, is
+    /// what makes a repeated `onAppear` or a stray `onDisappear` harmless: they change nothing, so
+    /// nothing is reported, so no other page's presence can be affected by them.
+    private var pagePresence = LogPagePresence()
     /// The log window, which is its own observable object - see `LogStore`.
     ///
     /// Its `buffer` is not published: this pipeline is driven by `$revision`, and takes the window
@@ -48,14 +55,26 @@ public class LogDataModel: ObservableObject {
         logStore.buffer.entries.isEmpty
     }
 
-    /// Tells the store whether a log page is on screen.
+    /// Tells the store whether this log page is on screen.
     ///
     /// Called from the page's own lifecycle and from the shell's selection, because the tab shell
-    /// keeps a tab's stack alive and a tab switch does not always run `onDisappear`. While no page is
-    /// on screen the store stops announcing, and this pipeline - which is the only expensive reader -
-    /// stops running.
+    /// keeps a tab's stack alive and a tab switch does not always run `onDisappear`.
+    ///
+    /// The page reports only a real transition, and always under its own identity. That is what keeps
+    /// a second window honest: a Logs page that is created but not selected reports `false` on
+    /// `onAppear`, which is not a transition from anything, so it is not reported at all - and even if
+    /// it were, the store removes pages by identity, so a page that was never visible has nothing to
+    /// remove.
     public func setPageVisible(_ visible: Bool) {
-        logStore.setPageVisible(visible)
+        guard pagePresence.setVisible(visible) else {
+            return
+        }
+        logStore.setPageVisible(pagePresence.isVisible, for: pagePresence.id)
+    }
+
+    /// Whether this page is on screen. The pipeline is gated on it.
+    public var isPageVisible: Bool {
+        pagePresence.isVisible
     }
 
     public var isConnected: Bool {
@@ -97,6 +116,11 @@ public class LogDataModel: ObservableObject {
         .receive(on: DispatchQueue.main)
         .sink { [weak self] combined, isPaused, initialLogsReceived in
             guard let self else { return }
+            // One announcement reaches every page in the process, and only pages that are on screen
+            // are in it. A hidden page returning here skips the filter and, just as importantly,
+            // leaves `lastProcessedTotal` where it was - so when it does appear, the announcement it
+            // gets rebuilds from the window and shows everything it missed.
+            guard self.isPageVisible else { return }
             if self.initialLogsReceived != initialLogsReceived {
                 self.initialLogsReceived = initialLogsReceived
             }

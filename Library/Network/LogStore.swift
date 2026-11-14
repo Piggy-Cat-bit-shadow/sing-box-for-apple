@@ -96,21 +96,34 @@ public final class LogStore: ObservableObject {
 
     /// Records one log page appearing (`true`) or leaving (`false`).
     ///
-    /// Becoming visible announces the window once, even if nothing arrived while the page was away:
-    /// that announcement is what renders the backlog that accumulated in the meantime.
-    public func setPageVisible(_ visible: Bool) {
+    /// - Parameters:
+    ///   - visible: the state the page reported.
+    ///   - page: the page's identity. A report that repeats the state that page is already in is not
+    ///     a change, and a page that was never visible cannot take another page's place.
+    ///
+    /// A page that becomes visible is announced the window once, even if nothing arrived while it was
+    /// away and even if another page has been visible the whole time: that page has rendered nothing
+    /// while it was hidden, so the announcement is the only thing that will draw the backlog it
+    /// missed.
+    public func setPageVisible(_ visible: Bool, for page: UUID) {
         assertMainThread()
-        guard pageVisibility.setVisible(visible) else {
+        switch pageVisibility.setVisible(visible, for: page) {
+        case .none:
             return
+        case .left:
+            // A page that is still on screen keeps its pending announcement: one window leaving is
+            // not a reason to cancel another's.
+            guard !pageVisibility.isVisible else {
+                return
+            }
+            cancelScheduledPublish()
+        case .becameVisible:
+            cancelScheduledPublish()
+            if initialLogsReceived != hasReceivedInitialBacklog {
+                initialLogsReceived = hasReceivedInitialBacklog
+            }
+            announce()
         }
-        cancelScheduledPublish()
-        guard pageVisibility.isVisible else {
-            return
-        }
-        if initialLogsReceived != hasReceivedInitialBacklog {
-            initialLogsReceived = hasReceivedInitialBacklog
-        }
-        announce()
     }
 
     // MARK: - The stream
