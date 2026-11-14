@@ -324,22 +324,43 @@ public struct OnDemandRulesView: View {
     }
 
     private func saveMode(_ newMode: OnDemandMode) async {
+        // The stored mode is the only value that was actually in effect, and it is what both halves
+        // are put back to if the system refuses the change.
+        let previousAlwaysOn = await SharedPreferences.alwaysOn.get()
+        let previousOnDemandEnabled = await SharedPreferences.onDemandEnabled.get()
         let alwaysOn = newMode == .alwaysOn
         let onDemandEnabled = newMode == .enabled
         await SharedPreferences.alwaysOn.set(alwaysOn)
         await SharedPreferences.onDemandEnabled.set(onDemandEnabled)
-        await updateService(newMode)
+        guard await updateService(newMode) else {
+            // The page's `mode` was moved before this ran and the preferences were written before the
+            // system configuration was attempted, so a failure used to leave all three saying
+            // "enabled" while `manager.isOnDemandEnabled` still held its previous value. Restoring
+            // puts the page, the store and the system back in agreement. Shared counterpart of the
+            // same fix in `HakoStyle/HakoOnDemandRulesView`.
+            await SharedPreferences.alwaysOn.set(previousAlwaysOn)
+            await SharedPreferences.onDemandEnabled.set(previousOnDemandEnabled)
+            mode = previousAlwaysOn
+                ? .alwaysOn
+                : (previousOnDemandEnabled ? .enabled : .disabled)
+            return
+        }
     }
 
-    private func updateService(_ newMode: OnDemandMode) async {
+    /// - Returns: false only when a write was attempted and failed. The guarded "nothing to write"
+    ///   case (`on-demand mode selected while the tunnel is down`) returns true: the preference is the
+    ///   next start's input and `start()` re-reads it, so nothing was refused.
+    private func updateService(_ newMode: OnDemandMode) async -> Bool {
         guard let profile = environments.extensionProfile, newMode == .disabled || profile.status.isConnected else {
-            return
+            return true
         }
         do {
             let enabled = newMode != .disabled
             try await profile.updateOnDemand(enabled: enabled, useDefaultRules: newMode == .alwaysOn)
+            return true
         } catch {
             alert = AlertState(action: "update on-demand rules", error: error)
+            return false
         }
     }
 
@@ -350,7 +371,10 @@ public struct OnDemandRulesView: View {
             alert = AlertState(errorMessage: String(localized: "Failed to save rules"))
             return
         }
-        await updateService(mode)
+        // A refused system write is reported; the edited rules are kept, because they are stored and
+        // they are what the next start installs. Discarding them would trade an inconsistency for a
+        // lost edit.
+        _ = await updateService(mode)
     }
 
     private func loadSettings() async {

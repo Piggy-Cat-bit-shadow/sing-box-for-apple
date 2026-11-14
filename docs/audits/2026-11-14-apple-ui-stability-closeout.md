@@ -45,10 +45,15 @@ The audit's line references were checked against this tree and matched, so the b
 | `ApplicationLibrary/Views/Abstract/ConnectionLifecycleObserver.swift` | subscriptions released when the page goes away |
 | `ApplicationLibrary/Views/Connections/ConnectionListViewModel.swift` | synchronous core RPC moved off the main actor |
 | `ApplicationLibrary/Views/Tools/{Tailscale,OpenVPN,OpenConnect,USBIP}StatusViewModel.swift` | late-handle leak closed; stream errors classified |
+| `ApplicationLibrary/Views/Tools/{NetworkQuality,STUN}TestViewModel.swift` | same late-handle leak for a **running test**; force-unwrapped test object; socket-opening FFI off the main thread |
 | `ApplicationLibrary/Views/Tools/StatusSubscriptionSupport.swift` | **new** — the ownership token and the error classification those four share |
+| `ApplicationLibrary/Views/HakoStyle/HakoProfileOverrideView.swift` | refused override no longer shows as applied |
+| `ApplicationLibrary/Views/HakoStyle/HakoPacketTunnelView.swift` | same, for the six tunnel-routing switches |
+| `ApplicationLibrary/Views/HakoStyle/HakoOnDemandRulesView.swift` | same, for the On-Demand mode |
+| `ApplicationLibrary/Views/Setting/{ProfileOverride,PacketTunnel,OnDemandRules}View.swift` | the same three fixes on the shared iPad/macOS counterparts |
 | `Localizable.xcstrings` | one new key (en + zh-Hans) for the new Core-page refusal message |
 
-`git diff --stat` for the set: **17 files changed, +774 / −110**, plus one new file.
+`git diff --stat 749509f..HEAD` for the set: **25 files changed, +1065 / −146**, plus one new file.
 
 > **A concurrent editing session was active in this working tree.** Between 21:27 and 21:28 another
 > session modified `Library/Network/CommandClient.swift`, `ApplicationLibrary/Views/Log/LogView.swift`,
@@ -100,24 +105,24 @@ type-checked, but the behaviour it governs needs NetworkExtension at runtime. `N
 
 | # | Verdict | Key path |
 |---|---|---|
-| **A1** | `FIXED + verified` | `ExtensionProfile.stop()` — order is now *clear On-Demand (best effort) → `stopVPNTunnel()` → best-effort kernel close*. Nothing can throw or await before the system request. The force-unwrap is gone. The close is a single, tracked, non-awaited detached call. |
+| **A1** | `FIXED + verification pending` | `ExtensionProfile.stop()` — order is now *clear On-Demand (best effort) → `stopVPNTunnel()` → best-effort kernel close*. Nothing can throw or await before the system request. The force-unwrap is gone. The close is a single, tracked, non-awaited detached call. **The ordering property itself is verified from source** (no `await` and no `throw` precedes the request on any path); whether iOS then releases the slot is NetworkExtension behaviour, so the user-visible outcome is device-pending, exactly like A2. |
 | **A2** | `FIXED + verification pending` | `HakoStartStopButton.HakoToggleConnectionButton` — after a 6 s grace the busy row grows a **Disconnect** button that always calls `stop()`, never the start/stop toggle. `HakoHomeView` — the page-wide `.disabled` became `pageIsBusy` applied per section; the header's primary action and `pageAlert` stay live, the profile button stays gated. |
 | **A3** | `NOT A BUG + evidence` | `ExtensionProvider.startService/stopService/stopTunnel`. Lock graph and reachability recorded above. The blocking *consequence* users saw was fixed in A1. No lock change: `NSRecursiveLock` would mask, deletion would corrupt. |
 | **B1** | `FIXED + verified` | `ExtensionProfile.requestProviderMessage` + `ProviderReplyGate` + `applyReplyTimeout (15 s)`. `reloadService(_:)` can no longer hang forever; `currentTunnelSessionID` no longer uses `withTaskGroup` (whose `cancelAll()` cannot resume a suspended continuation) and no longer inherits the stale-continuation defect. Reply, late reply, throw and deadline are one gate with exactly one resume. |
 | **B2** | `FIXED + verified` | `EditProfileViewModel.saveProfile` — `defer { isLoading = false }` on every path, and save / schedule / apply are three separately reported facts. |
 | **B3** | `FIXED + verified` | `OverviewViewModel.setSystemProxyEnabled` — `reasserting` cleared on the failure path; the preference is rolled back when the apply fails; the command client is no longer force-unwrapped. `HakoHomeView` re-reads the persisted value so the row stops showing a state the tunnel never entered. |
 | **B4** | `FIXED + verified` | `OverviewViewModel.switchProfile` — the selection is still persisted first (the reload reads it from preferences), but a refused apply now restores the previous identifier under an **ownership guard**: only while the persisted value is still this call's write. The same-profile no-op no longer reloads. |
-| **B5** | `DEFERRED + scoped risk` | `Library/Database/Profile+Update.swift` — read at its call sites and entry points; the reporting vocabulary (`saved/unchanged/applied`, `superseded`, `recovered`, `interrupted`, `applyUnconfirmed`) is intact and no defect was proved within this session. Not modified: the audit's own instruction is to protect this module rather than rewrite it. Residual risk: an unproven edge in provider-refresh ordering stays unproven. |
+| **B5** | `NOT A BUG + evidence` | `Library/Database/Profile+Update.swift` — traced the whole chain the audit names. `refreshRemoteProfile` (`:550`) returns `downloadFailed` / `invalidConfig` **before** `RemoteRefreshApplier.applyReporting` is reached (`:609`, `:598` vs `:626`), so a failed download or a rejected body never persists and never touches the live tunnel: last-good is preserved by construction, not by a guard that could be forgotten. `superseded` is caught as a result and explicitly not retried (`:654`). The body is committed in one critical section (`commitBody`, `:364`), whose compare-and-swap returns `superseded(storedRevision:)` rather than overwriting a newer write. `applyUnconfirmed` exists as the "no receipt" outcome (`:306`). One observation recorded, not changed: the generic `catch` at `:609` labels an unexpected error from `evaluate` as `downloadFailed`; the message carries the real text and nothing claims success, so the label is cosmetic and changing it would touch the reporting vocabulary the tests pin. |
 | **B6** | `FIXED + verified` | `HakoProfilePickerSheet` — all four optimistic mutation sites (legacy + iOS 26 move/delete) now reject an error into an alert and restore the previous list, **guarded**: the restore happens only while the list is still exactly what that change produced, so a second edit is never undone by the first edit's failure. The `// Handle error silently` comments are gone. |
 | **B7** | `FIXED + verified` | `NewProfileViewModel` — `createProfileBackground()` returns the scheduling error instead of throwing it, so a profile that `ProfileManager.create` already wrote is never reported as a failed creation; the registration failure is logged with the profile id and does not block `profileUpdate` or dismissal. |
 | **C1** | `FIXED + verified` | `TailscaleStatusViewModel` + `StatusSubscriptionSupport` — (a) a handle that arrives after `cancel()` is closed instead of adopted; (b) stream errors are classified: `serviceNotRunning` / `unsupportedByCore` are logged, never modal; a genuine fault still alerts. **Kernel evidence for the classification** in §4.1. |
-| **C2** | `FIXED + verified` (subscriptions) / `DEFERRED + scoped risk` (two test VMs) | `ConnectionLifecycleObserver` now releases on `onDisappear`; `OpenVPN`/`OpenConnect`/`USBIP` got the same ownership token as Tailscale. `NetworkQualityViewModel` and `STUNTestViewModel` were **not** changed — their start/cancel race is the same shape but needs its own review; reported, not silently claimed. |
+| **C2** | `FIXED + verified` | `ConnectionLifecycleObserver` releases on `onDisappear`; `Tailscale`/`OpenVPN`/`OpenConnect`/`USBIP` share one ownership token, and `NetworkQualityViewModel` / `STUNTestViewModel` got the same treatment for their **start** race: a session that arrives after `cancel()` is closed instead of adopted. Those last two matter more than the streams, because an adopted test keeps putting traffic on the wire. |
 | **C3** | `NOT A BUG + evidence` | `AlertState` and the Hako alert folding: `HakoHomeView` already folds two sources into one `pageAlert` binding and clears both on dismissal; no page in this change set uses the `alert(_:isLoading:)` overload whose condition can strand an alert. The defect this item warns about (a section-scoped presentation being dropped) is not present in the current code. |
 | **C4** | `FIXED + verified` | `UIProfileUpdateTask.getAndUpdateProfiles` — `setTaskCompleted` now runs on **every** exit (unreadable list → `false`, empty list → `true`), and `expirationHandler` is installed before any work starts instead of after it finished. |
 | **C5** | `FIXED + verified` | `ExtensionEnvironments.reload()` — a throw is no longer discarded by `try?`: it sets `profileLoadFailure`, keeps the previously loaded profile, and logs. `nil` (no manager at all) is still "no tunnel installed". |
 | **C6** | `FIXED + verified` | `HakoCoreView` — `extensionProfile!` replaced by a `guard let`; and the working directory is erased only after the system publishes `.disconnected`, with a 15 s bound and a refusal (not a deletion) on timeout. |
-| **C7** | `FIXED + verified` | `HakoHomeView.selectClashMode` and `ConnectionListViewModel.closeAllConnections` now run their synchronous core calls in `Task.detached`, returning to the main actor only for state — matching the pattern the tools view models already use. **Not** a repository-wide audit: other sync-FFI sites were not all reviewed. |
-| **C8** | `DEFERRED + scoped risk` | `HakoOnDemandRulesView`, `HakoPacketTunnelView`, `HakoProfileOverrideView` — the "write preference, then reconfigure" ordering was not changed. **One interaction is covered by A1**: `stop()` clears On-Demand before the stop request, so a user-initiated disconnect is not immediately undone by On-Demand. The rest needs its own pass. |
+| **C7** | `FIXED + verified` | Four main-actor blocking sites moved to `Task.detached`, returning to the actor only for state: `HakoHomeView.selectClashMode`, `ConnectionListViewModel.closeAllConnections`, and the standalone `start(...)` of `NetworkQualityViewModel` / `STUNTestViewModel` (which ran a socket-opening FFI call on the main thread from a view callback). This is the set the audit named plus the two it did not; it is not a repository-wide audit of every sync-FFI call site. |
+| **C8** | `FIXED + verified` | All three pages, phone **and** shared: `HakoProfileOverrideView` + `ProfileOverrideView`, `HakoPacketTunnelView` + `PacketTunnelView`, `HakoOnDemandRulesView` + `OnDemandRulesView`. Each toggle now reads the previously stored value, writes, applies, and **restores both the preference and the switch** if the apply is refused; the On-Demand mode additionally restores the page's own `mode`. The shared pages were fixed too because an iPad and a Mac load them - fixing only `HakoStyle` would have left the same defect on two other surfaces. A refused *rules* edit keeps the edited rules (they are stored and the next start installs them) and reports the system write failure. |
 
 ---
 
@@ -166,6 +171,22 @@ by the system; the second is the one case the handler exists for.
 
 `HakoCoreView.stopServiceAndDestroy` deleted the core's data immediately after `stop()` returned —
 which only means the request was submitted — and force-unwrapped the profile to get there.
+
+### 4.6 A running probe that could outlive its page
+
+`NetworkQualityViewModel.startTest` and `STUNTestViewModel.startTest` had the status-subscription race
+in a worse form: the handle they adopt is a **running test**, not a passive stream, and it was stored
+into a view model that had already cancelled. Nothing then held a handle to stop it, so a Network
+Quality test could keep generating traffic after the reader left the page. Both also force-unwrapped
+the standalone test object (`LibboxNewNetworkQualityTest()!`, `LibboxNewSTUNTest()!`) on the
+not-connected branch, and started it with a synchronous FFI call on the main actor.
+
+### 4.7 The three settings pages disagreed with the system in both directions
+
+`ProfileOverride`, `PacketTunnel` and `OnDemandRules` all wrote the preference and then applied it,
+and reported an apply failure with an alert while leaving the switch, the preference and the page's
+own mode on the new value. The tunnel kept the old one. The shared (iPad/macOS) copies had exactly the
+same defect, so fixing only `HakoStyle/` would have corrected one of three surfaces.
 
 ---
 
@@ -228,11 +249,24 @@ packages need (on this Windows checkout those links are plain text files).
 Both failures are `BLOCKED_BY_ENVIRONMENT`, both are reproducible at `HEAD` with no local change, and
 neither exercises code this change touches.
 
-### 5.3 Repository gates — PASS
+### 5.3 Repository gates — executed
 
 | Gate | Result |
 |---|---|
 | `python scripts/dev/check_localization.py` | **PASS** — 516 visible strings across 58 fork-owned files resolve to a catalog key with `en` and `zh-Hans`; 27 exempt as technical terms; **0 pending** |
+| `python scripts/dev/check_hako_profile_switch.py` | **PASS** — 6 cases, including "failed switch releases the gate" and "one presentation per phone view" |
+| `python scripts/dev/test_hako_ui_gates.py` | **PASS** — 26 mutation cases (the gates catch the faults they exist for) |
+| `python scripts/dev/check_generated_headers.py` (with `DSH_GIT`/`DSH_REPO`) | **PASS** — 33 portable headers, 33 naming a path that exists at the pin, 0 missing |
+| `python scripts/dev/test_port_script_authorization.py` | **FAIL — 4 of 6 cases, and already failing at `749509f`** (see below) |
+| `python scripts/dev/check_swift_test_sources.py` | **FAIL — already failing at `749509f`** (flags `DispatchSemaphore`/`Thread` as "declared nowhere in this repository") |
+
+The last two, and `check_generated_headers.py` when run without the overrides, are **red at the
+pre-change commit**. That was checked rather than assumed: the same three gates were run against a
+`git archive 749509f` tree and produced the same failures. `check_generated_headers.py` hardcodes
+`C:\Deepseek\IOS客户端\_tools\mingit\cmd\git.exe`, a path that does not exist on this machine; it
+honours `DSH_GIT`, and with the real git it passes, which is why it is listed as a PASS above and as
+an environment failure in the residual-risk section. No gate that passed before this change fails
+after it.
 
 ### 5.4 Not run
 
@@ -305,10 +339,13 @@ Consequences, and how they were handled:
 4. **`ExtensionPlatformInterface` / `ExtensionProvider` were not compiled here** (stub gap), and A3's
    lock reasoning is static. No change was made to them, so no regression was introduced, but their
    compilation is unverified in this environment.
-5. **`NetworkQualityViewModel` and `STUNTestViewModel` keep their start/cancel race** (C2), and
-   `HakoOnDemandRulesView` / `HakoPacketTunnelView` / `HakoProfileOverrideView` keep their
-   write-then-reconfigure ordering (C8). Both are scoped in the table above.
-6. **The two suites that cannot build on Linux** are unverified here for any change, not only this one.
+5. **The two suites that cannot build on Linux** are unverified here for any change, not only this one.
+6. **Three repository gates were already red before this change** (`test_port_script_authorization.py`,
+   `check_swift_test_sources.py`, and `check_generated_headers.py` without its `DSH_GIT` override).
+   They are not silent: nothing here claims them as passing, and the last one is a hardcoded Windows
+   path that any checkout not at `C:\Deepseek\IOS客户端` will trip over.
+7. **The two hand-repaired generated pages will relapse on regeneration.** See §9 - the repair is
+   recorded in each file's header, and nothing mechanical re-applies it.
 
 ---
 
@@ -326,13 +363,20 @@ Consequences, and how they were handled:
 * **The localization gate actually blocked this change** — it failed on the new Core-page message
   until the key was added, which is the gate working as designed; the key was added as a surgical
   text insertion so the 757-key catalog keeps its formatting and its other languages.
-* **Hako generation hazard.** The files changed under `ApplicationLibrary/Views/HakoStyle/` are
-  generated copies (`HakoStartStopButton` from `port_hako_components.py`, `HakoCoreView` from
-  `migrate_secondary_page.py`, `HakoHomeView` and `HakoProfilePickerSheet` are manual/patched). This
-  change **does not** run any generator, and each edited file keeps its existing header. Re-running
-  `port_hako_components.py` or `migrate_secondary_page.py` would overwrite `HakoStartStopButton` and
-  `HakoCoreView` — their headers already say "Re-run that rather than editing here", and this change
-  is the manual-repair case those headers warn about. **Before the next regeneration, the two edits
-  must be carried into the scripts or the generated files must be re-patched**; nothing in this
-  commit prevents that loss, and pretending otherwise would be the返祖 this repository has already
-  paid for.
+* **Hako generation hazard.** Of the edited files under `ApplicationLibrary/Views/HakoStyle/`, exactly
+  **two are generated copies**: `HakoStartStopButton.swift` (`scripts/dev/port_hako_components.py`) and
+  `HakoCoreView.swift` (`scripts/dev/migrate_secondary_page.py`). `HakoHomeView.swift`,
+  `HakoProfilePickerSheet.swift`, `HakoProfileOverrideView.swift`, `HakoPacketTunnelView.swift` and
+  `HakoOnDemandRulesView.swift` carry no generated-header provenance and are treated as owned source.
+  This change runs **no generator**, and each edited file keeps its header.
+
+  For the two generated files the header now records the hand repair and says explicitly that
+  re-applying the generator will lose it, with a pointer to this document. That is a note for a
+  maintainer, **not** a mechanism: nothing re-applies the patch. Carrying the two repairs into
+  `port_hako_components.py` and `migrate_secondary_page.py` (or into a `restore_*.py` in the style of
+  `restore_core_view_guards.py`) is the durable fix and is not done here, because those scripts are
+  themselves guarded by the 26 mutation cases in `test_hako_ui_gates.py` and changing them without
+  being able to run the port end to end would be the larger risk.
+
+  `check_generated_headers.py` still passes after the header notes (33 of 33 headers name a path that
+  exists at the pin), so the notes did not damage provenance.

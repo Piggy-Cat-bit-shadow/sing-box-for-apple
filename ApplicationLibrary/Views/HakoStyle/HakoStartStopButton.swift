@@ -20,6 +20,12 @@
 //  Generated from `c1935cf` by `scripts/dev/port_hako_components.py`. Re-run that rather than
 //  editing here.
 //
+//  HAND-REPAIRED, 2026-11-14 (stability pass): the busy branch keeps a Disconnect action that appears
+//  once a transition has stopped moving, so a tunnel stuck in `.connecting`/`.disconnecting` can
+//  still be stopped. The original design replaced the control with a spinner, which removed the only
+//  way out. Re-applying this file from the generator WILL lose that repair - it is not carried in the
+//  script. See `docs/audits/2026-11-14-apple-ui-stability-closeout.md` §9.
+//
 
 import Library
 import NetworkExtension

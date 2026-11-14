@@ -76,6 +76,8 @@ public final class NetworkQualityViewModel: BaseViewModel, OutboundSelectable {
     private var standaloneTest: LibboxNetworkQualityTest?
     private var nqSession: LibboxNetworkQualityTestSession?
     private var runningTask: Task<Void, Never>?
+    /// Who owns the test while the core is still answering with its session handle.
+    private var ownership = SubscriptionOwnership()
     public func loadPreferences() async {
         isLoadingPreferences = true
         let savedURL = await SharedPreferences.nqConfigURL.get()
@@ -130,6 +132,7 @@ public final class NetworkQualityViewModel: BaseViewModel, OutboundSelectable {
         downloadRPMAccuracy = 0
         uploadRPMAccuracy = 0
         isRunning = true
+        let token = ownership.begin()
 
         let configURL = configURL
         let outboundTag = selectedOutbound
@@ -144,18 +147,41 @@ public final class NetworkQualityViewModel: BaseViewModel, OutboundSelectable {
                     let session = try await Task.detached {
                         try CommandTarget.standaloneClient().startNetworkQualityTest(configURL, outboundTag: outboundTag, serial: serial, maxRuntimeSeconds: maxRuntimeSeconds, http3: http3, handler: handler)
                     }.value
-                    self?.nqSession = session
+                    guard let self else {
+                        // The page is gone; nobody can close this session but us.
+                        try? session.close()
+                        return
+                    }
+                    guard self.ownership.isCurrent(token) else {
+                        // `cancel()` ran while the core was producing the session. Adopting it now
+                        // would leave a running test nothing can stop - and unlike a status stream,
+                        // this one puts traffic on the wire.
+                        try? session.close()
+                        return
+                    }
+                    self.nqSession = session
                 } catch {
-                    guard let self else { return }
+                    guard let self, self.ownership.isCurrent(token) else { return }
                     self.isRunning = false
                     self.alert = AlertState(action: "network quality test", error: error)
                 }
             }
         } else {
-            let test = LibboxNewNetworkQualityTest()!
+            // The force-unwrap this replaces trapped when the core could not hand out a test object -
+            // a plain allocation failure that must become an error, not a crash.
+            guard let test = LibboxNewNetworkQualityTest() else {
+                isRunning = false
+                alert = AlertState(errorMessage: "The network quality test could not be created")
+                return
+            }
             standaloneTest = test
             let handler = TestHandler(self)
-            test.start(configURL, serial: serial, maxRuntimeSeconds: maxRuntimeSeconds, http3: http3, handler: handler)
+            // `start` is a synchronous FFI call that opens the probe's sockets. It ran on the main
+            // actor, so the page could not redraw until it returned. It needs no view state; only
+            // its callbacks touch the view model, and they already hop to the main queue.
+            Task.detached(priority: .userInitiated) {
+                test.start(configURL, serial: serial, maxRuntimeSeconds: maxRuntimeSeconds, http3: http3, handler: handler)
+            }
         }
     }
 
@@ -173,6 +199,7 @@ public final class NetworkQualityViewModel: BaseViewModel, OutboundSelectable {
     }
 
     public func cancel() {
+        ownership.invalidate()
         try? nqSession?.close()
         nqSession = nil
         runningTask?.cancel()
