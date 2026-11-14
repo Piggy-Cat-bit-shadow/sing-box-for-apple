@@ -244,6 +244,12 @@ public struct HakoStartStopButton: View {
                 }
                 .onChangeCompat(of: profile.status) { status in
                     Task { @MainActor in
+                        // Any status change means the request that set this flag has been answered by
+                        // the system, one way or another. Clearing it here is what keeps the emergency
+                        // control from being disabled by a press whose request outlived its own
+                        // usefulness: `ExtensionProfile.stop()` is bounded, so this is a second
+                        // guarantee rather than the only one.
+                        isStopping = false
                         if isStarting {
                             if status == .disconnected {
                                 isStarting = false
@@ -309,8 +315,10 @@ public struct HakoStartStopButton: View {
         /// Deliberately `stop()` and never the toggle: in `.disconnecting` the toggle's
         /// `!profile.status.isConnected` is false, so a toggle would *start* the tunnel. The flag
         /// only stops this control from re-entering while the request is being submitted;
-        /// `ExtensionProfile.stop()` is itself safe to call more than once and returns as soon as
-        /// the system request is out, so a second press is not a second teardown.
+        /// `ExtensionProfile.stop()` is itself safe to call more than once and is **bounded** - its
+        /// only unbounded call is gone - so a second press is neither a second teardown nor a wait
+        /// that can strand this button. The flag is also cleared by any status change, so even a
+        /// request that outlived its usefulness cannot leave the control disabled.
         private nonisolated func requestStop() async {
             await MainActor.run {
                 isStopping = true

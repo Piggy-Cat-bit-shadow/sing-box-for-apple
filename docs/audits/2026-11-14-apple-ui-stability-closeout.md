@@ -91,6 +91,33 @@ Two secondary facts make it worse and are fixed as well: a failing `saveToPrefer
 before the stop request, and `LibboxNewStandaloneCommandClient()` was force-unwrapped on the one path
 a user takes to escape.
 
+### 2.1 Two things the first fix did not actually close, found on review
+
+Both were real, and both are worth writing down because the first commit's own comments claimed more
+than the code delivered.
+
+**(a) The stop request was still behind a `try await` that could fail to return.**
+The first fix moved `stopVPNTunnel()` ahead of the kernel close and caught the preference error, then
+described the result as "nothing before it may throw". Not throwing is *not* a liveness proof:
+`await manager.saveToPreferences()` does not have to throw to stop the function, it only has to never
+return - which is exactly the NetworkExtension preferences state a user is trying to escape. The
+request was still gated on an unbounded await, so the acceptance case "On-Demand on, the preference
+write wedges" was still open. `HakoStartStopButton.requestStop()` made it visible: it awaits
+`stop()`, so a non-returning `stop()` kept `isStopping` raised and the emergency button disabled -
+the escape hatch switching itself off.
+
+**(b) The extension's teardown still waited for the same lock.**
+The app can now send `stopVPNTunnel()` promptly, but the system then calls the provider's
+`stopTunnel(with:)`, which called `stopService()` - an unbounded `serviceLifecycleLock.lock()`. A
+reload holds that lock across `applyServiceChangeReport()`, so a wedged apply still stalled the
+teardown after the app had done its part. The app-side fix was necessary and not sufficient.
+
+Neither fix is "delete the lock". It genuinely protects `nwMonitor` - `reset()` assigns that property
+from outside `pathMonitorQueue`, which is a data race with a start's `startDefaultInterfaceMonitor`.
+What was wrong was the *liveness of the teardown while the lock is held*, so that is what changed:
+the teardown now bounds its wait and skips exactly the work that needs exclusivity, while doing the
+queue-confined half that is safe on its own.
+
 Why the lock itself is **not** a bug: `ServiceStop` is only reachable from the gRPC `ManagedService`
 handler, never from inside the apply, so the non-recursive `NSLock` is never re-entered on the same
 thread. The lock correctly serialises `platformInterface.reset()` against a concurrent start's
@@ -108,9 +135,9 @@ type-checked, but the behaviour it governs needs NetworkExtension at runtime. `N
 
 | # | Verdict | Key path |
 |---|---|---|
-| **A1** | `FIXED + verification pending` | `ExtensionProfile.stop()` — order is now *clear On-Demand (best effort) → `stopVPNTunnel()` → best-effort kernel close*. Nothing can throw or await before the system request. The force-unwrap is gone. The close is a single, tracked, non-awaited detached call. **The ordering property itself is verified from source** (no `await` and no `throw` precedes the request on any path); whether iOS then releases the slot is NetworkExtension behaviour, so the user-visible outcome is device-pending, exactly like A2. |
-| **A2** | `FIXED + verification pending` | `HakoStartStopButton.HakoToggleConnectionButton` — after a 6 s grace the busy row grows a **Disconnect** button that always calls `stop()`, never the start/stop toggle. `HakoHomeView` — the page-wide `.disabled` became `pageIsBusy` applied per section; the header's primary action and `pageAlert` stay live, the profile button stays gated. |
-| **A3** | `NOT A BUG + evidence` | `ExtensionProvider.startService/stopService/stopTunnel`. Lock graph and reachability recorded above. The blocking *consequence* users saw was fixed in A1. No lock change: `NSRecursiveLock` would mask, deletion would corrupt. |
+| **A1** | `FIXED + verification pending` | `ExtensionProfile.stop()` — order is now *On-Demand write (bounded) → `stopVPNTunnel()` → best-effort kernel close*. The On-Demand write is **awaited for at most `onDemandPreferenceTimeout` (2 s)** and the request goes out whether it answered, threw, or neither; the force-unwrap is gone; the kernel close is a single tracked, non-awaited detached call. There is now no path on which the request waits without a bound - which the first revision could not say, because a non-returning `await` is not a thrown error. Whether iOS then releases the slot is NetworkExtension behaviour: device-pending. |
+| **A2** | `FIXED + verification pending` | `HakoStartStopButton.HakoToggleConnectionButton` — after a 6 s grace the busy row grows a **Disconnect** button that always calls `stop()`, never the start/stop toggle. `isStopping` is cleared by any status change as well as by the request returning, and `stop()` is bounded, so the control cannot be disabled by a request that never returns. `HakoHomeView` — the page-wide `.disabled` became `pageIsBusy` applied per section; the header's primary action and `pageAlert` stay live, the profile button stays gated. |
+| **A3** | `NOT A BUG + evidence` (the lock) / `FIXED + verification pending` (teardown liveness) | The mutex is correct: `ServiceStop` is only reachable from the gRPC `ManagedService` handler, so the non-recursive `NSLock` is never re-entered on one thread, and it protects `nwMonitor` assignment which `reset()` performs outside the monitor queue. **Not** changed: not deleted, not made recursive. What changed is the teardown's liveness: `stopTunnel` now calls `performStopService(waitingAtMost: 2 s)`, which bumps the lifecycle generation through a separate small lock, and when the exclusive region is busy skips `closeService()` (the command server is closed immediately afterwards anyway) and `reset()`'s unguarded `nwMonitor` assignment (the data race the lock exists for), while still calling `retireInterfaceMonitor()` - the queue-confined half that stops an abandoned monitor from publishing. The core-initiated `serviceStop()` path keeps the blocking behaviour, because there waiting is correct. |
 | **B1** | `FIXED + verified` | `ExtensionProfile.requestProviderMessage` + `ProviderReplyGate` + `applyReplyTimeout (15 s)`. `reloadService(_:)` can no longer hang forever; `currentTunnelSessionID` no longer uses `withTaskGroup` (whose `cancelAll()` cannot resume a suspended continuation) and no longer inherits the stale-continuation defect. Reply, late reply, throw and deadline are one gate with exactly one resume. |
 | **B2** | `FIXED + verified` | `EditProfileViewModel.saveProfile` — `defer { isLoading = false }` on every path, and save / schedule / apply are three separately reported facts. |
 | **B3** | `FIXED + verified` | `OverviewViewModel.setSystemProxyEnabled` — `reasserting` cleared on the failure path; the preference is rolled back when the apply fails; the command client is no longer force-unwrapped. `HakoHomeView` re-reads the persisted value so the row stops showing a state the tunnel never entered. |
@@ -191,6 +218,17 @@ and reported an apply failure with an alert while leaving the switch, the prefer
 own mode on the new value. The tunnel kept the old one. The shared (iPad/macOS) copies had exactly the
 same defect, so fixing only `HakoStyle/` would have corrected one of three surfaces.
 
+### 4.8 The acceptance checklist for the two residual P0s
+
+These are the three cases the review asked for, with what is actually proved for each. None of them is
+"verified on device", and two of them are proved only by construction.
+
+| Case | Status | What proves it, and what does not |
+|---|---|---|
+| On-Demand on, the preference write wedges → the system stop request is still sent | **code path closed, device pending** | `stop()` awaits `savePreferences(atMost: 2 s)`; all three outcomes (success, throw, no answer) fall through to `stopVPNTunnel()`, which is the next statement. The `OneShot` gate makes a late answer a no-op instead of a second resume. Source-level: there is no `await` between the start of `stop()` and the request that lacks a bound. **Not** proved on device: that iOS then honours a stop request sent while its own preferences write is outstanding. |
+| The emergency Disconnect is not left permanently disabled by a request that never returned | **closed by construction** | `stop()` is bounded, so `requestStop()`'s `isStopping = false` always runs; and `isStopping` is additionally cleared on every `profile.status` change, so even an unforeseen stall cannot keep the control disabled. |
+| A wedged reload does not stop `stopTunnel` from completing its cleanup | **code path closed, device pending** | `performStopService(waitingAtMost: 2 s)`: generation is invalidated through a separate lock (so an in-flight start reports `.superseded`), the monitor generation is retired on its own queue, and the command server is closed by the caller immediately afterwards. `stopTunnel` therefore no longer has an unbounded wait in it. **Residual:** `LibboxCommandServer.close()` is itself a call into the core and is not bounded by this change - see §8. |
+
 ---
 
 ## 5. Test matrix (actually executed)
@@ -200,7 +238,6 @@ All Swift execution below happened in **WSL2 Ubuntu 24.04** with **Swift 6.4.2**
 and the locally built **iPhoneOS 27.1** SDK from the user's `xtool` artifact bundle.
 
 ### 5.1 iOS type-check of the shipped sources — `PASS (no new errors)`
-
 Method: `swiftc` per module against `-target arm64-apple-ios17.0 -sdk iPhoneOS.sdk`, mirroring the
 flags SwiftPM itself uses successfully (including `-resource-dir` into the Xcode toolchain, without
 which the compiler rejects the SDK's own `Swift.swiftinterface`). Two trees were compiled with the
@@ -228,6 +265,22 @@ Excluded from the harness, each for a stated reason, and **both identical in A a
 `ExtensionPlatformInterface.swift` / `ExtensionProvider.swift` (the sandbox's Libbox stub predates
 those files' protocol requirements — an unrelated, pre-existing stub gap), `RequestReviewButton.swift`
 (`@Environment(\.requestReview)` does not resolve in this SDK/compiler pairing).
+
+**Those two excluded files are covered separately**, because this change edits both of them. A second
+run type-checked the **full 98-file `Library` module** against the *prebuilt* `Libbox.swiftmodule`
+that the last xtool build produced — that module carries the complete gomobile surface, which is why
+it accepts those files where the hand-written stub does not:
+
+| Tree | Errors over 98 files | Errors mentioning `ExtensionProvider.swift` / `ExtensionPlatformInterface.swift` |
+|---|---|---|
+| A (pristine `HEAD`) | 2 | **0** |
+| B (change set) | 2 | **0** |
+| Difference | **identical** | — |
+
+The 2 residual errors are the same single stale-stub gap in `Profile+Update.swift`
+(`refreshRemoteProviders` is absent from the *prebuilt* module), unchanged by this work. So the
+teardown change in `ExtensionProvider.swift` and the `retireInterfaceMonitor` split in
+`ExtensionPlatformInterface.swift` are type-checked, not merely reviewed.
 
 **What this proves:** the changed files compile against the iOS SDK, in a module graph that includes
 every other file of `Library`, and they introduce no new compile error anywhere in
@@ -290,7 +343,7 @@ thrown.
 |---|---|---|---|---|---|
 | Tap Disconnect | `.connected` | normal | Disconnect → Working… | everything (gate is on the sections only) | n/a |
 | Tap Disconnect | `.connected` | `serviceClose` hangs forever | Working…, then after 6 s **Disconnect** again | stop again; the request is already out | n/a |
-| Tap Disconnect | `.connected`, On-Demand on | any | as above; a preference failure raises a specific message *after* the request is out | stop again | n/a |
+| Tap Disconnect | `.connected`, On-Demand on | preference write wedges | Working…; after 2 s the request is sent anyway and the message says the system may reconnect | stop again; navigate; open settings | n/a |
 | Tap Disconnect | `.disconnecting`, never settles | any | Working… then **Disconnect** (retry) | retry stop, navigate, open settings | n/a |
 | Tap Connect | `.connecting`, never settles | apply wedged | Working… then **Disconnect** | cancel the attempt | yes — nothing was replaced |
 | Config update, no reply | unchanged | `sendProviderMessage` never calls back | after 15 s the call ends **unconfirmed** | retry the update deliberately; the tunnel is untouched | yes |
@@ -336,6 +389,13 @@ Consequences, and how they were handled:
    `serviceClose()` run to completion in the background. It holds no lock the app needs and cannot
    block the stop request any more, but the thread is not reclaimable. This is a property of the
    gomobile ABI, not of this fix.
+2a. **`LibboxCommandServer.close()` is not bounded.** The teardown fix bounds the wait for
+   `serviceLifecycleLock`, so a wedged *reload* can no longer stop `stopTunnel` from returning. It does
+   not bound the core call that follows: `stopTunnel` still calls `server.close()` synchronously, and a
+   wedged core can make that call block. Bounding it would mean closing the server while nilling the
+   reference, which races a concurrent `handleAppMessage` against a server that is being torn down -
+   the same class of hazard the file's identity check exists for. Left alone deliberately, and named
+   here rather than glossed over.
 3. **On-Demand re-assertion remains a system behaviour.** Clearing `isOnDemandEnabled` before the stop
    request is what the app can do; if the preferences write fails, the message says the system may
    reconnect it. The app cannot prevent a re-assertion it failed to disable.
@@ -363,6 +423,17 @@ Consequences, and how they were handled:
 * **`StatusSubscriptionFailure`** keeps the "is this worth a modal" decision in one place, so a tools
   page cannot reintroduce a raw gRPC modal by writing its own `AlertState(errorMessage:)` for a
   stream error.
+* **A contract test caught this change and was re-expressed, not deleted.**
+  `InterfaceMonitorStartupTests.testTakeoverWaitIsOutsideTheLifecycleLockAndResetsPerSession` failed
+  on the first attempt at the teardown fix, because it pins the *textual* shape of the lock discipline
+  in `ExtensionProvider.swift` (`withServiceLifecycleLock` inside the wait, `serviceLifecycleGeneration
+  &+= 1` inside `stopService`). Moving the counter to its own lock changed that shape while preserving
+  - and widening - the property. The test now asserts the invariant instead of the old spelling: the
+  generation must be read and bumped **only** through the accessors, the wait must not touch the
+  counter directly, the teardown must bound its wait, and the invalidation must happen **before** the
+  bounded path gives up. That last assertion is new and is exactly the liveness property this change
+  adds; the previous version could not express it. The failure is recorded here because a test that
+  had to change is evidence, not noise.
 * **The localization gate actually blocked this change** — it failed on the new Core-page message
   until the key was added, which is the gate working as designed; the key was added as a surgical
   text insertion so the 757-key catalog keeps its formatting and its other languages.
