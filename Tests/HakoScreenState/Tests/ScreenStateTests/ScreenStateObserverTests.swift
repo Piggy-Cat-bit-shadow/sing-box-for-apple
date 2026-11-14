@@ -540,23 +540,46 @@ final class ScreenStatePolicyTests: XCTestCase {
         XCTAssertEqual(decision.rememberValue, 1)
     }
 
-    /// A snapshot may only establish that the device is NOT in use.
+    /// A snapshot may establish that the device is NOT in use; it may wake it only from a state this
+    /// observer has already seen locked.
     ///
     /// `notify_get_state` answers `NOTIFY_STATUS_OK` with `0` for a name whose state was never set,
-    /// and `0` on the lock source means "unlocked" - so a snapshot that published it would invent a
-    /// wake at every extension start. A snapshot of a sleep fact is the recovery path for a lock that
-    /// happened while the extension was suspended, and it is allowed.
-    func testASnapshotMayPublishASleepFactButNeverAWakeOne() {
-        XCTAssertNil(decide(.value(0), .lock, .snapshot, last: 1).publish, "snapshot invented an unlock")
+    /// and `0` on the lock source means "unlocked" - so an unverified snapshot that published it
+    /// would invent a wake at every extension start. A snapshot of a sleep fact is the recovery path
+    /// for a lock that happened while the extension was suspended, and it is allowed.
+    ///
+    /// The one wake a snapshot may publish is the verified `1 -> 0`: both values were successfully
+    /// read by this observer, so the pair is a transition even though neither read was a callback.
+    /// It is an EDGE because `woke()` is what releases the device pause, and a LEVEL cannot.
+    func testASnapshotMayPublishASleepFactButOnlyAVerifiedWake() {
+        // The unverified zero, in the two shapes it arrives in: nothing observed successfully yet,
+        // and the source already known to read `0`.
+        for last: UInt64? in [nil, 0] {
+            let unverified = decide(.value(0), .lock, .snapshot, last: last)
+            XCTAssertNil(unverified.publish,
+                         "snapshot invented an unlock from last=\(String(describing: last))")
+            XCTAssertNotEqual(unverified.delivery, .edge,
+                              "a refused snapshot asked for an edge with last=\(String(describing: last))")
+        }
         XCTAssertNil(decide(.value(1), .display, .snapshot, last: 0).publish, "snapshot invented a display-on")
         XCTAssertEqual(decide(.value(1), .lock, .snapshot, last: 0).publish, .locked)
         XCTAssertEqual(decide(.value(0), .display, .snapshot, last: 1).publish, .displayOff)
+
+        // The verified change: locked was observed, and a successful re-read now answers unlocked.
+        let recovered = decide(.value(0), .lock, .snapshot, last: 1)
+        XCTAssertEqual(recovered.publish, .unlocked)
+        XCTAssertEqual(recovered.delivery, .edge)
+        XCTAssertEqual(recovered.rememberValue, 0)
     }
 
-    /// A snapshot still remembers what it read, so the next real transition is measured against it
-    /// rather than re-published.
+    /// An unverified snapshot still remembers what it read, so the next real transition is measured
+    /// against it rather than re-published.
+    ///
+    /// `last` is deliberately `nil` - this source has never been observed locked - because that is
+    /// the case this rule still exists for. A snapshot taken after a confirmed `1` is the recovery
+    /// path and IS published; see `testASnapshotMayPublishASleepFactButOnlyAVerifiedWake`.
     func testASnapshotRemembersTheValueItDidNotPublish() {
-        let decision = decide(.value(0), .lock, .snapshot, last: 1)
+        let decision = decide(.value(0), .lock, .snapshot, last: nil)
         XCTAssertNil(decision.publish)
         XCTAssertEqual(decision.rememberValue, 0)
 
@@ -585,17 +608,21 @@ final class ScreenStatePolicyTests: XCTestCase {
 
                         if decision.publish == .unlocked {
                             // The single strongest invariant: only a successful read of 0 on the lock
-                            // source, delivered as an event, may lift the device pause.
+                            // source may lift the device pause, and only when that source was
+                            // actually observed locked (`1`) first - rule 5 of `decide`. A
+                            // `lastObserved` of `nil` is a source that has never been read, and a `0`
+                            // from an axis whose prior value is unknown is indistinguishable from
+                            // the never-set `0` that rule 4 refuses, so both `nil` and `0` are
+                            // pinned as non-publishing here.
                             XCTAssertEqual(read, .value(0), "an unlock was published for \(label)")
                             XCTAssertEqual(source, .lock, "an unlock was published for \(label)")
-                            XCTAssertEqual(provenance, .event, "an unlock was published from a snapshot for \(label)")
-                            // An unlock is only a transition when the lock source was actually
-                            // observed locked (`1`) first - rule 5 of `decide`. A `lastObserved` of
-                            // `nil` is a source that has never been read, and a `0` from an axis
-                            // whose prior value is unknown is indistinguishable from the never-set
-                            // `0` that rule 4 refuses on a snapshot, so it is refused on an event
-                            // too. Both `nil` and `0` are therefore pinned as non-publishing here.
                             XCTAssertEqual(last, 1, "an unlock was published without a lock having been observed for \(label)")
+                            // Whichever provenance carried it - the delivered notification, or the
+                            // resume re-read that recovered a missed one - a verified unlock is a
+                            // transition, so it must be delivered as an edge. A LEVEL would leave
+                            // the device pause in place, which is the deadlock this table guards.
+                            XCTAssertEqual(decision.delivery, .edge,
+                                           "an unlock was delivered as a level for \(label)")
                         }
                         if decision.publish == .displayOn {
                             XCTAssertEqual(read, .value(1), "a display-on was published for \(label)")
@@ -951,15 +978,65 @@ final class ScreenStateObserverTests: XCTestCase {
         XCTAssertEqual(publisher.calls, [.levelLock(true)], "resync did not recover the missed lock")
     }
 
-    /// And it can never invent a wake, which is the property that makes it safe to call on every
-    /// NetworkExtension resume.
-    func testResyncCanNeverPublishAWake() {
+    /// The other half of the suspension gap, and the shape of the deadlock: a lock the observer
+    /// confirmed, an unlock delivered to nobody, and a resume that re-reads `0`.
+    ///
+    /// Before this was fixed the re-read was refused because it was a snapshot, and the value was
+    /// still remembered - so the late `lockstate=0` notification was suppressed as a repeat too, and
+    /// `recordLockState(false)` never ran. `woke()` is the only thing that releases the device pause,
+    /// so the pause outlived the unlock.
+    ///
+    /// Driven through the observer rather than asserted against `decide` alone: what the fix has to
+    /// produce is exactly one `recordLockState(false)` reaching the publisher, and no second one from
+    /// the late notification or a repeated resume.
+    func testResyncRecoversMissedUnlockAndDedupsLateEvent() {
+        let (observer, notify, publisher) = makeObserver()
+        // The observer confirms the locked state: this is the prior `1` the recovery is verified by.
+        notify.setState(.value(1), of: .lock)
+        XCTAssertEqual(observer.start(), .started)
+        XCTAssertEqual(publisher.calls, [.levelLock(true)],
+                       "the start snapshot is a level reconcile, not a transition")
+        publisher.reset()
+
+        // The unlock happens while the NetworkExtension is suspended. The notification is delivered
+        // to nobody, so the successful state read is the only evidence left.
+        notify.setState(.value(0), of: .lock)
+        observer.resync()
+
+        XCTAssertEqual(publisher.calls, [.lock(false)],
+                       "the resume re-read did not release the device pause")
+        XCTAssertEqual(publisher.calls.filter(\.isEdge), [.lock(false)],
+                       "the recovered unlock must be an EDGE: a level cannot release the pause")
+
+        // A second resume, with nothing else happening, must not republish: the value it reads is the
+        // one the recovery just remembered.
+        observer.resync()
+        XCTAssertEqual(publisher.calls, [.lock(false)],
+                       "a repeated resume produced a second wake boundary")
+
+        // The notification for that same unlock finally arrives, and a third resume re-reads the
+        // same value. Neither may publish a second wake boundary either.
+        notify.deliver(lockName)
+        observer.resync()
+
+        XCTAssertEqual(publisher.calls, [.lock(false)],
+                       "the missed unlock produced more than one wake boundary")
+    }
+
+    /// And it cannot invent a wake from an unverified zero, which is the property that makes it safe
+    /// to call on every NetworkExtension resume.
+    ///
+    /// The lock source was never observed locked in this arrangement, so its `0` is
+    /// indistinguishable from the never-set `0` that a name which was never posted answers. The
+    /// display going on is a resume claim a snapshot may not make either. The verified
+    /// locked -> unlocked recovery is `testResyncRecoversMissedUnlockAndDedupsLateEvent` above.
+    func testResyncCannotPublishUnverifiedWake() {
         let (observer, notify, publisher) = makeObserver()
         XCTAssertEqual(observer.start(), .started)
 
         // The extension resumed, the device was unlocked and the lock screen is lit, so both sources
-        // now read the "in use" value: display 1 is on, lock 0 is unlocked. Both are facts a snapshot
-        // is forbidden to publish, and neither may reach the core from this path.
+        // now read the "in use" value: display 1 is on, lock 0 is unlocked. Neither may reach the
+        // core from this path, because no lock was ever observed - there is nothing to recover.
         notify.setState(.value(1), of: .display)
         notify.setState(.value(0), of: .lock)
         observer.resync()
