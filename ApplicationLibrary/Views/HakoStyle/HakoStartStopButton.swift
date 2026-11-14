@@ -107,7 +107,13 @@ public struct HakoStartStopButton: View {
         let showsRuntimeDuration: Bool
         let isCompact: Bool
 
-        private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+        /// Whether this button draws a running time at all.
+        ///
+        /// The same three conditions the label uses when it decides to show the duration, kept in
+        /// one place because the tick below is gated on exactly them.
+        private var showsRuntimeClock: Bool {
+            showsRuntimeDuration && !isCompact && profile.status.isConnectedStrict && !Variant.screenshotMode
+        }
 
         /// How long a transition may look like progress before the exit is offered.
         ///
@@ -229,10 +235,29 @@ public struct HakoStartStopButton: View {
             }
             .alert($alert)
 
-                .onReceive(timer) { _ in
-                    guard !Variant.screenshotMode else { return }
-                    Task { @MainActor in
+                // The running time's clock, and only its clock.
+                //
+                // This used to be `Timer.publish(every: 1, ...).autoconnect()` subscribed
+                // unconditionally: the timer woke the main run loop once a second for the whole
+                // session even on the home page, which passes `showsRuntimeDuration: false` - so
+                // the tick's only effect was to write a `@State` and re-evaluate this body once a
+                // second for a label that never draws the value. `task(id:)` cancels the work the
+                // moment the condition stops holding and starts it again when it holds, so a page
+                // that shows no running time schedules nothing at all.
+                //
+                // `Task.sleep` is what makes the loop cancellable: it throws on cancellation, and
+                // the task returns then. `currentTime` is read from the clock when the status
+                // changes (below), so the first second after connecting shows the true elapsed
+                // time rather than a value left over from an earlier session.
+                .task(id: showsRuntimeClock) {
+                    guard showsRuntimeClock else { return }
+                    while !Task.isCancelled {
                         currentTime = Date()
+                        do {
+                            try await Task.sleep(nanoseconds: 1_000_000_000)
+                        } catch {
+                            return
+                        }
                     }
                 }
                 // The clock starts and stops with the transition itself, so the grace period is
@@ -244,6 +269,10 @@ public struct HakoStartStopButton: View {
                 }
                 .onChangeCompat(of: profile.status) { status in
                     Task { @MainActor in
+                        // The time is drawn from this value and the clock above only runs while the
+                        // tunnel is up, so the transition into that state is when the value has to
+                        // become the clock again.
+                        currentTime = Date()
                         if isStarting {
                             if status == .disconnected {
                                 isStarting = false
