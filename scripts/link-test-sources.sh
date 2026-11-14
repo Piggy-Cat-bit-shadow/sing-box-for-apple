@@ -26,6 +26,7 @@ screen_state_package="$root/Tests/HakoScreenState"
 startup_package="$root/Tests/HakoInterfaceStartup"
 command_package="$root/Tests/HakoCommandSubscription"
 contract_package="$root/Tests/HakoConfigurationOwnership"
+diagnostics_package="$root/Tests/HakoDiagnosticsCost"
 
 core=(
     "Library/Network/SubscriptionInfo.swift"
@@ -70,6 +71,14 @@ command=(
 #: extension's apply receipt proves, when an update still owns the body it wrote, and whether a
 #: platform-settings change needs a rebuild. All four are Foundation-only value types, so they
 #: compile into their own package - see `Tests/HakoConfigurationOwnership/Package.swift`.
+#: The diagnostics path's default cost: what one hang report may capture, how many report-archive
+#: rounds a foreground return may start, and what the log window retains. All three are Foundation
+#: value types, so they compile into their own package - see `Tests/HakoDiagnosticsCost/Package.swift`.
+diagnostics=(
+    "Library/Shared/HangCapturePolicy.swift"
+    "Library/Shared/ReportRefreshGate.swift"
+    "Library/Network/LogHistory.swift"
+)
 contract=(
     "Library/Network/CommandScope.swift"
     "Library/Network/ExtensionApplyReceipt.swift"
@@ -118,5 +127,8 @@ done
 for source in "${contract[@]}"; do
     link "$source" "$contract_package/Sources/Contract/$(basename "$source")"
 done
+for source in "${diagnostics[@]}"; do
+    link "$source" "$diagnostics_package/Sources/Policy/$(basename "$source")"
+done
 
-echo "linked ${#core[@]} core, ${#profile[@]} profile, ${#policy[@]} screen-state policy, ${#startup[@]} interface-startup policy, ${#command[@]} command-subscription policy and ${#contract[@]} configuration-ownership source(s) into the test packages"
+echo "linked ${#core[@]} core, ${#profile[@]} profile, ${#policy[@]} screen-state policy, ${#startup[@]} interface-startup policy, ${#command[@]} command-subscription policy, ${#contract[@]} configuration-ownership and ${#diagnostics[@]} diagnostics-cost source(s) into the test packages"
