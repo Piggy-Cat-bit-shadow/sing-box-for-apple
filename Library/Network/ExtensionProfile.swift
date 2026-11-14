@@ -387,7 +387,7 @@ public class ExtensionProfile: ObservableObject {
     /// nothing was stuck. `sendProviderMessage` also calls its handler at most once and may call it
     /// after this call has given up, so the reply has to be gated rather than merely awaited.
     ///
-    /// `ProviderReplyGate` is that gate: whichever of the four paths completes first - a reply, a
+    /// `OneShot` is that gate: whichever of the four paths completes first - a reply, a
     /// late reply, a throwing send, the deadline - wins, and the others become no-ops. The deadline
     /// task is cancelled when the reply wins, so it does not linger.
     ///
@@ -398,7 +398,7 @@ public class ExtensionProfile: ObservableObject {
         _ data: Data,
         timeout: TimeInterval
     ) async -> Data? {
-        let gate = ProviderReplyGate()
+        let gate = OneShot<Data>()
         let deadline = Task.detached(priority: .utility) {
             try? await Task.sleep(nanoseconds: UInt64(max(timeout, 0) * 1_000_000_000))
             gate.complete(nil)
@@ -518,15 +518,12 @@ public class ExtensionProfile: ObservableObject {
 
     /// Asks the system to stop the tunnel. Returns once the request has been *submitted*.
     ///
-    /// # Why the order of the three steps is the fix
+    /// # Why the order of the steps is the fix, and why "not throwing" is not enough
     ///
     /// This used to clear On-Demand, then `await` a standalone command-client `serviceClose()`, and
     /// only then call `stopVPNTunnel()`. Two separate failures could therefore leave the user with
     /// no way out of a running tunnel:
     ///
-    ///   * `saveToPreferences()` threw, and the function returned **before the stop was sent**. A
-    ///     preference write failing is exactly the kind of thing that happens when the Network
-    ///     Extension preferences are already in a bad state - the state the user is trying to leave.
     ///   * `serviceClose()` is a synchronous Go RPC that the extension answers from
     ///     `ExtensionPlatformInterface.serviceStop()` -> `ExtensionProvider.stopService()`, which
     ///     takes the provider's `serviceLifecycleLock`. A reload holds that same lock across
@@ -534,11 +531,23 @@ public class ExtensionProfile: ObservableObject {
     ///     waits for the platform's network settings. When the apply was slow or wedged, this call
     ///     waited with it, and the system stop request behind it was never sent. That is the
     ///     "the VPN is stuck and only another VPN can take the slot back" report.
+    ///   * the On-Demand preference write threw, and the function returned **before the stop was
+    ///     sent**.
+    ///
+    /// The first fix moved `stopVPNTunnel()` ahead of the kernel close and caught the preference
+    /// error. That was not enough, and the gap is worth naming because "nothing throws before it"
+    /// *sounds* like a liveness proof and is not one: `await manager.saveToPreferences()` does not
+    /// have to throw to stop this function. An async system call that never returns suspends the
+    /// caller forever, and NetworkExtension preferences are exactly the kind of state that can wedge.
+    /// The stop request has to be independent of a call that merely *outlives* its usefulness, so the
+    /// On-Demand write is now **bounded**: its outcome is awaited for at most
+    /// `onDemandPreferenceTimeout`, and the request goes out whether that write answered or not.
     ///
     /// So the system stop request goes out **first and unconditionally**: it needs nothing from the
-    /// core, and nothing before it may throw. Disabling On-Demand still has to happen before the
-    /// request, because the system re-establishes a tunnel that On-Demand still wants up - but a
-    /// failure to persist it is *reported* rather than *returned early on*.
+    /// core, and nothing before it may throw *or block indefinitely*. Disabling On-Demand still has
+    /// to be attempted before the request, because the system re-establishes a tunnel that On-Demand
+    /// still wants up - but a write that fails, or that does not answer, is reported rather than
+    /// waited on.
     ///
     /// `stopVPNTunnel()` only submits the request. This function deliberately does not claim the
     /// tunnel is down; callers observe `status`, and the caller that shows progress must be able to
@@ -553,9 +562,10 @@ public class ExtensionProfile: ObservableObject {
         }
         guard let manager else { return }
 
-        // Before the stop request, because On-Demand would otherwise start it again. Not allowed to
-        // prevent the request.
+        // Before the stop request, because On-Demand would otherwise start it again. Bounded, and not
+        // allowed to prevent the request in any of its three outcomes.
         var onDemandFailure: Error?
+        var onDemandUnconfirmed = false
         if manager.isOnDemandEnabled {
             if let proto = manager.protocolConfiguration as? NETunnelProviderProtocol {
                 var config = proto.providerConfiguration ?? [:]
@@ -563,11 +573,19 @@ public class ExtensionProfile: ObservableObject {
                 proto.providerConfiguration = config
             }
             manager.isOnDemandEnabled = false
-            do {
-                try await manager.saveToPreferences()
-            } catch {
+            switch await savePreferences(atMost: Self.onDemandPreferenceTimeout) {
+            case .success:
+                break
+            case let .failure(error):
                 onDemandFailure = error
                 logger.warning("stop: could not persist On-Demand off: \(error.localizedDescription)")
+            case nil:
+                // The write did not answer. It may still land, or it may never; either way this
+                // function has stopped waiting, because the user's exit cannot be held behind a call
+                // that has no deadline. The system may therefore re-establish the tunnel, which is
+                // what the message below tells the reader.
+                onDemandUnconfirmed = true
+                logger.warning("stop: the On-Demand preference write did not answer within \(Self.onDemandPreferenceTimeout)s; sending the stop request anyway")
             }
         }
 
@@ -581,6 +599,15 @@ public class ExtensionProfile: ObservableObject {
         // RPC on top of the first.
         requestServiceClose()
 
+        // Reported after the request has been sent, never before it: the reader has to know the
+        // system may bring the tunnel back, but not at the cost of not having asked it to stop.
+        if onDemandUnconfirmed {
+            throw NSError(domain: "ExtensionProfile", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: String(
+                    localized: "The VPN was asked to disconnect, but On-Demand could not be switched off, so the system may reconnect it."
+                ),
+            ])
+        }
         if let onDemandFailure {
             throw NSError(domain: "ExtensionProfile", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: String(
@@ -588,6 +615,46 @@ public class ExtensionProfile: ObservableObject {
                 ) + " " + onDemandFailure.localizedDescription,
             ])
         }
+    }
+
+    /// How long the On-Demand preference write is awaited before the stop request goes out without it.
+    ///
+    /// A preference write that succeeds normally costs milliseconds. This is not a deadline for the
+    /// *write* - the write is not cancelled, and it may still complete - it is the point after which
+    /// the stop request stops waiting for an answer, because that request is the user's exit and must
+    /// not depend on a call that can hang.
+    nonisolated static let onDemandPreferenceTimeout: TimeInterval = 2
+
+    /// Saves this manager's preferences, waiting at most `timeout` for the answer.
+    ///
+    /// - Returns: `.success` when the write completed, `.failure` when it threw, and `nil` when it
+    ///   produced neither within the bound.
+    ///
+    /// The write itself is started on the main actor (it is `NEVPNManager` state) and the *wait* is
+    /// what is bounded, through the same one-shot gate the provider-message path uses: whichever of
+    /// success, failure or deadline arrives first wins, and the others are no-ops.
+    private func savePreferences(atMost timeout: TimeInterval) async -> Result<Void, Error>? {
+        guard let manager else {
+            return .success(())
+        }
+        let gate = OneShot<Result<Void, Error>>()
+        let deadline = Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: UInt64(max(timeout, 0) * 1_000_000_000))
+            gate.complete(nil)
+        }
+        let outcome = await withCheckedContinuation { (continuation: CheckedContinuation<Result<Void, Error>?, Never>) in
+            gate.wait(continuation)
+            Task {
+                do {
+                    try await manager.saveToPreferences()
+                    gate.complete(.success(()))
+                } catch {
+                    gate.complete(.failure(error))
+                }
+            }
+        }
+        deadline.cancel()
+        return outcome
     }
 
     /// One in-flight best-effort `serviceClose()`, or nil.
@@ -670,26 +737,30 @@ public class ExtensionProfile: ObservableObject {
     }
 }
 
-/// Lets one async reply be completed exactly once, from any of several racing sources.
+/// Lets one async outcome be completed exactly once, from any of several racing sources.
 ///
-/// `sendProviderMessage` invokes its handler at most once, on an arbitrary queue, and may never
-/// invoke it at all. Awaiting it through a bare `withCheckedContinuation` therefore has two failure
-/// modes that are not the caller's to handle: a reply that never arrives suspends the caller
-/// forever, and a reply that arrives *after* a timeout has already resumed it is a second resume -
-/// which is a `CheckedContinuation` misuse trap, not an error.
+/// # Why this shape
+///
+/// Two different waits in this file need the same thing: an outcome that may arrive from the real
+/// operation, from a deadline, or never. `sendProviderMessage` invokes its handler at most once, on an
+/// arbitrary queue, and may never invoke it; `saveToPreferences()` may simply never return. Awaiting
+/// either through a bare `withCheckedContinuation` therefore has two failure modes that are not the
+/// caller's to handle: no answer suspends the caller forever, and an answer that arrives *after* a
+/// deadline has already resumed it is a second resume - a `CheckedContinuation` misuse trap, not an
+/// error.
 ///
 /// So the continuation is stored rather than captured, and both entry points are funnelled through
 /// one lock: `wait` installs it (or answers immediately if the outcome is already known), `complete`
 /// resolves it (or records the outcome for a `wait` that has not happened yet). Whichever path runs
-/// first wins; the rest are no-ops. `@unchecked Sendable` because the lock is the whole point -
-/// every stored field is read and written only under it.
-private final class ProviderReplyGate: @unchecked Sendable {
+/// first wins; the rest are no-ops. `@unchecked Sendable` because the lock is the whole point - every
+/// stored field is read and written only under it.
+private final class OneShot<Value>: @unchecked Sendable {
     private let lock = NSLock()
-    private var continuation: CheckedContinuation<Data?, Never>?
+    private var continuation: CheckedContinuation<Value?, Never>?
     private var isCompleted = false
-    private var completion: Data?
+    private var completion: Value?
 
-    func wait(_ continuation: CheckedContinuation<Data?, Never>) {
+    func wait(_ continuation: CheckedContinuation<Value?, Never>) {
         lock.lock()
         if isCompleted {
             let value = completion
@@ -701,7 +772,7 @@ private final class ProviderReplyGate: @unchecked Sendable {
         lock.unlock()
     }
 
-    func complete(_ value: Data?) {
+    func complete(_ value: Value?) {
         lock.lock()
         guard !isCompleted else {
             lock.unlock()

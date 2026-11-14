@@ -18,7 +18,7 @@ performance.**
 | Item | Value |
 |---|---|
 | Repository | `sing-box-for-apple` (fork `Piggy-Cat-bit-shadow/sing-box-for-apple`), `origin` = `https://github.com/Piggy-Cat-bit-shadow/sing-box-for-apple.git` |
-| Base | `main` @ `749509f214d97f43cbc66f903fd17b0b50eb6399` when the round started (identical to `origin/main` then, after `git fetch origin` with no `--prune`); rebased onto `dffa979299419ea7153e1b6acbb595d92e4ab7eb`, `main`'s tip when the round ended |
+| Base | `main` @ `749509f214d97f43cbc66f903fd17b0b50eb6399` when the round started (identical to `origin/main` then, after `git fetch origin` with no `--prune`). Rebased onto `dffa979299419ea7153e1b6acbb595d92e4ab7eb`, then merged `ef372758435c4b14fb4836ed19e237c21beabf94` — `main` moved twice while this branch was being written, and every one of its commits is contained here (`git merge-base --is-ancestor origin/main HEAD` exits 0) |
 | Branch | `fix/ios-debug-hitch-diagnostics-20261114`, created from that SHA |
 | Worktree | `C:\Deepseek\sing-box-for-apple-hitch-debug` — a second worktree, **not** the primary checkout |
 | Kernel | untouched. `Libbox.xcframework` is a prebuilt artifact and is not tracked (`.gitignore`: `/Libbox.xcframework/`); no kernel pin moved, no kernel branch was created |
@@ -45,9 +45,10 @@ and `dffa979`. A third worktree on a third branch
 (`fix/ios-screenstate-missed-unlock-recovery-20261114`) exists as well; it touches
 `Library/Network/ScreenStateObserver.swift` and nothing this round changed.
 
-The branch was **rebased onto `dffa979`** (that `main` tip) at the end of the round, so it is a
-fast-forward of `main` and there is nothing left for a merger to decide. What that integration cost,
-recorded because it is the part a later reader cannot reconstruct from the diff:
+The branch was **rebased onto `dffa979`** and then, because `main` gained one more commit while this
+was being written, **merged `ef37275`**; `main` is an ancestor of the branch, so integrating it is a
+fast-forward and there is nothing left for a merger to decide. What that integration cost, recorded
+because it is the part a later reader cannot reconstruct from the diff:
 
 * Six of the seven commits applied with no conflict at all. `HakoHomeView.swift` merged cleanly even
   though both lines changed it: this branch changed the two `onReceive` mirrors and the disconnect
@@ -66,8 +67,13 @@ recorded because it is the part a later reader cannot reconstruct from the diff:
 * One comment on the merged side said the tick "is the one-second tick this view already runs for the
   session duration"; it now says what is true after commit 6, because a stale explanation of a timer is
   how the timer gets broken again.
-* Everything was re-run on the rebased tree: the boundary gate, the 29 tests, `swiftc -parse` on the 13
+* Everything was re-run on the rebased tree: the boundary gate, the tests, `swiftc -parse` on the
   Apple-only files, and the repository's gate set — §6 has the results.
+* The later merge (`ef37275`) met this branch in the same control again, and again the resolution was
+  a union rather than a choice: `ef37275` clears `isStopping` on every status change so the emergency
+  exit cannot stay disabled after the system answered, and this branch re-reads `currentTime` there so
+  the running time is the clock when it starts being drawn. Both statements are kept in one `Task`; the
+  merge commit's message records why dropping either would reintroduce its own defect.
 * The evidence for the primary worktree's state at the start (file list, timestamps) is in this round's
   session log; it is not reproduced here because it will be stale by the time anyone reads this.
 * **The collision is bigger than the committed diff shows.** At the time of writing, that worktree
@@ -509,6 +515,8 @@ order:
     the revision announcement, the visibility counter, the two pages' lifecycle wiring and tvOS, the
     extracted `LogPublicationPolicy`/`LogPageVisibility`, nine tests and the four new gate checks.
 11. `docs(apple): compare the two log stores and record the reload residual` — §3.2.1, §4, §5, §6.
+12. `merge: take main's bounded waits, keep the gated clock` — `ef37275` merged; the union in
+    `HakoStartStopButton` described above. `main` is an ancestor of the branch after it.
 
 Each commit's message states the cost it removes and the evidence for it.
 

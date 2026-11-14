@@ -182,12 +182,23 @@ final class InterfaceMonitorStartupTests: XCTestCase {
     // MARK: - The takeover wait does not hold the service lifecycle lock
 
     /// The service-lifecycle lock must cover `startOrReloadService` and nothing that can suspend on
-    /// the network-settings callback.
+    /// the network-settings callback; the teardown must not be able to block on it at all.
     ///
     /// This is a shape assertion, not a runtime interleave: building `ExtensionProvider` needs
     /// NetworkExtension and a signed host. What it pins is the property that a stop - reachable
     /// synchronously from the core's gRPC goroutine - is not parked behind the three-second wait, and
     /// that a new session cannot inherit the previous session's "settings applied" flag.
+    ///
+    /// # What changed, and why the shape moved rather than the invariant
+    ///
+    /// The generation used to live under `serviceLifecycleLock`, which meant checking it from the
+    /// takeover wait took the *same* lock a reload holds across `applyServiceChangeReport()`. That is
+    /// how the teardown ended up waiting for the apply it was supposed to interrupt. The counter now
+    /// has its own small lock (`serviceGenerationLock`), reached only through `bumpServiceGeneration()`
+    /// and `currentServiceGeneration()`, so both the wait and the stop can read and invalidate it
+    /// without entering the exclusive region. The assertions below therefore pin the accessors rather
+    /// than the old inline reads: reading the counter directly anywhere outside those two functions
+    /// is now the defect, because that read would not be synchronised.
     func testTakeoverWaitIsOutsideTheLifecycleLockAndResetsPerSession() throws {
         let provider = try String(contentsOf: Self.providerSourceURL, encoding: .utf8)
 
@@ -202,8 +213,10 @@ final class InterfaceMonitorStartupTests: XCTestCase {
         let waitBody = provider[waitStart.lowerBound ..< startService.lowerBound]
         XCTAssertFalse(waitBody.contains("serviceLifecycleLock.lock()"),
                        "the takeover wait must not hold serviceLifecycleLock across its sleeps")
-        XCTAssertTrue(waitBody.contains("withServiceLifecycleLock"),
-                      "the wait must still check the generation under the lock")
+        XCTAssertTrue(waitBody.contains("currentServiceGeneration()"),
+                      "the wait must check the generation through the lock-guarded accessor")
+        XCTAssertFalse(waitBody.contains("serviceLifecycleGeneration"),
+                       "the wait must not read the counter directly - that unsynchronised read is what the accessor prevents")
 
         guard let startBodyStart = provider.range(of: "private func startService("),
               let stopBodyStart = provider.range(of: "func stopService()")
@@ -219,8 +232,26 @@ final class InterfaceMonitorStartupTests: XCTestCase {
                       "the reset must not run on a reload")
 
         let stopBody = provider[stopBodyStart.lowerBound...]
-        XCTAssertTrue(stopBody.contains("serviceLifecycleGeneration &+= 1"),
+        XCTAssertTrue(stopBody.contains("bumpServiceGeneration()"),
                       "stopService must invalidate a start that is waiting outside the lock")
+
+        // The teardown half. Both of these are load-bearing: without the bound, `stopTunnel` waits for
+        // a reload's unbounded core call; without the monitor retirement, the abandoned monitor keeps
+        // a live generation and can still publish.
+        XCTAssertTrue(stopBody.contains("performStopService(waitingAtMost:"),
+                      "stopTunnel must bound its wait for the lifecycle lock instead of blocking on it")
+        XCTAssertTrue(stopBody.contains("retireInterfaceMonitor()"),
+                      "a teardown that could not take the lock must still retire the monitor generation")
+
+        // And the bump must happen BEFORE the bounded path gives up, or a start that is waiting
+        // outside the lock would never learn that the session it belongs to is being torn down.
+        guard let bump = stopBody.range(of: "bumpServiceGeneration()"),
+              let giveUp = stopBody.range(of: "guard acquired else")
+        else {
+            return XCTFail("the bounded stop must invalidate, then decide")
+        }
+        XCTAssertTrue(bump.lowerBound < giveUp.lowerBound,
+                      "the generation must be invalidated even when the exclusive region could not be entered")
     }
 
     // MARK: - Source locations

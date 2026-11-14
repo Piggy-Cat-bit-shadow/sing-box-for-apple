@@ -790,16 +790,32 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
         Self.logger.debug("\(message, privacy: .public)")
     }
 
+    /// Retires the interface-monitor generation without touching the monitor object.
+    ///
+    /// Split out of `reset()` for the teardown path in `ExtensionProvider.stopService`, which cannot
+    /// always take `serviceLifecycleLock` - a reload may hold it across an unbounded core call, and
+    /// waiting there stops `stopTunnel` from ever returning.
+    ///
+    /// Everything here runs on `pathMonitorQueue`, so it is safe against a callback that is already
+    /// executing and against the start that installed the monitor. `nwMonitor` itself is deliberately
+    /// left alone: assigning or clearing it from outside the lock is the data race the lock exists to
+    /// prevent, and an abandoned monitor whose generation is retired can no longer publish anything -
+    /// its callbacks fail the generation check - so the observable damage is a monitor that outlives
+    /// its owner by one teardown, not a corrupted one.
+    func retireInterfaceMonitor() {
+        pathMonitorQueue.sync {
+            nwMonitorGeneration.retire()
+            lastNetworkPath = nil
+        }
+    }
+
     func reset() {
         networkSettings = nil
         // The same generation bump as `closeDefaultInterfaceMonitor`, and for the same reason: this is
         // reached from `stopService()`, so it can land while a start's first callback is still queued.
         // It runs on the monitor queue so the bump and the dedup key's clear are one step against a
         // callback that is already executing.
-        pathMonitorQueue.sync {
-            nwMonitorGeneration.retire()
-            lastNetworkPath = nil
-        }
+        retireInterfaceMonitor()
         nwMonitor?.cancel()
         nwMonitor = nil
         #if os(macOS)
