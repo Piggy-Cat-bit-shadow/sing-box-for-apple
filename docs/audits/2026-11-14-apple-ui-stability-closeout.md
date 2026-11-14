@@ -53,7 +53,10 @@ The audit's line references were checked against this tree and matched, so the b
 | `ApplicationLibrary/Views/Setting/{ProfileOverride,PacketTunnel,OnDemandRules}View.swift` | the same three fixes on the shared iPad/macOS counterparts |
 | `Localizable.xcstrings` | one new key (en + zh-Hans) for the new Core-page refusal message |
 
-`git diff --stat 749509f..HEAD` for the set: **25 files changed, +1065 / −146**, plus one new file.
+`git diff --stat 749509f..HEAD` for the whole change: **27 files changed, +1558 / −182** — 26 source
+and config files (+1176 / −182), one of them new, plus this report. Two commits:
+`69768a3` (P0 and the operation-state work) and `221eaab` (settings, probes, the B5 review and this
+document's update).
 
 > **A concurrent editing session was active in this working tree.** Between 21:27 and 21:28 another
 > session modified `Library/Network/CommandClient.swift`, `ApplicationLibrary/Views/Log/LogView.swift`,
