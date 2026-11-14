@@ -18,6 +18,11 @@ public class LogDataModel: ObservableObject {
     @Published public var logFileURL: URL?
 
     private let commandClient: CommandClient
+    /// The log window, which is its own observable object - see `LogStore`.
+    private var logStore: LogStore {
+        commandClient.logStore
+    }
+
     private weak var viewModel: LogViewModel?
     private var pausedLogSnapshot: LogBuffer?
     private var lastPaused = false
@@ -36,7 +41,7 @@ public class LogDataModel: ObservableObject {
     private static let visibleLogsTrimThreshold = 1250
 
     public var isEmpty: Bool {
-        commandClient.logBuffer.entries.isEmpty
+        logStore.buffer.entries.isEmpty
     }
 
     public var isConnected: Bool {
@@ -67,13 +72,13 @@ public class LogDataModel: ObservableObject {
 
         Publishers.CombineLatest3(
             Publishers.CombineLatest4(
-                commandClient.$logBuffer,
+                logStore.$buffer,
                 commandClient.$defaultLogLevel,
                 viewModel.$selectedLogLevel,
                 debouncedSearchText
             ),
             viewModel.$isPaused,
-            commandClient.$initialLogsReceived
+            logStore.$initialLogsReceived
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] combined, isPaused, initialLogsReceived in
@@ -139,7 +144,7 @@ public class LogDataModel: ObservableObject {
         lastSearchText = ""
         filteredLogs = []
         visibleLogs = []
-        commandClient.clearLogs()
+        logStore.clear()
         Task.detached {
             try? CommandTarget.standaloneClient().clearLogs()
         }

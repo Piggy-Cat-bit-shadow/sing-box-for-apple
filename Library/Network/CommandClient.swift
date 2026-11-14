@@ -8,33 +8,6 @@ import os
 
 private let logger = Logger(category: "CommandClient")
 
-public struct LogEntry: Identifiable {
-    public let id = UUID()
-    public let level: Int
-    public let message: String
-
-    public init(level: Int, message: String) {
-        self.level = level
-        self.message = message
-    }
-}
-
-public struct LogBuffer {
-    public var entries: [LogEntry]
-    /// Cumulative count of entries trimmed from the front since the last reset,
-    /// letting consumers compute incremental deltas after the buffer saturates.
-    public var droppedCount: Int
-
-    public init(entries: [LogEntry] = [], droppedCount: Int = 0) {
-        self.entries = entries
-        self.droppedCount = droppedCount
-    }
-
-    public var totalCount: Int {
-        droppedCount + entries.count
-    }
-}
-
 public enum LogLevel: Int, CaseIterable, Identifiable {
     public var id: Self {
         self
@@ -89,7 +62,6 @@ public class CommandClient: ObservableObject {
     }
 
     private let connectionTypes: [ConnectionType]
-    private let logMaxLines: Int
     private let localOnly: Bool
     private var commandClient: LibboxCommandClient?
     private var connectTask: Task<Void, Never>?
@@ -120,11 +92,15 @@ public class CommandClient: ObservableObject {
 
     @Published public var groups: [OutboundGroup]?
     @Published public var outbounds: [LibboxOutboundGroupItem]?
-    @Published public var logBuffer = LogBuffer()
-    /// The server always sends the saved log backlog as the first message after
-    /// subscribing (even when it is empty), so until it arrives an empty buffer
-    /// means "still loading", not "no logs".
-    @Published public private(set) var initialLogsReceived = false
+    /// The log window, as its own observable object.
+    ///
+    /// It is deliberately *not* a `@Published` property of this client. Every view reading the
+    /// client through `@EnvironmentObject` is invalidated by any of its published properties
+    /// changing, and the log window changes on a hundred-millisecond batch window - so it used to
+    /// invalidate the dashboard's cards, and the two `Canvas` charts among them, at up to ten
+    /// hertz for log lines none of them display. `LogStore` is the boundary: only the Logs page
+    /// observes it. See `LogStore` and `LogHistory`.
+    public let logStore: LogStore
     @Published public var defaultLogLevel = 0
     @Published public var selectedLogLevel: Int?
     @Published public var clashModeList: [String]
@@ -144,15 +120,10 @@ public class CommandClient: ObservableObject {
         trafficSnapshot.downlinkHistory
     }
 
-    // Batch processing for logs
-    private var pendingLogs: [LogEntry] = []
-    private var logBatchTimer: DispatchWorkItem?
-    private let logBatchInterval: TimeInterval = 0.1 // 100ms batch window
-
     public init(_ connectionTypes: [ConnectionType], logMaxLines: Int = 3000, localOnly: Bool = false) {
         self.connectionTypes = connectionTypes
-        self.logMaxLines = logMaxLines
         self.localOnly = localOnly
+        logStore = LogStore(maxLines: logMaxLines)
         clashModeList = []
         clashMode = ""
         isConnected = false
@@ -303,27 +274,12 @@ public class CommandClient: ObservableObject {
         }
     }
 
-    private func flushPendingLogs() {
-        logBatchTimer = nil
-        guard !pendingLogs.isEmpty else { return }
-
-        // Build the new buffer locally so subscribers see a single, consistent publish.
-        var buffer = logBuffer
-        buffer.entries.append(contentsOf: pendingLogs)
-        pendingLogs.removeAll()
-        if buffer.entries.count > logMaxLines {
-            let removeCount = buffer.entries.count - logMaxLines
-            buffer.entries.removeFirst(removeCount)
-            buffer.droppedCount += removeCount
-        }
-        logBuffer = buffer
-    }
-
+    /// Empties the log window at the reader's or the core's request.
+    ///
+    /// Kept on the client because the core asks for it here, but the state itself belongs to
+    /// `logStore` - this client no longer publishes log lines.
     public func clearLogs() {
-        logBatchTimer?.cancel()
-        logBatchTimer = nil
-        pendingLogs.removeAll()
-        logBuffer = LogBuffer()
+        logStore.clear()
     }
 
     public func filterConnectionsNow() {
@@ -455,8 +411,7 @@ public class CommandClient: ObservableObject {
             DispatchQueue.main.async { [self] in
                 guard isActiveConnection() else { return }
                 if commandClient.connectionTypes.contains(.log) {
-                    commandClient.initialLogsReceived = false
-                    commandClient.clearLogs()
+                    commandClient.logStore.resetForNewConnection()
                 }
                 commandClient.lastError = nil
                 commandClient.isConnected = true
@@ -523,25 +478,11 @@ public class CommandClient: ObservableObject {
 
             DispatchQueue.main.async { [self] in
                 guard isActiveConnection() else { return }
-                if !commandClient.initialLogsReceived {
-                    commandClient.initialLogsReceived = true
-                }
+                // The store owns the window, the drop count and the batch window; this callback's
+                // job is only to hand it the batch from the connection that is still current.
+                commandClient.logStore.reportInitialBacklogReceived()
                 guard !newLogs.isEmpty else { return }
-                commandClient.pendingLogs.append(contentsOf: newLogs)
-                if commandClient.logBatchTimer == nil {
-                    if commandClient.logBuffer.entries.isEmpty {
-                        // First batch after connect: paint the backlog immediately
-                        // instead of waiting out the batch window.
-                        commandClient.flushPendingLogs()
-                    } else {
-                        let workItem = DispatchWorkItem { [weak commandClient] in
-                            guard let commandClient else { return }
-                            commandClient.flushPendingLogs()
-                        }
-                        commandClient.logBatchTimer = workItem
-                        DispatchQueue.main.asyncAfter(deadline: .now() + commandClient.logBatchInterval, execute: workItem)
-                    }
-                }
+                commandClient.logStore.append(newLogs)
             }
         }
 
