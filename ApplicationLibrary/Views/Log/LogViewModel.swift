@@ -19,6 +19,10 @@ public class LogDataModel: ObservableObject {
 
     private let commandClient: CommandClient
     /// The log window, which is its own observable object - see `LogStore`.
+    ///
+    /// Its `buffer` is not published: this pipeline is driven by `$revision`, and takes the window
+    /// when it fires. That is what lets the store mutate the array in place instead of copying it on
+    /// every batch.
     private var logStore: LogStore {
         commandClient.logStore
     }
@@ -42,6 +46,16 @@ public class LogDataModel: ObservableObject {
 
     public var isEmpty: Bool {
         logStore.buffer.entries.isEmpty
+    }
+
+    /// Tells the store whether a log page is on screen.
+    ///
+    /// Called from the page's own lifecycle and from the shell's selection, because the tab shell
+    /// keeps a tab's stack alive and a tab switch does not always run `onDisappear`. While no page is
+    /// on screen the store stops announcing, and this pipeline - which is the only expensive reader -
+    /// stops running.
+    public func setPageVisible(_ visible: Bool) {
+        logStore.setPageVisible(visible)
     }
 
     public var isConnected: Bool {
@@ -72,8 +86,8 @@ public class LogDataModel: ObservableObject {
 
         Publishers.CombineLatest3(
             Publishers.CombineLatest4(
-                logStore.$buffer,
-                commandClient.$defaultLogLevel,
+                logStore.$revision,
+                logStore.$defaultLogLevel,
                 viewModel.$selectedLogLevel,
                 debouncedSearchText
             ),
@@ -86,7 +100,11 @@ public class LogDataModel: ObservableObject {
             if self.initialLogsReceived != initialLogsReceived {
                 self.initialLogsReceived = initialLogsReceived
             }
-            let (logBuffer, defaultLogLevel, selectedLogLevel, searchText) = combined
+            let (_, defaultLogLevel, selectedLogLevel, searchText) = combined
+            // The window is taken now, not carried by the publisher: the store owns one array and
+            // mutates it in place. Holding it here (the pause snapshot) is what makes the next append
+            // copy, and nothing else does.
+            let logBuffer = self.commandClient.logStore.buffer
             let effectiveLevel = selectedLogLevel ?? defaultLogLevel
 
             if isPaused, !self.lastPaused {

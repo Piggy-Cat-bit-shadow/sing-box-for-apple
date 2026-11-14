@@ -78,6 +78,7 @@ diagnostics=(
     "Library/Shared/HangCapturePolicy.swift"
     "Library/Shared/ReportRefreshGate.swift"
     "Library/Network/LogHistory.swift"
+    "Library/Network/LogPublication.swift"
 )
 contract=(
     "Library/Network/CommandScope.swift"

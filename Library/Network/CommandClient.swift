@@ -101,7 +101,6 @@ public class CommandClient: ObservableObject {
     /// hertz for log lines none of them display. `LogStore` is the boundary: only the Logs page
     /// observes it. See `LogStore` and `LogHistory`.
     public let logStore: LogStore
-    @Published public var defaultLogLevel = 0
     @Published public var selectedLogLevel: Int?
     @Published public var clashModeList: [String]
     @Published public var clashMode: String
@@ -452,7 +451,9 @@ public class CommandClient: ObservableObject {
         func setDefaultLogLevel(_ level: Int32) {
             DispatchQueue.main.async { [self] in
                 guard isActiveConnection() else { return }
-                commandClient.defaultLogLevel = Int(level)
+                // Log state, so it is published by the store and not by the client: a level report
+                // must not invalidate a view that only draws traffic.
+                commandClient.logStore.setDefaultLogLevel(Int(level))
             }
         }
 
@@ -478,10 +479,11 @@ public class CommandClient: ObservableObject {
 
             DispatchQueue.main.async { [self] in
                 guard isActiveConnection() else { return }
-                // The store owns the window, the drop count and the batch window; this callback's
-                // job is only to hand it the batch from the connection that is still current.
-                commandClient.logStore.reportInitialBacklogReceived()
-                guard !newLogs.isEmpty else { return }
+                // The store owns the window, the drop count, the loaded-backlog flag and the
+                // announcement; this callback's job is only to hand it the batch from the connection
+                // that is still current. An empty batch is still handed over: the core's first
+                // message after a subscription is the backlog, and it can be empty, which is what
+                // turns "still loading" into "no logs".
                 commandClient.logStore.append(newLogs)
             }
         }

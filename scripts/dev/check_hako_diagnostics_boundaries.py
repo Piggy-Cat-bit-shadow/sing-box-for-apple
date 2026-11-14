@@ -22,6 +22,11 @@ the cost was never an error.
      written on every publish, a one-second timer that runs for a value nothing draws, or a report
      scan started twice by two triggers that fire together are all silent - and all of them were,
      until this round.
+  5. **The log window is announced, not published, and only to a page that is on screen.** Publishing
+     the array copies it on every batch; announcing it to a page the tab shell keeps alive after a tab
+     switch runs that page's filter and re-render for nobody. The store therefore publishes a
+     `revision` counter, the page's pipeline reads the window when it fires, and the two Logs pages
+     report their own visibility from the shell's selection, not just from `onAppear`/`onDisappear`.
 
 What this gate cannot prove
 ---------------------------
@@ -50,6 +55,8 @@ ENVIRONMENTS = "Library/Network/ExtensionEnvironments.swift"
 HOME = "ApplicationLibrary/Views/HakoStyle/HakoHomeView.swift"
 START_STOP = "ApplicationLibrary/Views/HakoStyle/HakoStartStopButton.swift"
 LOG_VIEW_MODEL = "ApplicationLibrary/Views/Log/LogViewModel.swift"
+HAKO_LOG_VIEW = "ApplicationLibrary/Views/HakoStyle/HakoLogView.swift"
+LOG_VIEW = "ApplicationLibrary/Views/Log/LogView.swift"
 
 #: Files allowed to name `LogStore`. Everything else that names it is observing log state from a
 #: place that does not display logs.
@@ -144,6 +151,45 @@ def check(root: str) -> list[str]:
                 "%s:%d: `%s` publishes log state from the command client again - every "
                 "`@EnvironmentObject` reader is invalidated by it, which is the cost this round "
                 "removed" % (COMMAND_CLIENT, number, line.strip())
+            )
+
+    # 2b. The window is announced, not published, and only to a page that is on screen.
+    store = strip_comments(read(root, LOG_STORE, problems))
+    if re.search(r"@Published[^\n]*\bbuffer\b", store):
+        problems.append(
+            "%s: publishes `buffer` again - a published array is copied on every announcement, and "
+            "the point of the store is that the steady state is free of that copy" % LOG_STORE
+        )
+    if not re.search(r"@Published[^\n]*\brevision\b", store):
+        problems.append("%s: no published `revision`; that counter is the announcement signal" % LOG_STORE)
+    if "func setPageVisible(" not in store:
+        problems.append(
+            "%s: no visibility entry point - a page that the tab shell keeps alive is then "
+            "announced to for as long as the app runs" % LOG_STORE
+        )
+
+    view_model = strip_comments(read(root, LOG_VIEW_MODEL, problems))
+    if "logStore.$revision" not in view_model:
+        problems.append("%s: the log pipeline is not driven by `logStore.$revision`" % LOG_VIEW_MODEL)
+    if "logStore.$buffer" in view_model:
+        problems.append(
+            "%s: reads a published buffer again; the window is taken when `revision` fires"
+            % LOG_VIEW_MODEL
+        )
+
+    for relative in (HAKO_LOG_VIEW, LOG_VIEW):
+        page = strip_comments(read(root, relative, problems))
+        if "setPageVisible(false)" not in page:
+            problems.append("%s: the log page never reports that it left" % relative)
+        if "selection.wrappedValue == .logs" not in page:
+            problems.append(
+                "%s: appearing is not gated on the shell's selection - the tab shell keeps a tab's "
+                "stack alive, so appearing does not prove the page is the one on screen" % relative
+            )
+        if "onChangeCompat(of: selection.wrappedValue)" not in page:
+            problems.append(
+                "%s: does not follow the shell's selection, so a tab switch that runs no "
+                "`onDisappear` leaves the page announced to" % relative
             )
 
     # 2. Only the log path observes the store.
