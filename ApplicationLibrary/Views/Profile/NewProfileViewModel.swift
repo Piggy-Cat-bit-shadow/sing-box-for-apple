@@ -1,6 +1,7 @@
 import Foundation
 import Libbox
 import Library
+import os
 import SwiftUI
 
 private let logger = Logger(category: "NewProfileViewModel")

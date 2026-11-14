@@ -271,6 +271,10 @@ public class LogViewModel: BaseViewModel {
         isPaused.toggle()
     }
 
+    public func setPageVisible(_ visible: Bool) {
+        dataModel.setPageVisible(visible)
+    }
+
     public func toggleSearch() {
         isSearching.toggle()
         if !isSearching {
