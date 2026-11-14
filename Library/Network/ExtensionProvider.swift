@@ -1264,10 +1264,13 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     /// probes and statistics for a phone in a pocket.
     ///
     /// A resume is also the one moment the process knows it was suspended, and Darwin notifications
-    /// are not delivered to a suspended process: a lock that happened while the extension was away
-    /// was never delivered. `resync()` re-reads both names once so that lock is not lost. It is not
-    /// a poll, nothing schedules it, and a snapshot may only publish a sleep fact - so it can add a
-    /// pause and can never invent a wake.
+    /// are not delivered to a suspended process: a lock or an unlock that happened while the
+    /// extension was away was never delivered. `resync()` re-reads both names once so that lock is
+    /// not lost, and the two reads are the evidence for the other direction too: a `0` that follows
+    /// this observer's own confirmed `1` publishes the unlock nobody delivered, as an EDGE, because
+    /// the pair of reads is the transition and only `lifecycle.woke()` releases the pause. It is not
+    /// a poll, nothing schedules it, and an initial or unknown `0` still publishes nothing - so a
+    /// device this observer never saw locked cannot be woken from here.
     override open func wake() {
         if let commandServer {
             commandServer.wake()
