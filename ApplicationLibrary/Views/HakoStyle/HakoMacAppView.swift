@@ -97,7 +97,8 @@ public struct HakoAppView: View {
                                         title: String(localized: "Terminal Appearance"),
                                         subtitle: String(localized: "Colours and font for SSH sessions"),
                                         systemImage: "terminal.fill",
-                                        tint: HakoAccentRole.neutral.color
+                                        tint: HakoAccentRole.neutral.color,
+                                        showsDisclosure: false
                                     )
                                 }
                                 .hakoStandardRowMetric()
