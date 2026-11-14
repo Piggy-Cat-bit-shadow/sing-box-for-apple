@@ -89,10 +89,44 @@ public struct HakoStartStopButton: View {
         @State private var alert: AlertState?
         @State private var currentTime = Date()
         @State private var isStarting = false
+        /// When the current transition began, or nil when the tunnel is not moving.
+        ///
+        /// Used only to tell "still making progress" from "stopped moving". A healthy start or stop
+        /// finishes in a second or two, so the emergency control stays invisible for those; it is
+        /// not a timeout that fails the operation, just the point at which the reader is offered the
+        /// exit that the old code removed exactly when it was needed.
+        @State private var busySince: Date?
+        /// A stop request this control has already submitted and not yet seen return.
+        @State private var isStopping = false
         let showsRuntimeDuration: Bool
         let isCompact: Bool
 
         private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+        /// How long a transition may look like progress before the exit is offered.
+        ///
+        /// Chosen above every normal transition and below the point where a reader concludes the app
+        /// has hung. It is not a timeout: the operation is not failed, cancelled or retried at this
+        /// point - only the button that can end it is shown.
+        private static let emergencyGracePeriod: TimeInterval = 6
+
+        /// The transition the tunnel is in, if it is in one.
+        private var isBusy: Bool {
+            isStarting || profile.status == .connecting || profile.status == .disconnecting
+        }
+
+        /// Whether the transition has stopped looking like progress.
+        ///
+        /// `currentTime` is the one-second tick this view already runs for the session duration, so
+        /// this re-evaluates without adding a second timer. In screenshot mode the tick is frozen on
+        /// purpose, and a fixture has no tunnel to be stuck in, so the control stays in its normal
+        /// shape there.
+        private var isTransitionStalled: Bool {
+            guard isBusy, !Variant.screenshotMode, let busySince else {
+                return false
+            }
+            return currentTime.timeIntervalSince(busySince) >= Self.emergencyGracePeriod
+        }
 
         var body: some View {
             // The reference's action: one full-width button that names what it will do, filled
@@ -103,12 +137,38 @@ public struct HakoStartStopButton: View {
                 // Busy means *transitioning* - not "not switchable", which is also true of a
                 // client with no tunnel at all. That mistake put "Working…" in front of a
                 // reader who has nothing installed and nothing happening.
-                if isStarting || profile.status == .connecting || profile.status == .disconnecting {
-                    HStack(spacing: HakoTheme.Spacing.compact) {
-                        ProgressView()
-                        Text("Working…")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                if isBusy {
+                    VStack(spacing: HakoTheme.Spacing.compact) {
+                        HStack(spacing: HakoTheme.Spacing.compact) {
+                            ProgressView()
+                            Text("Working…")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        // The exit, once the transition has stopped moving.
+                        //
+                        // This is the whole reason the busy branch is not just a spinner. A tunnel
+                        // that stays in `.connecting` or `.disconnecting` - a stop request the
+                        // system has not acted on, a kernel that never answered - used to replace
+                        // the only control that could end it, so the page offered no way out at
+                        // all. The action is always `stop()`: never the start/stop toggle, because
+                        // a toggle evaluated in `.disconnecting` reads "not connected" and would
+                        // *start* the tunnel the reader is trying to leave.
+                        if isTransitionStalled {
+                            Button {
+                                Task {
+                                    await requestStop()
+                                }
+                            } label: {
+                                Label("Disconnect", systemImage: "power")
+                            }
+                            .hakoConnectionActionButtonStyle(isDestructive: true)
+                            .controlSize(isCompact ? .regular : .large)
+                            .modifier(HakoCapsuleBorderShape())
+                            .tint(.green)
+                            .disabled(isStopping)
+                            .accessibilityIdentifier("hako.home.connection.stopOverride")
+                        }
                     }
                     .frame(maxWidth: .infinity, minHeight: HakoTheme.Control.minimumHitTarget)
                 } else {
@@ -167,6 +227,13 @@ public struct HakoStartStopButton: View {
                     guard !Variant.screenshotMode else { return }
                     Task { @MainActor in
                         currentTime = Date()
+                    }
+                }
+                // The clock starts and stops with the transition itself, so the grace period is
+                // measured from the attempt rather than from the last status notification.
+                .onChangeCompat(of: isBusy) { busy in
+                    Task { @MainActor in
+                        busySince = busy ? Date() : nil
                     }
                 }
                 .onChangeCompat(of: profile.status) { status in
@@ -228,6 +295,29 @@ public struct HakoStartStopButton: View {
                     let action = isEnabled ? "start service" : "stop service"
                     alert = AlertState(action: action, error: error)
                 }
+            }
+        }
+
+        /// Submit the stop request for a transition that has stopped moving.
+        ///
+        /// Deliberately `stop()` and never the toggle: in `.disconnecting` the toggle's
+        /// `!profile.status.isConnected` is false, so a toggle would *start* the tunnel. The flag
+        /// only stops this control from re-entering while the request is being submitted;
+        /// `ExtensionProfile.stop()` is itself safe to call more than once and returns as soon as
+        /// the system request is out, so a second press is not a second teardown.
+        private nonisolated func requestStop() async {
+            await MainActor.run {
+                isStopping = true
+            }
+            do {
+                try await profile.stop()
+            } catch {
+                await MainActor.run {
+                    alert = AlertState(action: "stop service", error: error)
+                }
+            }
+            await MainActor.run {
+                isStopping = false
             }
         }
     }

@@ -286,10 +286,20 @@ public class ConnectionListViewModel: BaseViewModel {
     }
 
     public func closeAllConnections() {
-        do {
-            try CommandTarget.standaloneClient().closeConnections()
-        } catch {
-            alert = AlertState(action: "close all connections", error: error)
+        // # Why this is not called inline
+        //
+        // The class is `@MainActor`, and `closeConnections()` is a synchronous gRPC call, so calling
+        // it from here ran it on the main thread: an unresponsive command socket froze the
+        // connection list, including the button that had just been pressed, until the call returned.
+        // The call needs no view state, so it runs on its own executor and only the error comes back.
+        Task { @MainActor [weak self] in
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try CommandTarget.standaloneClient().closeConnections()
+                }.value
+            } catch {
+                self?.alert = AlertState(action: "close all connections", error: error)
+            }
         }
     }
 }

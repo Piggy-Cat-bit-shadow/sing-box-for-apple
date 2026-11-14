@@ -1,11 +1,14 @@
 import Combine
 import Foundation
 import SwiftUI
+import os
 #if canImport(UIKit)
     import UIKit
 #elseif canImport(AppKit)
     import AppKit
 #endif
+
+private let logger = Logger(category: "ExtensionEnvironments")
 
 public struct AlertState: Equatable {
     public var title: String
@@ -313,15 +316,36 @@ public class ExtensionEnvironments: ObservableObject {
         if Variant.screenshotMode {
             return
         }
-        if let newProfile = try? await ExtensionProfile.load() {
-            if extensionProfile == nil || extensionProfile?.status == .invalid {
-                newProfile.register()
-                extensionProfile = newProfile
+        do {
+            if let newProfile = try await ExtensionProfile.load() {
+                if extensionProfile == nil || extensionProfile?.status == .invalid {
+                    newProfile.register()
+                    extensionProfile = newProfile
+                }
                 extensionProfileLoading = false
+                profileLoadFailure = nil
+            } else {
+                // `load()` answers nil when there is no manager at all, which is "no tunnel
+                // installed" - not a failure to read one.
+                extensionProfile = nil
+                extensionProfileLoading = false
+                profileLoadFailure = nil
             }
-        } else {
-            extensionProfile = nil
+        } catch {
+            // # Why this catch exists
+            //
+            // It was `if let newProfile = try? await ExtensionProfile.load()`, and the `try?` threw
+            // the reason away: a reader who had a VPN configuration that could not be read saw
+            // exactly what a reader with no configuration sees. `profileLoadFailure` was declared
+            // for this and nothing ever set it outside the screenshot fixture, so the page's
+            // "the configuration could not be read" line could not appear in the real product.
+            //
+            // The profile object that was already loaded is deliberately left in place: a failed
+            // re-read says nothing about the tunnel it describes, and dropping it would turn a
+            // transient preferences error into "no VPN installed".
             extensionProfileLoading = false
+            profileLoadFailure = String(localized: "The configuration could not be read.")
+            logger.error("could not load the tunnel profile: \(error.localizedDescription)")
         }
     }
 

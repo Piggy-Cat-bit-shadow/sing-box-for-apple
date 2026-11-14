@@ -351,23 +351,71 @@ public class ExtensionProfile: ObservableObject {
                 NSLocalizedDescriptionKey: "Tunnel session unavailable",
             ])
         }
-        let response = try await withCheckedThrowingContinuation { continuation in
-            do {
-                try session.sendProviderMessage(data) { response in
-                    continuation.resume(returning: response)
-                }
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
+        let response = await Self.requestProviderMessage(session, data, timeout: Self.applyReplyTimeout)
         switch ExtensionApplyReceiptParser.parse(response, expecting: snapshot.requestID, expectingSessionID: snapshot.expectedSessionID) {
         case let .receipt(receipt):
             return receipt
         case .noReceipt, .otherRequest, .otherSession, .unreadable:
-            // Not attributable to this request, so this call has no answer of its own. The caller
-            // reports it as unconfirmed; nothing is retried and nothing is rolled back.
+            // Not attributable to this request - which includes "nothing arrived" - so this call
+            // has no answer of its own. The caller reports it as unconfirmed; nothing is retried
+            // and nothing is rolled back.
             return nil
         }
+    }
+
+    /// How long an apply reply is waited for before the call gives up on hearing one.
+    ///
+    /// A liveness bound, not a verdict. An apply that a device is genuinely working through can
+    /// legitimately take several seconds - the extension's own tunnel-takeover check allows three,
+    /// before the kernel's work is counted - so this is deliberately generous. What it exists to stop
+    /// is the *infinite* case: `sendProviderMessage` has no timeout of its own, and a handler that is
+    /// never called left this call, and every flag raised behind it, suspended for as long as the
+    /// app lived. Hitting this bound means "no verifiable receipt arrived", which the caller already
+    /// has a state for (`unconfirmed`); it must not be read as "the apply failed", and it must not be
+    /// retried automatically.
+    nonisolated static let applyReplyTimeout: TimeInterval = 15
+
+    /// Sends one provider message and waits at most `timeout` for the reply.
+    ///
+    /// # Why this is not a task group
+    ///
+    /// The session query used to race a `withTaskGroup` continuation against `Task.sleep` and then
+    /// `group.cancelAll()`. Cancelling a group does **not** resume a continuation another child is
+    /// suspended in: the cancelled sleep returns, `group.next()` hands back the timeout's `nil`, and
+    /// the group still cannot finish until the abandoned child finishes - which it never does when
+    /// the extension does not answer. The "timeout" therefore returned early only in the case where
+    /// nothing was stuck. `sendProviderMessage` also calls its handler at most once and may call it
+    /// after this call has given up, so the reply has to be gated rather than merely awaited.
+    ///
+    /// `ProviderReplyGate` is that gate: whichever of the four paths completes first - a reply, a
+    /// late reply, a throwing send, the deadline - wins, and the others become no-ops. The deadline
+    /// task is cancelled when the reply wins, so it does not linger.
+    ///
+    /// Returns nil for "no reply this call can use", never throws: a transport failure and a missing
+    /// answer are the same fact to the callers that use this, and both mean "unconfirmed".
+    private nonisolated static func requestProviderMessage(
+        _ session: NETunnelProviderSession,
+        _ data: Data,
+        timeout: TimeInterval
+    ) async -> Data? {
+        let gate = ProviderReplyGate()
+        let deadline = Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: UInt64(max(timeout, 0) * 1_000_000_000))
+            gate.complete(nil)
+        }
+        let response = await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+            gate.wait(continuation)
+            do {
+                try session.sendProviderMessage(data) { response in
+                    gate.complete(response)
+                }
+            } catch {
+                logger.debug("sendProviderMessage error: \(error.localizedDescription)")
+                gate.complete(nil)
+            }
+        }
+        deadline.cancel()
+        return response
     }
 
     /// Asks the extension which tunnel session is running, or nil when it cannot say.
@@ -388,26 +436,8 @@ public class ExtensionProfile: ObservableObject {
         else {
             return nil
         }
-        return await withTaskGroup(of: String?.self) { group in
-            group.addTask {
-                await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-                    do {
-                        try session.sendProviderMessage(request) { response in
-                            continuation.resume(returning: TunnelSessionIdentityMessage.Response.decode(response))
-                        }
-                    } catch {
-                        continuation.resume(returning: nil)
-                    }
-                }
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(max(timeout, 0) * 1_000_000_000))
-                return nil
-            }
-            let answer = await group.next() ?? nil
-            group.cancelAll()
-            return answer
-        }
+        let response = await Self.requestProviderMessage(session, request, timeout: timeout)
+        return TunnelSessionIdentityMessage.Response.decode(response)
     }
 
     /// The start options for the currently selected profile.
@@ -486,6 +516,33 @@ public class ExtensionProfile: ObservableObject {
         }
     }
 
+    /// Asks the system to stop the tunnel. Returns once the request has been *submitted*.
+    ///
+    /// # Why the order of the three steps is the fix
+    ///
+    /// This used to clear On-Demand, then `await` a standalone command-client `serviceClose()`, and
+    /// only then call `stopVPNTunnel()`. Two separate failures could therefore leave the user with
+    /// no way out of a running tunnel:
+    ///
+    ///   * `saveToPreferences()` threw, and the function returned **before the stop was sent**. A
+    ///     preference write failing is exactly the kind of thing that happens when the Network
+    ///     Extension preferences are already in a bad state - the state the user is trying to leave.
+    ///   * `serviceClose()` is a synchronous Go RPC that the extension answers from
+    ///     `ExtensionPlatformInterface.serviceStop()` -> `ExtensionProvider.stopService()`, which
+    ///     takes the provider's `serviceLifecycleLock`. A reload holds that same lock across
+    ///     `commandServer.applyServiceChangeReport()` - an unbounded call that opens the TUN and
+    ///     waits for the platform's network settings. When the apply was slow or wedged, this call
+    ///     waited with it, and the system stop request behind it was never sent. That is the
+    ///     "the VPN is stuck and only another VPN can take the slot back" report.
+    ///
+    /// So the system stop request goes out **first and unconditionally**: it needs nothing from the
+    /// core, and nothing before it may throw. Disabling On-Demand still has to happen before the
+    /// request, because the system re-establishes a tunnel that On-Demand still wants up - but a
+    /// failure to persist it is *reported* rather than *returned early on*.
+    ///
+    /// `stopVPNTunnel()` only submits the request. This function deliberately does not claim the
+    /// tunnel is down; callers observe `status`, and the caller that shows progress must be able to
+    /// distinguish "requested" from "disconnected".
     public func stop() async throws {
         if isMock {
             status = .disconnecting
@@ -495,6 +552,10 @@ public class ExtensionProfile: ObservableObject {
             return
         }
         guard let manager else { return }
+
+        // Before the stop request, because On-Demand would otherwise start it again. Not allowed to
+        // prevent the request.
+        var onDemandFailure: Error?
         if manager.isOnDemandEnabled {
             if let proto = manager.protocolConfiguration as? NETunnelProviderProtocol {
                 var config = proto.providerConfiguration ?? [:]
@@ -502,16 +563,70 @@ public class ExtensionProfile: ObservableObject {
                 proto.providerConfiguration = config
             }
             manager.isOnDemandEnabled = false
-            try await manager.saveToPreferences()
+            do {
+                try await manager.saveToPreferences()
+            } catch {
+                onDemandFailure = error
+                logger.warning("stop: could not persist On-Demand off: \(error.localizedDescription)")
+            }
         }
-        do {
-            try await Task.detached(priority: .userInitiated) {
-                try LibboxNewStandaloneCommandClient()!.serviceClose()
-            }.value
-        } catch {
-            logger.debug("serviceClose error: \(error.localizedDescription)")
-        }
+
+        // The user's exit. Nothing above may prevent it and nothing below may delay it.
         manager.connection.stopVPNTunnel()
+
+        // Best effort, and after the request: ask the core to close its service so the provider
+        // shuts down promptly instead of waiting for its own `stopTunnel()`. Not awaited - the call
+        // is a synchronous FFI that cannot be cancelled, so awaiting it is what used to gate the
+        // stop. `requestServiceClose()` de-duplicates, so a second stop cannot pile a second blocked
+        // RPC on top of the first.
+        requestServiceClose()
+
+        if let onDemandFailure {
+            throw NSError(domain: "ExtensionProfile", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: String(
+                    localized: "The VPN was asked to disconnect, but On-Demand could not be switched off, so the system may reconnect it."
+                ) + " " + onDemandFailure.localizedDescription,
+            ])
+        }
+    }
+
+    /// One in-flight best-effort `serviceClose()`, or nil.
+    ///
+    /// A slot rather than a `Task.detached` per press: the call is a synchronous Go RPC into the
+    /// extension and cannot be cancelled, so an unbounded number of them is an unbounded number of
+    /// threads waiting on the provider's lifecycle lock. A call that never returns deliberately keeps
+    /// the slot occupied - the retry would hang the same way, and the system stop request that
+    /// actually ends the tunnel has already been sent.
+    private var serviceCloseTask: Task<Void, Never>?
+
+    private func requestServiceClose() {
+        guard serviceCloseTask == nil else {
+            return
+        }
+        let task = Task.detached(priority: .userInitiated) {
+            do {
+                // The force-unwrap this replaces is removed on purpose: `stop()` runs on the path a
+                // user takes to get *out* of a broken tunnel, and a nil command client there was a
+                // trap that killed the app before `stopVPNTunnel()` could be reached.
+                guard let client = LibboxNewStandaloneCommandClient() else {
+                    logger.debug("serviceClose: no standalone command client")
+                    return
+                }
+                try client.serviceClose()
+            } catch {
+                logger.debug("serviceClose error: \(error.localizedDescription)")
+            }
+        }
+        serviceCloseTask = task
+        // Release the slot once the call returns, so a later stop can try again. The comparison
+        // keeps a slow completion from clearing a slot a newer request has since taken.
+        Task { @MainActor [weak self] in
+            _ = await task.value
+            guard let self, self.serviceCloseTask == task else {
+                return
+            }
+            self.serviceCloseTask = nil
+        }
     }
 
     public func restart() async throws {
@@ -552,5 +667,51 @@ public class ExtensionProfile: ObservableObject {
         manager.protocolConfiguration = tunnelProtocol
         manager.isEnabled = true
         try await manager.saveToPreferences()
+    }
+}
+
+/// Lets one async reply be completed exactly once, from any of several racing sources.
+///
+/// `sendProviderMessage` invokes its handler at most once, on an arbitrary queue, and may never
+/// invoke it at all. Awaiting it through a bare `withCheckedContinuation` therefore has two failure
+/// modes that are not the caller's to handle: a reply that never arrives suspends the caller
+/// forever, and a reply that arrives *after* a timeout has already resumed it is a second resume -
+/// which is a `CheckedContinuation` misuse trap, not an error.
+///
+/// So the continuation is stored rather than captured, and both entry points are funnelled through
+/// one lock: `wait` installs it (or answers immediately if the outcome is already known), `complete`
+/// resolves it (or records the outcome for a `wait` that has not happened yet). Whichever path runs
+/// first wins; the rest are no-ops. `@unchecked Sendable` because the lock is the whole point -
+/// every stored field is read and written only under it.
+private final class ProviderReplyGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Data?, Never>?
+    private var isCompleted = false
+    private var completion: Data?
+
+    func wait(_ continuation: CheckedContinuation<Data?, Never>) {
+        lock.lock()
+        if isCompleted {
+            let value = completion
+            lock.unlock()
+            continuation.resume(returning: value)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func complete(_ value: Data?) {
+        lock.lock()
+        guard !isCompleted else {
+            lock.unlock()
+            return
+        }
+        isCompleted = true
+        completion = value
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: value)
     }
 }

@@ -3,6 +3,8 @@ import Libbox
 import Library
 import SwiftUI
 
+private let logger = Logger(category: "NewProfileViewModel")
+
 @MainActor
 public final class NewProfileViewModel: BaseViewModel {
     @Published public var isSaving = false
@@ -68,13 +70,14 @@ public final class NewProfileViewModel: BaseViewModel {
             return
         }
 
-        let createdProfile: Profile
+        let created: (profile: Profile, schedulingError: Error?)
         do {
-            createdProfile = try await createProfileBackground()
+            created = try await createProfileBackground()
         } catch {
             alert = AlertState(action: "create profile", error: error)
             return
         }
+        let createdProfile = created.profile
 
         if let onSuccess {
             await onSuccess(createdProfile)
@@ -83,6 +86,16 @@ public final class NewProfileViewModel: BaseViewModel {
             environments.profileUpdate.send()
         }
         createSucceeded = true
+        // The configuration exists as of here, so the page closes and reports success exactly as it
+        // does for any other creation. A failure to *register* the background refresh is a separate,
+        // non-fatal fact: it is logged with the profile it concerns and never re-labelled "create
+        // profile failed" - a reader who saw that would press Create again and get a duplicate of a
+        // configuration that was already written.
+        if let schedulingError = created.schedulingError {
+            logger.warning(
+                "profile \(createdProfile.id) created, but the background update could not be scheduled: \(schedulingError.localizedDescription)"
+            )
+        }
         dismiss?()
 
         #if os(macOS)
@@ -90,7 +103,16 @@ public final class NewProfileViewModel: BaseViewModel {
         #endif
     }
 
-    private nonisolated func createProfileBackground() async throws -> Profile {
+    /// Creates the configuration and returns it, together with any failure to schedule its
+    /// background refresh.
+    ///
+    /// The scheduling error is returned rather than thrown. It used to be thrown from here, which
+    /// put it inside `createProfile`'s `catch` - so a profile that `ProfileManager.create` had
+    /// already written was reported to the reader as "Failed to create profile", and pressing the
+    /// button again created a second copy of it. The creation is the part that must not be
+    /// re-characterised; the registration is reported to the log by the caller and does not stop the
+    /// page from closing.
+    private nonisolated func createProfileBackground() async throws -> (profile: Profile, schedulingError: Error?) {
         let nextProfileID = try await ProfileManager.nextID()
 
         var savePath = ""
@@ -206,15 +228,24 @@ public final class NewProfileViewModel: BaseViewModel {
         )
         try await ProfileManager.create(profile)
 
+        var schedulingError: Error?
         if profileType == .remote {
             #if os(iOS) || os(tvOS)
-                try UIProfileUpdateTask.configure()
+                do {
+                    try UIProfileUpdateTask.configure()
+                } catch {
+                    schedulingError = error
+                }
             #else
-                try await ProfileUpdateTask.configure()
+                do {
+                    try await ProfileUpdateTask.configure()
+                } catch {
+                    schedulingError = error
+                }
             #endif
         }
 
         // Return the profile object which now has its ID set by GRDB
-        return profile
+        return (profile, schedulingError)
     }
 }

@@ -380,31 +380,35 @@ struct HakoProfilePickerSheet: View {
     #endif
 
         private func legacyMoveProfile(from source: IndexSet, to destination: Int) {
+            let previous = profileList
             profileList.move(fromOffsets: source, toOffset: destination)
             for (index, profile) in profileList.enumerated() {
                 profileList[index].order = UInt32(index)
                 profile.origin.order = UInt32(index)
             }
+            let expected = profileList
             Task {
                 do {
                     try await ProfileManager.update(profileList.map(\.origin))
                     environments.profileUpdate.send()
                 } catch {
-                    // Handle error silently
+                    rejectOptimisticChange(previous: previous, expected: expected, action: "save the configuration order", error: error)
                 }
             }
         }
 
         private func legacyDeleteProfile(at offsets: IndexSet) {
+            let previous = profileList
             let profilesToDelete = offsets.map { profileList[$0].origin }
             profileList.remove(atOffsets: offsets)
+            let expected = profileList
             Task {
                 do {
                     _ = try await ProfileManager.delete(profilesToDelete)
                     environments.emptyProfiles = profileList.isEmpty
                     environments.profileUpdate.send()
                 } catch {
-                    // Handle error silently
+                    rejectOptimisticChange(previous: previous, expected: expected, action: "delete the configuration", error: error)
                 }
             }
         }
@@ -487,33 +491,64 @@ struct HakoProfilePickerSheet: View {
     }
 
     private func moveProfile(from source: IndexSet, to destination: Int) {
+        let previous = profileList
         profileList.move(fromOffsets: source, toOffset: destination)
         for (index, profile) in profileList.enumerated() {
             profileList[index].order = UInt32(index)
             profile.origin.order = UInt32(index)
         }
+        let expected = profileList
         Task {
             do {
                 try await ProfileManager.update(profileList.map(\.origin))
                 environments.profileUpdate.send()
             } catch {
-                // Handle error silently
+                rejectOptimisticChange(previous: previous, expected: expected, action: "save the configuration order", error: error)
             }
         }
     }
 
     private func deleteProfile(at offsets: IndexSet) {
+        let previous = profileList
         let profilesToDelete = offsets.map { profileList[$0].origin }
         profileList.remove(atOffsets: offsets)
+        let expected = profileList
         Task {
             do {
                 _ = try await ProfileManager.delete(profilesToDelete)
                 environments.emptyProfiles = profileList.isEmpty
                 environments.profileUpdate.send()
             } catch {
-                // Handle error silently
+                rejectOptimisticChange(previous: previous, expected: expected, action: "delete the configuration", error: error)
             }
         }
+    }
+
+    /// Gives back a list change that the store refused.
+    ///
+    /// # Why a rollback and not just an alert
+    ///
+    /// Both mutations above are optimistic: the row moves or disappears immediately and the write
+    /// happens afterwards. Their failure path was `// Handle error silently`, so a database error
+    /// left the sheet showing an order - or a deletion - that the store never accepted. The reader
+    /// was told nothing, and the next read of the list silently restored the old state, which reads
+    /// as the app undoing their edit for no reason.
+    ///
+    /// The restore is guarded by ownership: it happens only while the list is still exactly what
+    /// *this* change produced. A reader who has already moved a second row must not have the first
+    /// change's failure undo the second one.
+    private func rejectOptimisticChange(
+        previous: [ProfilePreview],
+        expected: [ProfilePreview],
+        action: String,
+        error: Error
+    ) {
+        let unchangedSince = profileList.count == expected.count
+            && zip(profileList, expected).allSatisfy { $0.id == $1.id }
+        if unchangedSince {
+            profileList = previous
+        }
+        alert = AlertState(action: action, error: error)
     }
 
 }

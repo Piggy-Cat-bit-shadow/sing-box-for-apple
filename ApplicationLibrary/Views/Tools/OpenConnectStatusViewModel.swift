@@ -116,10 +116,13 @@ public final class OpenConnectStatusViewModel: BaseViewModel {
     private static let minAPIVersionOpenConnect: Int32 = 3
 
     private var statusSubscription: LibboxOpenConnectStatusSubscription?
+    /// Who owns the subscription while the core is still answering with its handle.
+    private var ownership = SubscriptionOwnership()
 
     public func subscribe() {
         guard !isSubscribed else { return }
         isSubscribed = true
+        let token = ownership.begin()
 
         let handler = StatusHandler(self)
         Task { [weak self] in
@@ -131,7 +134,15 @@ public final class OpenConnectStatusViewModel: BaseViewModel {
                     guard apiVersion >= Self.minAPIVersionOpenConnect else { return nil }
                     return try client.subscribeOpenConnectStatus(handler)
                 }.value
-                guard let self else { return }
+                guard let self else {
+                    try? subscription?.close()
+                    return
+                }
+                guard self.ownership.isCurrent(token) else {
+                    // Cancelled while the handle was being created. See `SubscriptionOwnership`.
+                    try? subscription?.close()
+                    return
+                }
                 guard let subscription else {
                     self.isSubscribed = false
                     self.endpoints = []
@@ -139,14 +150,17 @@ public final class OpenConnectStatusViewModel: BaseViewModel {
                 }
                 self.statusSubscription = subscription
             } catch {
-                guard let self else { return }
+                guard let self, self.ownership.isCurrent(token) else { return }
                 self.isSubscribed = false
                 self.endpoints = []
+                StatusSubscriptionFailure.classify(error.localizedDescription)
+                    .log("openconnect", message: error.localizedDescription)
             }
         }
     }
 
     public func cancel() {
+        ownership.invalidate()
         try? statusSubscription?.close()
         statusSubscription = nil
         isSubscribed = false
@@ -254,7 +268,13 @@ public final class OpenConnectStatusViewModel: BaseViewModel {
                 viewModel.isSubscribed = false
                 viewModel.statusSubscription = nil
                 viewModel.endpoints = []
-                if let message {
+                guard let message else { return }
+                // Classified for the same reason as the Tailscale stream: "the service is not
+                // started" arrives as a raw gRPC `invalid argument`, which is a lifecycle condition
+                // rather than an OpenConnect fault. It is logged either way.
+                let failure = StatusSubscriptionFailure.classify(message)
+                failure.log("openconnect", message: message)
+                if failure.deservesAlert {
                     viewModel.alert = AlertState(errorMessage: message)
                 }
             }

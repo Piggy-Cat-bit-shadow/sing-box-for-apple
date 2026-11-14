@@ -77,10 +77,13 @@ public final class TailscaleStatusViewModel: BaseViewModel {
     public weak var peerStore: TailscaleSSHPeerStore?
     public weak var environments: ExtensionEnvironments?
     private var statusSubscription: LibboxTailscaleStatusSubscription?
+    /// Who owns the subscription while the core is still answering with its handle.
+    private var ownership = SubscriptionOwnership()
 
     public func subscribe() {
         guard !isSubscribed else { return }
         isSubscribed = true
+        let token = ownership.begin()
 
         let handler = StatusHandler(self)
         Task { [weak self] in
@@ -88,16 +91,34 @@ public final class TailscaleStatusViewModel: BaseViewModel {
                 let subscription = try await Task.detached {
                     try CommandTarget.standaloneClient().subscribeTailscaleStatus(handler)
                 }.value
-                self?.statusSubscription = subscription
+                guard let self else {
+                    // The page is gone; the handle was created for nobody.
+                    try? subscription.close()
+                    return
+                }
+                guard self.ownership.isCurrent(token) else {
+                    // `cancel()` ran while the core was producing this handle. Adopting it now would
+                    // leave a live stream nothing can close, which is how every visit to the tools
+                    // page used to leave one behind.
+                    try? subscription.close()
+                    return
+                }
+                self.statusSubscription = subscription
             } catch {
-                guard let self else { return }
+                guard let self, self.ownership.isCurrent(token) else { return }
                 self.isSubscribed = false
                 self.endpoints = []
+                // Same classification as the stream's own error path: a core that is not running
+                // yet, or one that has no such subscription, is not a Tailscale fault and must not
+                // become a modal.
+                let failure = StatusSubscriptionFailure.classify(error.localizedDescription)
+                failure.log("tailscale", message: error.localizedDescription)
             }
         }
     }
 
     public func cancel() {
+        ownership.invalidate()
         try? statusSubscription?.close()
         statusSubscription = nil
         isSubscribed = false
@@ -185,7 +206,18 @@ public final class TailscaleStatusViewModel: BaseViewModel {
                 viewModel.peerStore?.sshPeers = []
                 viewModel.peerStore?.quickConnectPeerIDs = []
                 viewModel.setUnreadCount(0)
-                if let message {
+                guard let message else { return }
+                // # Why this is classified rather than shown
+                //
+                // The kernel reports "the service is not started" as `os.ErrInvalid`, which reaches
+                // this callback as `tailscale status recv: rpc error: code = Unknown desc = invalid
+                // argument`. That is a transient lifecycle condition - it arrives when the page
+                // subscribes during a start, a stop or a reload - and a modal quoting it told the
+                // reader their Tailscale setup was broken with no action to take. It stays in the
+                // log, and a genuine fault still raises the alert.
+                let failure = StatusSubscriptionFailure.classify(message)
+                failure.log("tailscale", message: message)
+                if failure.deservesAlert {
                     viewModel.alert = AlertState(errorMessage: message)
                 }
             }

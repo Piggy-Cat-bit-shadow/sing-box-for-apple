@@ -199,15 +199,15 @@ public struct HakoHomeView: View {
             // back out of the client settings page. It sits with the other cards that describe the
             // current working mode, after the header and before the shortcuts.
             if systemProxyAvailable {
-                httpProxyCard
+                httpProxyCard.disabled(pageIsBusy)
             }
             if showsConnectedCards, enabledCards.contains(.clashMode) {
-                modeSection
+                modeSection.disabled(pageIsBusy)
             }
-            shortcutsSection
+            shortcutsSection.disabled(pageIsBusy)
             if showsConnectedCards {
-                trafficSection
-                runtimeSection
+                trafficSection.disabled(pageIsBusy)
+                runtimeSection.disabled(pageIsBusy)
             }
         }
         .onAppear {
@@ -257,14 +257,17 @@ public struct HakoHomeView: View {
         }
         // One presentation, two sources. See `pageAlert`.
         .alert(pageAlert)
-        // The same gate the card grid applies: no control on the page may act while the tunnel is
-        // moving. Only while it is *moving*: `isSwitchable` is connected-or-disconnected, so testing
-        // it disabled the whole page for a client that has no tunnel at all - which greyed out the
-        // install action in the notice above and left the page's action inert. A page whose only job
-        // is to offer the next step must not be disabled before the first step is taken.
-        // `coordinator.reasserting` is the frozen design's second term: turning the system proxy
-        // off restarts the service, and the page must not act while that is in flight.
-        .disabled(profile.status == .connecting || profile.status == .disconnecting || coordinator.reasserting)
+        // The page's action must never be greyed out by the page's own state.
+        //
+        // This used to be one `.disabled` over the whole scaffold, including the header that holds
+        // the connect/stop control. A tunnel stuck in `.connecting` or `.disconnecting` - or a
+        // system-proxy restart whose `reasserting` never came down - therefore disabled the very
+        // control that would get the user out, and the page became a spinner with no live button.
+        // The gate is now applied to the sections that can actually race the transition, and the
+        // header keeps its action. See `pageIsBusy` and `HakoStartStopButton`.
+        //
+        // `.alert(pageAlert)` below stays outside any gate: an error raised by the action that just
+        // failed has to be readable in the state that produced it.
         // Outside the Form and outside the Section: a presentation attached to a `Section` is
         // dropped, because a Section is the Form's layout container rather than a view in the
         // hierarchy. The configuration centre is presented from the page.
@@ -319,6 +322,15 @@ public struct HakoHomeView: View {
                 alert = nil
             }
         )
+    }
+
+    /// Whether the page's *inert* content should be held still.
+    ///
+    /// True while the tunnel is moving, and while the system-proxy action is restarting the
+    /// service. It deliberately does **not** cover the header's primary action: the whole point of
+    /// this gate is that everything except the way out waits, and that one control must not.
+    private var pageIsBusy: Bool {
+        profile.status == .connecting || profile.status == .disconnecting || coordinator.reasserting
     }
 
     // MARK: - Profile selection
@@ -392,7 +404,10 @@ public struct HakoHomeView: View {
     private var homeHeader: some View {
         VStack(alignment: .leading, spacing: HakoTheme.Spacing.compact) {
             HStack(alignment: .center, spacing: HakoTheme.Spacing.row) {
-                profileButton
+                // Opening the configuration centre while the tunnel is moving is the race the gate
+                // is for: it leads to a profile switch behind a reload that has not finished. The
+                // action beside it is exempt - see `pageIsBusy`.
+                profileButton.disabled(pageIsBusy)
                 Spacer(minLength: HakoTheme.Spacing.compact)
                 primaryAction
             }
@@ -636,6 +651,17 @@ public struct HakoHomeView: View {
             surfaceStyle: .hako
         ) { enabled in
             await coordinator.setSystemProxyEnabled(enabled, profile: profile)
+            // # Why the switch is re-read rather than trusted
+            //
+            // The toggle moves optimistically, and the preference is the only durable record of what
+            // the tunnel was actually asked to install - `setSystemProxyEnabled` puts it back when the
+            // apply fails. Reading it here is what stops the row from displaying a state the system
+            // never entered: without this, a refused change left the switch on the refused value and
+            // the page insisted on it until it was rebuilt.
+            let applied = await SharedPreferences.systemProxyEnabled.get()
+            await MainActor.run {
+                systemProxyEnabledLocal = applied
+            }
         }
     }
 
@@ -945,7 +971,18 @@ public struct HakoHomeView: View {
         }
         Task {
             do {
-                try CommandTarget.standaloneClient().setClashMode(requested)
+                // # Why the call is detached
+                //
+                // `CommandTarget.standaloneClient().setClashMode(...)` is a synchronous gRPC call.
+                // A `Task {}` started from a `@MainActor` view inherits the main actor, so this used
+                // to run the call - and wait for an unresponsive command socket - on the main thread,
+                // with the page unable to redraw or accept a touch until it returned. Nothing here
+                // needs UI state, so the call goes out on its own executor and only the outcome comes
+                // back to the actor. It is the same shape the tools pages already use for their own
+                // command-client calls.
+                try await Task.detached(priority: .userInitiated) {
+                    try CommandTarget.standaloneClient().setClashMode(requested)
+                }.value
             } catch {
                 alert = AlertState(action: "set clash mode", error: error)
                 withAnimation {

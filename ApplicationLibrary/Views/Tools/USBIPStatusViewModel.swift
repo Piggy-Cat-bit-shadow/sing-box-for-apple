@@ -57,10 +57,13 @@ public final class USBIPStatusViewModel: BaseViewModel {
     private static let minAPIVersionUSBIP: Int32 = 2
 
     private var statusSubscription: LibboxUSBIPServerStatusSubscription?
+    /// Who owns the subscription while the core is still answering with its handle.
+    private var ownership = SubscriptionOwnership()
 
     public func subscribe() {
         guard !isSubscribed else { return }
         isSubscribed = true
+        let token = ownership.begin()
 
         let handler = StatusHandler(self)
         Task { [weak self] in
@@ -72,7 +75,15 @@ public final class USBIPStatusViewModel: BaseViewModel {
                     guard apiVersion >= Self.minAPIVersionUSBIP else { return nil }
                     return try client.subscribeUSBIPServerStatus(handler)
                 }.value
-                guard let self else { return }
+                guard let self else {
+                    try? subscription?.close()
+                    return
+                }
+                guard self.ownership.isCurrent(token) else {
+                    // Cancelled while the handle was being created. See `SubscriptionOwnership`.
+                    try? subscription?.close()
+                    return
+                }
                 guard let subscription else {
                     self.isSubscribed = false
                     self.servers = []
@@ -80,14 +91,17 @@ public final class USBIPStatusViewModel: BaseViewModel {
                 }
                 self.statusSubscription = subscription
             } catch {
-                guard let self else { return }
+                guard let self, self.ownership.isCurrent(token) else { return }
                 self.isSubscribed = false
                 self.servers = []
+                StatusSubscriptionFailure.classify(error.localizedDescription)
+                    .log("usbip", message: error.localizedDescription)
             }
         }
     }
 
     public func cancel() {
+        ownership.invalidate()
         try? statusSubscription?.close()
         statusSubscription = nil
         isSubscribed = false

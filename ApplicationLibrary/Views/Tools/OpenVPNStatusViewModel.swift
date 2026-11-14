@@ -47,10 +47,13 @@ public final class OpenVPNStatusViewModel: BaseViewModel {
     private static let minAPIVersionOpenVPN: Int32 = 3
 
     private var statusSubscription: LibboxOpenVPNStatusSubscription?
+    /// Who owns the subscription while the core is still answering with its handle.
+    private var ownership = SubscriptionOwnership()
 
     public func subscribe() {
         guard !isSubscribed else { return }
         isSubscribed = true
+        let token = ownership.begin()
 
         let handler = StatusHandler(self)
         Task { [weak self] in
@@ -62,7 +65,15 @@ public final class OpenVPNStatusViewModel: BaseViewModel {
                     guard apiVersion >= Self.minAPIVersionOpenVPN else { return nil }
                     return try client.subscribeOpenVPNStatus(handler)
                 }.value
-                guard let self else { return }
+                guard let self else {
+                    try? subscription?.close()
+                    return
+                }
+                guard self.ownership.isCurrent(token) else {
+                    // Cancelled while the handle was being created. See `SubscriptionOwnership`.
+                    try? subscription?.close()
+                    return
+                }
                 guard let subscription else {
                     self.isSubscribed = false
                     self.endpoints = []
@@ -70,14 +81,17 @@ public final class OpenVPNStatusViewModel: BaseViewModel {
                 }
                 self.statusSubscription = subscription
             } catch {
-                guard let self else { return }
+                guard let self, self.ownership.isCurrent(token) else { return }
                 self.isSubscribed = false
                 self.endpoints = []
+                StatusSubscriptionFailure.classify(error.localizedDescription)
+                    .log("openvpn", message: error.localizedDescription)
             }
         }
     }
 
     public func cancel() {
+        ownership.invalidate()
         try? statusSubscription?.close()
         statusSubscription = nil
         isSubscribed = false
@@ -131,7 +145,13 @@ public final class OpenVPNStatusViewModel: BaseViewModel {
                 viewModel.isSubscribed = false
                 viewModel.statusSubscription = nil
                 viewModel.endpoints = []
-                if let message {
+                guard let message else { return }
+                // The same classification the Tailscale stream uses, and for the same reason: the
+                // "service not started" condition is reported as a raw gRPC `invalid argument`, and a
+                // modal for it says the feature is broken when the service is merely between states.
+                let failure = StatusSubscriptionFailure.classify(message)
+                failure.log("openvpn", message: message)
+                if failure.deservesAlert {
                     viewModel.alert = AlertState(errorMessage: message)
                 }
             }

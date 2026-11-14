@@ -367,12 +367,52 @@ public struct HakoCoreView: View {
     }
 
     private func stopServiceAndDestroy() async {
-        do {
-            try await environments.extensionProfile!.stop()
+        guard let profile = environments.extensionProfile else {
+            // The model no longer knows of a tunnel, so there is nothing left to stop and the
+            // directory can be cleared. This was `environments.extensionProfile!`: the confirmation
+            // alert and this call are separated by an await, so a status change in between trapped
+            // the app instead of erasing anything.
             await destroyWorkingDirectory()
+            return
+        }
+        do {
+            try await profile.stop()
         } catch {
             alert = AlertState(action: "stop service before destroying working directory", error: error)
+            return
         }
+        // `stop()` returns when the system has been *asked* to stop, not when the tunnel is down.
+        // The old code went straight on to delete the working directory, which pulls the core's data
+        // and its downloaded resources out from under a tunnel that is still closing. Waiting for the
+        // status the system publishes is the only confirmation available here, and refusing is the
+        // right answer when it does not arrive.
+        guard await waitUntilDisconnected(profile) else {
+            alert = AlertState(
+                title: String(localized: "Service is Running"),
+                message: String(localized: "The service did not confirm that it stopped, so the working directory was not erased. Stop it from the home page and try again."),
+                dismissButton: .default(String(localized: "Ok"))
+            )
+            return
+        }
+        await destroyWorkingDirectory()
+    }
+
+    /// Waits for the system to publish that the tunnel is down.
+    ///
+    /// Bounded at 15 s: the system normally reports `.disconnected` within a second or two, and this
+    /// is a confirmation for a destructive action rather than a place to wait indefinitely. A timeout
+    /// is reported to the reader as "not erased", never as "done".
+    private func waitUntilDisconnected(_ profile: ExtensionProfile) async -> Bool {
+        if profile.status == .disconnected {
+            return true
+        }
+        for _ in 0 ..< 60 {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if profile.status == .disconnected {
+                return true
+            }
+        }
+        return false
     }
 
     private func destroyWorkingDirectory() async {
